@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"time"
 )
 
 type Logger struct {
@@ -12,6 +11,7 @@ type Logger struct {
 	debugLogger *log.Logger
 	warnLogger  *log.Logger
 	errorLogger *log.Logger
+	testLogger  *log.Logger
 }
 
 // Init 初始化日志系统，为每个节点创建日志文件
@@ -22,11 +22,9 @@ func NewLogger(nodeID int64, role string) *Logger {
 
 	// 生成日志文件名
 	if role == "node" {
-		timestamp := time.Now().Format("2006-01-02_15-04-05")
-		logFile = fmt.Sprintf("logs/node_%d_%s.log", nodeID, timestamp)
+		logFile = fmt.Sprintf("logs/node_%d.log", nodeID)
 	} else if role == "client" {
-		timestamp := time.Now().Format("2006-01-02_15-04-05")
-		logFile = fmt.Sprintf("logs/client_%s.log", timestamp)
+		logFile = fmt.Sprintf("logs/client.log")
 	} else {
 		logFile = "logs/others.log"
 	}
@@ -42,6 +40,7 @@ func NewLogger(nodeID int64, role string) *Logger {
 		debugLogger: log.New(file, "[DEBUG] ", log.LstdFlags),
 		warnLogger:  log.New(file, "[WARN] ", log.LstdFlags),
 		errorLogger: log.New(file, "[ERROR] ", log.LstdFlags),
+		testLogger:  log.New(file, "[TEST] ", log.LstdFlags),
 	}
 	return l
 }
@@ -71,5 +70,12 @@ func (l *Logger) Warn(format string, args ...interface{}) {
 func (l *Logger) Error(format string, args ...interface{}) {
 	if l.errorLogger != nil {
 		l.errorLogger.Printf(format, args...)
+	}
+}
+
+// Test 记录测试日志
+func (l *Logger) Test(format string, args ...interface{}) {
+	if l.testLogger != nil {
+		l.testLogger.Printf(format, args...)
 	}
 }

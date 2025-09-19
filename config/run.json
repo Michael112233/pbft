@@ -4,6 +4,8 @@
     "inject_speed": 1000,
     "max_block_size": 1000,
 
+    "experiment_mode": "local",
+
     "node_num": 4,
     "node_id": 0
 }
