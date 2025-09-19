@@ -1,12 +1,14 @@
 package core
 
+import "math/big"
+
 type Transaction struct {
 	Sender   string
 	Receiver string
-	Amount   int64
+	Amount   *big.Int
 }
 
-func NewTransaction(sender, receiver string, amount int64) *Transaction {
+func NewTransaction(sender, receiver string, amount *big.Int) *Transaction {
 	return &Transaction{
 		Sender:   sender,
 		Receiver: receiver,

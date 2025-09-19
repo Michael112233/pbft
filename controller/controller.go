@@ -3,6 +3,7 @@ package controller
 import (
 	"github.com/michael112233/pbft/client"
 	"github.com/michael112233/pbft/config"
+	"github.com/michael112233/pbft/data"
 )
 
 func runNode(cfg *config.Config) {
@@ -15,9 +16,12 @@ func runClient(cfg *config.Config) {
 	client := client.NewClient(config.ClientAddr, cfg)
 
 	// Get the transaction details
+	txs := data.ReadData()
+	client.AddTxs(txs)
 
 	// Start the client
-	client.Start()
+	// client.Start()
+	data.PrintTxs(txs, 50)
 }
 
 func Main(role, mode, cfgPath string) {
