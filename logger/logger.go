@@ -21,11 +21,14 @@ func NewLogger(nodeID int64, role string) *Logger {
 	logFile := ""
 
 	// 生成日志文件名
-	if role == "node" {
+	switch role {
+	case "node":
 		logFile = fmt.Sprintf("logs/node_%d.log", nodeID)
-	} else if role == "client" {
-		logFile = fmt.Sprintf("logs/client.log")
-	} else {
+	case "client":
+		logFile = "logs/client.log"
+	case "blockchain":
+		logFile = "logs/blockchain.log"
+	default:
 		logFile = "logs/others.log"
 	}
 

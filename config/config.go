@@ -14,6 +14,8 @@ type Config struct {
 
 	NodeNum int64 `json:"node_num"`
 	NodeID  int64 `json:"node_id"`
+
+	FaultyNodesNum int64
 }
 
 func ReadCfg(filename string) *Config {
@@ -31,5 +33,6 @@ func ReadCfg(filename string) *Config {
 		os.Exit(1)
 	}
 
+	config.FaultyNodesNum = (config.NodeNum - 1) / 3
 	return config
 }

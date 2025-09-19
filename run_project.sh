@@ -16,7 +16,7 @@ go build -o pbft_main main.go
 if [ $? -eq 0 ]; then
     echo "Build successful!"
     echo "Running PBFT project..."
-    ./pbft_main
+    ./pbft_main -r client -m local
 else
     echo "Build failed! Please check for code errors."
     exit 1

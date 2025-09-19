@@ -1,34 +1,42 @@
 package controller
 
 import (
+	"github.com/michael112233/pbft/client"
 	"github.com/michael112233/pbft/config"
 )
 
-func runNode(mode string) {
-
+func runNode(cfg *config.Config) {
+	// Node := node.NewNode(cfg)
+	// Node.Start()
 }
 
-func runClient(mode string) {
+func runClient(cfg *config.Config) {
+	// Init a client
+	client := client.NewClient(config.ClientAddr, cfg)
 
+	// Get the transaction details
+
+	// Start the client
+	client.Start()
 }
 
 func Main(role, mode, cfgPath string) {
-	config := config.ReadCfg(cfgPath)
+	cfg := config.ReadCfg(cfgPath)
 
 	// mode -> network structure
 	switch mode {
 	case "local":
-		config.GenerateLocalNetwork()
+		config.GenerateLocalNetwork(int(cfg.NodeNum))
 	case "remote":
-		config.GenerateRemoteNetwork()
+		config.GenerateRemoteNetwork(int(cfg.NodeNum))
 	}
 
 	// if mode == "local", then all nodes are running on the same machin
 	// role -> system role
 	switch role {
 	case "node":
-		runNode(mode)
+		runNode(cfg)
 	case "client":
-		runClient(mode)
+		runClient(cfg)
 	}
 }

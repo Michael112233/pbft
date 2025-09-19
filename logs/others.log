@@ -1,1 +1,1 @@
-[TEST] 2025/09/19 22:10:50 config: &{data/len3_data.csv 240000 1000 1000 4 0}
+[TEST] 2025/09/19 22:46:18 client init: &{localhost:1000 0x140000c8040 1000}

@@ -19,5 +19,5 @@ var mode = pflag.StringP("mode", "m", "local", "mode (local or remote)")
 
 func main() {
 	pflag.Parse()
-	controller.Main(role, mode, cfgPath)
+	controller.Main(*role, *mode, cfgPath)
 }
