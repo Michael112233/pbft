@@ -16,8 +16,6 @@ type Config struct {
 	NodeID  int64 `json:"node_id"`
 }
 
-var config *Config
-
 func ReadCfg(filename string) *Config {
 	jsonData, err := os.ReadFile(filename)
 	if err != nil {
@@ -26,7 +24,7 @@ func ReadCfg(filename string) *Config {
 	}
 
 	// 创建新的Config实例
-	config = &Config{}
+	config := &Config{}
 	err = json.Unmarshal(jsonData, config)
 	if err != nil {
 		fmt.Printf("error unmarshaling json: %v\n", err)

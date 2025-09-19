@@ -15,7 +15,7 @@ type Logger struct {
 }
 
 // Init 初始化日志系统，为每个节点创建日志文件
-func (l *Logger) NewLogger(nodeID int64, role string) *Logger {
+func NewLogger(nodeID int64, role string) *Logger {
 	// 创建logs目录
 	os.MkdirAll("logs", 0755)
 	logFile := ""
@@ -37,12 +37,12 @@ func (l *Logger) NewLogger(nodeID int64, role string) *Logger {
 		log.Fatal("Failed to open log file:", err)
 	}
 
-	// 创建不同级别的日志记录器
-	l.infoLogger = log.New(file, "[INFO] ", log.LstdFlags)
-	l.debugLogger = log.New(file, "[DEBUG] ", log.LstdFlags)
-	l.warnLogger = log.New(file, "[WARN] ", log.LstdFlags)
-	l.errorLogger = log.New(file, "[ERROR] ", log.LstdFlags)
-
+	l := &Logger{
+		infoLogger:  log.New(file, "[INFO] ", log.LstdFlags),
+		debugLogger: log.New(file, "[DEBUG] ", log.LstdFlags),
+		warnLogger:  log.New(file, "[WARN] ", log.LstdFlags),
+		errorLogger: log.New(file, "[ERROR] ", log.LstdFlags),
+	}
 	return l
 }
 

@@ -1,20 +1,23 @@
 package client
 
 import (
-	"pbft/config"
+	"github.com/michael112233/pbft/config"
 )
 
 type Client struct {
+	config *config.Config
+
 	injectSpeed int64
 }
 
-func NewClient() *Client {
-
-	return &Client{}
+func NewClient(config *config.Config) *Client {
+	return &Client{
+		config: config,
+	}
 }
 
 func (c *Client) Start() {
-	c.injectSpeed = config.InjectSpeed
+	c.injectSpeed = c.config.InjectSpeed
 
 	// c.StartInjectTransactions()
 }
