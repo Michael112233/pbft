@@ -20,3 +20,21 @@ type PreprepareMessage struct {
 	ViewNumber     int64
 	RequestMessage *RequestMessage
 }
+
+type PrepareMessage struct {
+	Timestamp      int64
+	From           string
+	To             string
+	SequenceNumber int64
+	ViewNumber     int64
+	RequestMessage *RequestMessage
+}
+
+type CommitMessage struct {
+	Timestamp      int64
+	From           string
+	To             string
+	SequenceNumber int64
+	ViewNumber     int64
+	RequestMessage *RequestMessage
+}

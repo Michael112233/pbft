@@ -87,7 +87,7 @@ func (hub *ClientMessageHub) packMsg(msgType string, data []byte) []byte {
 	msgEnc := gob.NewEncoder(&buf)
 	err := msgEnc.Encode(msg)
 	if err != nil {
-		hub.log.Error("gobEncodeErr", "err", err, "msg", msg)
+		hub.log.Error(fmt.Sprintf("gobEncodeErr: err=%v, msg=%v", err, msg))
 	}
 
 	msgBytes := buf.Bytes()
@@ -105,7 +105,7 @@ func (hub *ClientMessageHub) Send(msgType string, ip string, msg interface{}, ca
 	case core.MsgRequestMessage:
 		hub.sendRequestMessage(msg)
 	default:
-		hub.log.Error("Unknown message type received", "msgType", msgType)
+		hub.log.Error(fmt.Sprintf("Unknown message type received: msgType=%s", msgType))
 	}
 }
 
@@ -113,7 +113,7 @@ func (hub *ClientMessageHub) listen(addr string, wg *sync.WaitGroup) {
 	defer wg.Done()
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		hub.log.Error("Error setting up listener", "err", err)
+		hub.log.Error(fmt.Sprintf("Error setting up listener. err: %v", err))
 	}
 	hub.log.Info(fmt.Sprintf("start listening on %s", addr))
 	listenConn = ln
@@ -124,7 +124,7 @@ func (hub *ClientMessageHub) listen(addr string, wg *sync.WaitGroup) {
 		// ln.(*net.TCPListener).SetDeadline(time.Now().Add(10 * time.Second))
 		conn, err := ln.Accept()
 		if err != nil {
-			hub.log.Debug("Error accepting connection", "err", err)
+			hub.log.Debug("Error accepting connection. Err: " + err.Error())
 			return
 		}
 		go hub.handleConnection(conn, ln)
@@ -139,7 +139,7 @@ func (hub *ClientMessageHub) unpackMsg(packedMsg []byte) *core.Message {
 	var msg core.Message
 	err := msgDec.Decode(&msg)
 	if err != nil {
-		hub.log.Error("unpackMsgErr", "err", err, "msgBytes", packedMsg)
+		hub.log.Error("unpackMsgErr. Err: " + err.Error() + " msgBytes: " + string(packedMsg))
 	}
 
 	return &msg
@@ -155,20 +155,20 @@ func (hub *ClientMessageHub) handleConnection(conn net.Conn, ln net.Listener) {
 				// 发送端主动关闭连接
 				return
 			}
-			hub.log.Debug("Error reading from connection", "err", err)
+			hub.log.Test("Error reading from connection. Err: " + err.Error())
 			return
 		}
 		length := int(binary.BigEndian.Uint32(lenBuf))
 		packedMsg := make([]byte, length)
 		_, err = io.ReadFull(conn, packedMsg)
 		if err != nil {
-			hub.log.Error("Error reading from connection", "err", err)
+			hub.log.Error("Error reading from connection. Err: " + err.Error())
 		}
 
 		msg := hub.unpackMsg(packedMsg)
 		switch msg.MsgType {
 		default:
-			hub.log.Error("Unknown message type received", "msgType", msg.MsgType)
+			hub.log.Error(fmt.Sprintf("Unknown message type received: msgType=%s", msg.MsgType))
 		}
 	}
 }
@@ -186,7 +186,7 @@ func (hub *ClientMessageHub) sendRequestMessage(msg interface{}) {
 	enc := gob.NewEncoder(&buf)
 	err := enc.Encode(&data)
 	if err != nil {
-		hub.log.Error("gobEncodeErr", "err", err, "data", data)
+		hub.log.Error(fmt.Sprintf("gobEncodeErr: err=%v, data=%v", err, data))
 	}
 
 	msg_bytes := hub.packMsg("MsgRequestMessage", buf.Bytes())

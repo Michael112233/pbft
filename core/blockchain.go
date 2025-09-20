@@ -10,22 +10,23 @@ type Blockchain struct {
 	logger *logger.Logger
 }
 
-func NewBlockchain(sequenceNumber int64) *Blockchain {
-	block := NewBlock(sequenceNumber, true)
-	chain := make([]*Block, 0)
-	chain = append(chain, block)
+func NewBlockchain() *Blockchain {
 	log := logger.NewLogger(0, "blockchain")
-	log.Info("blockchain initialized with sequence number %d", sequenceNumber)
+	log.Info("blockchain initialized")
 	return &Blockchain{
-		Blocks:             chain,
-		InitSequenceNumber: sequenceNumber,
-		LastSequenceNumber: sequenceNumber,
+		Blocks:             make([]*Block, 0),
+		InitSequenceNumber: -1,
+		LastSequenceNumber: -1,
 		logger:             log,
 	}
 }
 
 func (b *Blockchain) AddBlock(block *Block) {
 	b.Blocks = append(b.Blocks, block)
+	if len(b.Blocks) == 1 {
+		b.InitSequenceNumber = block.SequenceNumber
+	}
+	b.LastSequenceNumber = block.SequenceNumber
 	b.logger.Info("add block %d", block.SequenceNumber)
 }
 

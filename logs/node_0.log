@@ -1,8 +1,211 @@
-[INFO] 2025/09/20 18:29:33 node started
-[INFO] 2025/09/20 18:29:33 start listening on localhost:18000
-[INFO] 2025/09/20 18:29:36 Received request message from localhost:10000 to localhost:18000 with 1000 transactions
-[INFO] 2025/09/20 18:29:37 Received request message from localhost:10000 to localhost:18000 with 1000 transactions
-[INFO] 2025/09/20 18:29:38 Received request message from localhost:10000 to localhost:18000 with 1000 transactions
-[INFO] 2025/09/20 18:29:39 Received request message from localhost:10000 to localhost:18000 with 1000 transactions
-[INFO] 2025/09/20 18:29:40 Received request message from localhost:10000 to localhost:18000 with 1000 transactions
-[INFO] 2025/09/20 18:29:43 node stopped
+[INFO] 2025/09/21 00:58:07 node started
+[INFO] 2025/09/21 00:58:07 start listening on localhost:28000
+[INFO] 2025/09/21 00:58:13 Received request message from localhost:20000 to localhost:28000 with 1000 transactions
+[INFO] 2025/09/21 00:58:13 Send preprepare message to localhost:28100
+[INFO] 2025/09/21 00:58:13 Send preprepare message to localhost:28200
+[INFO] 2025/09/21 00:58:13 Send preprepare message to localhost:28300
+[INFO] 2025/09/21 00:58:13 Received prepare message from localhost:28100, sequence number 3667
+[INFO] 2025/09/21 00:58:13 Prepare message count for sequence 3667 is now 1
+[INFO] 2025/09/21 00:58:13 After receiving from localhost:28100, current prepare messages number is 1
+[INFO] 2025/09/21 00:58:13 Received prepare message from localhost:28200, sequence number 3667
+[INFO] 2025/09/21 00:58:13 Prepare message count for sequence 3667 is now 2
+[INFO] 2025/09/21 00:58:13 After receiving from localhost:28200, current prepare messages number is 2
+[INFO] 2025/09/21 00:58:13 Received prepare message from localhost:28300, sequence number 3667
+[INFO] 2025/09/21 00:58:13 Prepare message count for sequence 3667 is now 3
+[INFO] 2025/09/21 00:58:13 After receiving from localhost:28300, current prepare messages number is 3
+[INFO] 2025/09/21 00:58:14 Received request message from localhost:20000 to localhost:28000 with 1000 transactions
+[INFO] 2025/09/21 00:58:14 Send preprepare message to localhost:28100
+[INFO] 2025/09/21 00:58:14 Send preprepare message to localhost:28200
+[INFO] 2025/09/21 00:58:14 Send preprepare message to localhost:28300
+[INFO] 2025/09/21 00:58:14 Received prepare message from localhost:28100, sequence number 3668
+[INFO] 2025/09/21 00:58:14 Prepare message count for sequence 3668 is now 1
+[INFO] 2025/09/21 00:58:14 After receiving from localhost:28100, current prepare messages number is 1
+[INFO] 2025/09/21 00:58:14 Received prepare message from localhost:28200, sequence number 3668
+[INFO] 2025/09/21 00:58:14 Prepare message count for sequence 3668 is now 2
+[INFO] 2025/09/21 00:58:14 After receiving from localhost:28200, current prepare messages number is 2
+[INFO] 2025/09/21 00:58:14 Received prepare message from localhost:28300, sequence number 3668
+[INFO] 2025/09/21 00:58:14 Prepare message count for sequence 3668 is now 3
+[INFO] 2025/09/21 00:58:14 After receiving from localhost:28300, current prepare messages number is 3
+[INFO] 2025/09/21 00:58:15 Received request message from localhost:20000 to localhost:28000 with 1000 transactions
+[INFO] 2025/09/21 00:58:15 Send preprepare message to localhost:28100
+[INFO] 2025/09/21 00:58:15 Send preprepare message to localhost:28200
+[INFO] 2025/09/21 00:58:15 Send preprepare message to localhost:28300
+[INFO] 2025/09/21 00:58:15 Received prepare message from localhost:28100, sequence number 3669
+[INFO] 2025/09/21 00:58:15 Prepare message count for sequence 3669 is now 1
+[INFO] 2025/09/21 00:58:15 After receiving from localhost:28100, current prepare messages number is 1
+[INFO] 2025/09/21 00:58:15 Received prepare message from localhost:28200, sequence number 3669
+[INFO] 2025/09/21 00:58:15 Prepare message count for sequence 3669 is now 2
+[INFO] 2025/09/21 00:58:15 After receiving from localhost:28200, current prepare messages number is 2
+[INFO] 2025/09/21 00:58:15 Received prepare message from localhost:28300, sequence number 3669
+[INFO] 2025/09/21 00:58:15 Prepare message count for sequence 3669 is now 3
+[INFO] 2025/09/21 00:58:15 After receiving from localhost:28300, current prepare messages number is 3
+[INFO] 2025/09/21 00:58:16 Received request message from localhost:20000 to localhost:28000 with 1000 transactions
+[INFO] 2025/09/21 00:58:16 Send preprepare message to localhost:28100
+[INFO] 2025/09/21 00:58:16 Send preprepare message to localhost:28200
+[INFO] 2025/09/21 00:58:16 Send preprepare message to localhost:28300
+[INFO] 2025/09/21 00:58:16 Received prepare message from localhost:28100, sequence number 3670
+[INFO] 2025/09/21 00:58:16 Prepare message count for sequence 3670 is now 1
+[INFO] 2025/09/21 00:58:16 After receiving from localhost:28100, current prepare messages number is 1
+[INFO] 2025/09/21 00:58:16 Received prepare message from localhost:28300, sequence number 3670
+[INFO] 2025/09/21 00:58:16 Prepare message count for sequence 3670 is now 2
+[INFO] 2025/09/21 00:58:16 After receiving from localhost:28300, current prepare messages number is 2
+[INFO] 2025/09/21 00:58:16 Received prepare message from localhost:28200, sequence number 3670
+[INFO] 2025/09/21 00:58:16 Prepare message count for sequence 3670 is now 3
+[INFO] 2025/09/21 00:58:16 After receiving from localhost:28200, current prepare messages number is 3
+[INFO] 2025/09/21 00:58:17 Received request message from localhost:20000 to localhost:28000 with 1000 transactions
+[INFO] 2025/09/21 00:58:17 Send preprepare message to localhost:28200
+[INFO] 2025/09/21 00:58:17 Send preprepare message to localhost:28300
+[INFO] 2025/09/21 00:58:17 Send preprepare message to localhost:28100
+[INFO] 2025/09/21 00:58:17 Received prepare message from localhost:28300, sequence number 3671
+[INFO] 2025/09/21 00:58:17 Prepare message count for sequence 3671 is now 1
+[INFO] 2025/09/21 00:58:17 After receiving from localhost:28300, current prepare messages number is 1
+[INFO] 2025/09/21 00:58:17 Received prepare message from localhost:28200, sequence number 3671
+[INFO] 2025/09/21 00:58:17 Prepare message count for sequence 3671 is now 2
+[INFO] 2025/09/21 00:58:17 After receiving from localhost:28200, current prepare messages number is 2
+[INFO] 2025/09/21 00:58:17 Received prepare message from localhost:28100, sequence number 3671
+[INFO] 2025/09/21 00:58:17 Prepare message count for sequence 3671 is now 3
+[INFO] 2025/09/21 00:58:17 After receiving from localhost:28100, current prepare messages number is 3
+[INFO] 2025/09/21 00:58:18 Received request message from localhost:20000 to localhost:28000 with 1000 transactions
+[INFO] 2025/09/21 00:58:18 Send preprepare message to localhost:28300
+[INFO] 2025/09/21 00:58:18 Send preprepare message to localhost:28100
+[INFO] 2025/09/21 00:58:18 Send preprepare message to localhost:28200
+[INFO] 2025/09/21 00:58:18 Received prepare message from localhost:28300, sequence number 3672
+[INFO] 2025/09/21 00:58:18 Prepare message count for sequence 3672 is now 1
+[INFO] 2025/09/21 00:58:18 After receiving from localhost:28300, current prepare messages number is 1
+[INFO] 2025/09/21 00:58:18 Received prepare message from localhost:28200, sequence number 3672
+[INFO] 2025/09/21 00:58:18 Prepare message count for sequence 3672 is now 2
+[INFO] 2025/09/21 00:58:18 After receiving from localhost:28200, current prepare messages number is 2
+[INFO] 2025/09/21 00:58:18 Received prepare message from localhost:28100, sequence number 3672
+[INFO] 2025/09/21 00:58:18 Prepare message count for sequence 3672 is now 3
+[INFO] 2025/09/21 00:58:18 After receiving from localhost:28100, current prepare messages number is 3
+[INFO] 2025/09/21 00:58:19 Received request message from localhost:20000 to localhost:28000 with 1000 transactions
+[INFO] 2025/09/21 00:58:19 Send preprepare message to localhost:28100
+[INFO] 2025/09/21 00:58:19 Send preprepare message to localhost:28200
+[INFO] 2025/09/21 00:58:19 Send preprepare message to localhost:28300
+[INFO] 2025/09/21 00:58:19 Received prepare message from localhost:28100, sequence number 3673
+[INFO] 2025/09/21 00:58:19 Prepare message count for sequence 3673 is now 1
+[INFO] 2025/09/21 00:58:19 After receiving from localhost:28100, current prepare messages number is 1
+[INFO] 2025/09/21 00:58:19 Received prepare message from localhost:28200, sequence number 3673
+[INFO] 2025/09/21 00:58:19 Prepare message count for sequence 3673 is now 2
+[INFO] 2025/09/21 00:58:19 After receiving from localhost:28200, current prepare messages number is 2
+[INFO] 2025/09/21 00:58:19 Received prepare message from localhost:28300, sequence number 3673
+[INFO] 2025/09/21 00:58:19 Prepare message count for sequence 3673 is now 3
+[INFO] 2025/09/21 00:58:19 After receiving from localhost:28300, current prepare messages number is 3
+[INFO] 2025/09/21 00:58:20 Received request message from localhost:20000 to localhost:28000 with 1000 transactions
+[INFO] 2025/09/21 00:58:20 Send preprepare message to localhost:28100
+[INFO] 2025/09/21 00:58:20 Send preprepare message to localhost:28200
+[INFO] 2025/09/21 00:58:20 Send preprepare message to localhost:28300
+[INFO] 2025/09/21 00:58:20 Received prepare message from localhost:28100, sequence number 3674
+[INFO] 2025/09/21 00:58:20 Prepare message count for sequence 3674 is now 1
+[INFO] 2025/09/21 00:58:20 After receiving from localhost:28100, current prepare messages number is 1
+[INFO] 2025/09/21 00:58:20 Received prepare message from localhost:28200, sequence number 3674
+[INFO] 2025/09/21 00:58:20 Prepare message count for sequence 3674 is now 2
+[INFO] 2025/09/21 00:58:20 After receiving from localhost:28200, current prepare messages number is 2
+[INFO] 2025/09/21 00:58:20 Received prepare message from localhost:28300, sequence number 3674
+[INFO] 2025/09/21 00:58:20 Prepare message count for sequence 3674 is now 3
+[INFO] 2025/09/21 00:58:20 After receiving from localhost:28300, current prepare messages number is 3
+[INFO] 2025/09/21 00:58:21 Received request message from localhost:20000 to localhost:28000 with 1000 transactions
+[INFO] 2025/09/21 00:58:21 Send preprepare message to localhost:28100
+[INFO] 2025/09/21 00:58:21 Send preprepare message to localhost:28200
+[INFO] 2025/09/21 00:58:21 Send preprepare message to localhost:28300
+[INFO] 2025/09/21 00:58:21 Received prepare message from localhost:28100, sequence number 3675
+[INFO] 2025/09/21 00:58:21 Prepare message count for sequence 3675 is now 1
+[INFO] 2025/09/21 00:58:21 After receiving from localhost:28100, current prepare messages number is 1
+[INFO] 2025/09/21 00:58:21 Received prepare message from localhost:28200, sequence number 3675
+[INFO] 2025/09/21 00:58:21 Prepare message count for sequence 3675 is now 2
+[INFO] 2025/09/21 00:58:21 After receiving from localhost:28200, current prepare messages number is 2
+[INFO] 2025/09/21 00:58:21 Received prepare message from localhost:28300, sequence number 3675
+[INFO] 2025/09/21 00:58:21 Prepare message count for sequence 3675 is now 3
+[INFO] 2025/09/21 00:58:21 After receiving from localhost:28300, current prepare messages number is 3
+[INFO] 2025/09/21 00:58:22 Received request message from localhost:20000 to localhost:28000 with 1000 transactions
+[INFO] 2025/09/21 00:58:22 Send preprepare message to localhost:28200
+[INFO] 2025/09/21 00:58:22 Send preprepare message to localhost:28300
+[INFO] 2025/09/21 00:58:22 Send preprepare message to localhost:28100
+[INFO] 2025/09/21 00:58:22 Received prepare message from localhost:28200, sequence number 3676
+[INFO] 2025/09/21 00:58:22 Prepare message count for sequence 3676 is now 1
+[INFO] 2025/09/21 00:58:22 After receiving from localhost:28200, current prepare messages number is 1
+[INFO] 2025/09/21 00:58:22 Received prepare message from localhost:28300, sequence number 3676
+[INFO] 2025/09/21 00:58:22 Prepare message count for sequence 3676 is now 2
+[INFO] 2025/09/21 00:58:22 After receiving from localhost:28300, current prepare messages number is 2
+[INFO] 2025/09/21 00:58:22 Received prepare message from localhost:28100, sequence number 3676
+[INFO] 2025/09/21 00:58:22 Prepare message count for sequence 3676 is now 3
+[INFO] 2025/09/21 00:58:22 After receiving from localhost:28100, current prepare messages number is 3
+[INFO] 2025/09/21 00:58:23 Received request message from localhost:20000 to localhost:28000 with 1000 transactions
+[INFO] 2025/09/21 00:58:23 Send preprepare message to localhost:28100
+[INFO] 2025/09/21 00:58:23 Send preprepare message to localhost:28200
+[INFO] 2025/09/21 00:58:23 Send preprepare message to localhost:28300
+[INFO] 2025/09/21 00:58:23 Received prepare message from localhost:28100, sequence number 3677
+[INFO] 2025/09/21 00:58:23 Prepare message count for sequence 3677 is now 1
+[INFO] 2025/09/21 00:58:23 After receiving from localhost:28100, current prepare messages number is 1
+[INFO] 2025/09/21 00:58:23 Received prepare message from localhost:28300, sequence number 3677
+[INFO] 2025/09/21 00:58:23 Prepare message count for sequence 3677 is now 2
+[INFO] 2025/09/21 00:58:23 After receiving from localhost:28300, current prepare messages number is 2
+[INFO] 2025/09/21 00:58:23 Received prepare message from localhost:28200, sequence number 3677
+[INFO] 2025/09/21 00:58:23 Prepare message count for sequence 3677 is now 3
+[INFO] 2025/09/21 00:58:23 After receiving from localhost:28200, current prepare messages number is 3
+[INFO] 2025/09/21 00:58:24 Received request message from localhost:20000 to localhost:28000 with 1000 transactions
+[INFO] 2025/09/21 00:58:24 Send preprepare message to localhost:28100
+[INFO] 2025/09/21 00:58:24 Send preprepare message to localhost:28200
+[INFO] 2025/09/21 00:58:24 Send preprepare message to localhost:28300
+[INFO] 2025/09/21 00:58:24 Received prepare message from localhost:28200, sequence number 3678
+[INFO] 2025/09/21 00:58:24 Prepare message count for sequence 3678 is now 1
+[INFO] 2025/09/21 00:58:24 After receiving from localhost:28200, current prepare messages number is 1
+[INFO] 2025/09/21 00:58:24 Received prepare message from localhost:28300, sequence number 3678
+[INFO] 2025/09/21 00:58:24 Prepare message count for sequence 3678 is now 2
+[INFO] 2025/09/21 00:58:24 After receiving from localhost:28300, current prepare messages number is 2
+[INFO] 2025/09/21 00:58:24 Received prepare message from localhost:28100, sequence number 3678
+[INFO] 2025/09/21 00:58:24 Prepare message count for sequence 3678 is now 3
+[INFO] 2025/09/21 00:58:24 After receiving from localhost:28100, current prepare messages number is 3
+[INFO] 2025/09/21 00:58:25 Received request message from localhost:20000 to localhost:28000 with 1000 transactions
+[INFO] 2025/09/21 00:58:25 Send preprepare message to localhost:28200
+[INFO] 2025/09/21 00:58:25 Send preprepare message to localhost:28300
+[INFO] 2025/09/21 00:58:25 Send preprepare message to localhost:28100
+[INFO] 2025/09/21 00:58:25 Received prepare message from localhost:28200, sequence number 3679
+[INFO] 2025/09/21 00:58:25 Prepare message count for sequence 3679 is now 1
+[INFO] 2025/09/21 00:58:25 After receiving from localhost:28200, current prepare messages number is 1
+[INFO] 2025/09/21 00:58:25 Received prepare message from localhost:28300, sequence number 3679
+[INFO] 2025/09/21 00:58:25 Prepare message count for sequence 3679 is now 2
+[INFO] 2025/09/21 00:58:25 After receiving from localhost:28300, current prepare messages number is 2
+[INFO] 2025/09/21 00:58:25 Received prepare message from localhost:28100, sequence number 3679
+[INFO] 2025/09/21 00:58:25 Prepare message count for sequence 3679 is now 3
+[INFO] 2025/09/21 00:58:25 After receiving from localhost:28100, current prepare messages number is 3
+[INFO] 2025/09/21 00:58:26 Received request message from localhost:20000 to localhost:28000 with 1000 transactions
+[INFO] 2025/09/21 00:58:26 Send preprepare message to localhost:28200
+[INFO] 2025/09/21 00:58:26 Send preprepare message to localhost:28300
+[INFO] 2025/09/21 00:58:26 Send preprepare message to localhost:28100
+[INFO] 2025/09/21 00:58:26 Received prepare message from localhost:28200, sequence number 3680
+[INFO] 2025/09/21 00:58:26 Prepare message count for sequence 3680 is now 1
+[INFO] 2025/09/21 00:58:26 After receiving from localhost:28200, current prepare messages number is 1
+[INFO] 2025/09/21 00:58:26 Received prepare message from localhost:28100, sequence number 3680
+[INFO] 2025/09/21 00:58:26 Prepare message count for sequence 3680 is now 2
+[INFO] 2025/09/21 00:58:26 After receiving from localhost:28100, current prepare messages number is 2
+[INFO] 2025/09/21 00:58:26 Received prepare message from localhost:28300, sequence number 3680
+[INFO] 2025/09/21 00:58:26 Prepare message count for sequence 3680 is now 3
+[INFO] 2025/09/21 00:58:26 After receiving from localhost:28300, current prepare messages number is 3
+[INFO] 2025/09/21 00:58:27 Received request message from localhost:20000 to localhost:28000 with 1000 transactions
+[INFO] 2025/09/21 00:58:27 Send preprepare message to localhost:28300
+[INFO] 2025/09/21 00:58:27 Send preprepare message to localhost:28100
+[INFO] 2025/09/21 00:58:27 Send preprepare message to localhost:28200
+[INFO] 2025/09/21 00:58:27 Received prepare message from localhost:28300, sequence number 3681
+[INFO] 2025/09/21 00:58:27 Prepare message count for sequence 3681 is now 1
+[INFO] 2025/09/21 00:58:27 After receiving from localhost:28300, current prepare messages number is 1
+[INFO] 2025/09/21 00:58:27 Received prepare message from localhost:28100, sequence number 3681
+[INFO] 2025/09/21 00:58:27 Prepare message count for sequence 3681 is now 2
+[INFO] 2025/09/21 00:58:27 After receiving from localhost:28100, current prepare messages number is 2
+[INFO] 2025/09/21 00:58:27 Received prepare message from localhost:28200, sequence number 3681
+[INFO] 2025/09/21 00:58:27 Prepare message count for sequence 3681 is now 3
+[INFO] 2025/09/21 00:58:27 After receiving from localhost:28200, current prepare messages number is 3
+[INFO] 2025/09/21 00:58:28 Received request message from localhost:20000 to localhost:28000 with 1000 transactions
+[INFO] 2025/09/21 00:58:28 Send preprepare message to localhost:28100
+[INFO] 2025/09/21 00:58:28 Send preprepare message to localhost:28200
+[INFO] 2025/09/21 00:58:28 Send preprepare message to localhost:28300
+[INFO] 2025/09/21 00:58:28 Received prepare message from localhost:28100, sequence number 3682
+[INFO] 2025/09/21 00:58:28 Prepare message count for sequence 3682 is now 1
+[INFO] 2025/09/21 00:58:28 After receiving from localhost:28100, current prepare messages number is 1
+[INFO] 2025/09/21 00:58:28 Received prepare message from localhost:28200, sequence number 3682
+[INFO] 2025/09/21 00:58:28 Prepare message count for sequence 3682 is now 2
+[INFO] 2025/09/21 00:58:28 After receiving from localhost:28200, current prepare messages number is 2
+[INFO] 2025/09/21 00:58:28 Received prepare message from localhost:28300, sequence number 3682
+[INFO] 2025/09/21 00:58:28 Prepare message count for sequence 3682 is now 3
+[INFO] 2025/09/21 00:58:28 After receiving from localhost:28300, current prepare messages number is 3
+[INFO] 2025/09/21 00:58:37 node stopped

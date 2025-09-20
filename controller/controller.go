@@ -12,19 +12,18 @@ import (
 
 var Blockchain *core.Blockchain
 
-func runNode(cfg *config.Config) {
-	Node := node.NewNode(cfg)
+func runNode(nodeID int64, cfg *config.Config) {
+	Node := node.NewNode(nodeID, cfg)
 	defer Node.Stop()
 
 	Node.Start()
 
-	time.Sleep(10 * time.Second)
+	time.Sleep(30 * time.Second)
 }
 
 func runClient(cfg *config.Config) {
 	// Init a blockchain
-	sequenceNumber := GenerateRandomSequenceNumber()
-	Blockchain = core.NewBlockchain(sequenceNumber)
+	Blockchain = core.NewBlockchain()
 
 	// Init a client
 	client := client.NewClient(config.ClientAddr, cfg)
@@ -36,7 +35,7 @@ func runClient(cfg *config.Config) {
 	client.Start()
 }
 
-func Main(role, mode, cfgPath string) {
+func Main(nodeID int64, role, mode, cfgPath string) {
 	cfg := config.ReadCfg(cfgPath)
 
 	// mode -> network structure
@@ -51,7 +50,7 @@ func Main(role, mode, cfgPath string) {
 	// role -> system role
 	switch role {
 	case "node":
-		runNode(cfg)
+		runNode(nodeID, cfg)
 	case "client":
 		runClient(cfg)
 	}
