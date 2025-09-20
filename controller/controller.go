@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"time"
+
 	"github.com/michael112233/pbft/client"
 	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/data"
@@ -9,23 +11,22 @@ import (
 
 func runNode(cfg *config.Config) {
 	Node := node.NewNode(cfg)
+	defer Node.Stop()
 
 	Node.Start()
 
-	Node.Stop()
+	time.Sleep(10 * time.Second)
 }
 
 func runClient(cfg *config.Config) {
 	// Init a client
 	client := client.NewClient(config.ClientAddr, cfg)
+	defer client.Stop()
 
 	// Get the transaction details
 	txs := data.ReadData(cfg.MaxTxNum)
 	client.AddTxs(txs)
-
 	client.Start()
-	client.InjectTxs()
-	client.Stop()
 }
 
 func Main(role, mode, cfgPath string) {

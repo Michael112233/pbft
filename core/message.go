@@ -1,9 +1,11 @@
 package core
 
-// MessageType represents the type of PBFT message
-type MessageType int
+type Message struct {
+	MsgType string
+	Data    []byte
+}
 
-type RequestMsg struct {
+type RequestMessage struct {
 	Timestamp int64
 	From      string
 	To        string

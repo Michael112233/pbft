@@ -1,6 +1,8 @@
-[INFO] 2025/09/20 12:40:29 client localhost:1000 inject txs to localhost:8000, len: 1000
-[INFO] 2025/09/20 12:40:29 client localhost:1000 inject txs to localhost:8000, len: 1000
-[INFO] 2025/09/20 12:40:29 client localhost:1000 inject txs to localhost:8000, len: 1000
-[INFO] 2025/09/20 12:40:29 client localhost:1000 inject txs to localhost:8000, len: 1000
-[INFO] 2025/09/20 12:40:29 client localhost:1000 inject txs to localhost:8000, len: 1000
-[DEBUG] 2025/09/20 12:40:29 client stopped
+[INFO] 2025/09/20 17:41:04 clientMessageHub started
+[INFO] 2025/09/20 17:41:04 start listening on localhost:10000
+[INFO] 2025/09/20 17:41:04 Msg Sent: MsgRequestMessage, From localhost:10000, To localhost:18000, Txs 1000
+[INFO] 2025/09/20 17:41:05 Msg Sent: MsgRequestMessage, From localhost:10000, To localhost:18000, Txs 1000
+[INFO] 2025/09/20 17:41:06 Msg Sent: MsgRequestMessage, From localhost:10000, To localhost:18000, Txs 1000
+[INFO] 2025/09/20 17:41:07 Msg Sent: MsgRequestMessage, From localhost:10000, To localhost:18000, Txs 1000
+[INFO] 2025/09/20 17:41:08 Msg Sent: MsgRequestMessage, From localhost:10000, To localhost:18000, Txs 1000
+[DEBUG] 2025/09/20 17:41:09 client stopped

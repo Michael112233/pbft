@@ -2,7 +2,6 @@ package client
 
 import (
 	"sync"
-	"time"
 
 	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
@@ -21,6 +20,7 @@ type Client struct {
 
 	leaderElection *leader_election.LeaderElection
 	log            *logger.Logger
+	messageHub     *ClientMessageHub
 }
 
 func NewClient(addr string, config *config.Config) *Client {
@@ -33,11 +33,15 @@ func NewClient(addr string, config *config.Config) *Client {
 
 		leaderElection: leader_election.NewLeaderElection(config),
 		log:            logger.NewLogger(0, "client"),
+		messageHub:     NodeClientMessageHub(),
 	}
 }
 
 func (c *Client) Start() {
+	c.messageHub.Start(c, &sync.WaitGroup{})
+
 	c.injectSpeed = c.config.InjectSpeed
+	c.InjectTxs()
 }
 
 func (c *Client) Stop() {
@@ -52,23 +56,4 @@ func (c *Client) AddTxs(txs []*core.Transaction) {
 
 func (c *Client) GetAddr() string {
 	return c.addr
-}
-
-func (c *Client) InjectTxs() {
-	c.wait.Add(1)
-	go func() {
-		defer c.wait.Done()
-		var injectTxs []*core.Transaction
-		for i := int64(0); (i+1)*c.injectSpeed <= int64(len(c.txs)); i++ {
-			injectTxs = c.txs[i*c.injectSpeed : (i+1)*c.injectSpeed]
-			leader := c.leaderElection.GetLeader(c.currentView)
-			msg := core.RequestMsg{
-				Timestamp: time.Now().Unix(),
-				From:      c.addr,
-				To:        leader,
-				Txs:       injectTxs,
-			}
-			c.log.Info("client %s inject txs to %s, len: %d", c.addr, leader, len(msg.Txs))
-		}
-	}()
 }
