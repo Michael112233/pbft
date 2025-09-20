@@ -33,7 +33,7 @@ func NewClient(addr string, config *config.Config) *Client {
 
 		leaderElection: leader_election.NewLeaderElection(config),
 		log:            logger.NewLogger(0, "client"),
-		messageHub:     NodeClientMessageHub(),
+		messageHub:     NewClientMessageHub(),
 	}
 }
 

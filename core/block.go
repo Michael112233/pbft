@@ -3,17 +3,19 @@ package core
 type Block struct {
 	SequenceNumber int64
 	Transactions   []*Transaction
+	isGenesis      bool
 	// PreparedMsgs   []*Message
 	// CommittedMsgs  []*Message
 }
 
-func NewBlock(sequenceNumber int64) *Block {
-	return &Block{
+func NewBlock(sequenceNumber int64, isGenesis bool) *Block {
+	block := &Block{
 		SequenceNumber: sequenceNumber,
 		Transactions:   make([]*Transaction, 0),
-		// PreparedMsgs:   make([]*Message, 0),
-		// CommittedMsgs:  make([]*Message, 0),
+		isGenesis:      isGenesis,
 	}
+
+	return block
 }
 
 func (b *Block) AddTransaction(txs []*Transaction) {

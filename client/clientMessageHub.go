@@ -31,7 +31,7 @@ type ClientMessageHub struct {
 	log *logger.Logger
 }
 
-func NodeClientMessageHub() *ClientMessageHub {
+func NewClientMessageHub() *ClientMessageHub {
 	return &ClientMessageHub{
 		exitChan: make(chan struct{}, 1),
 	}

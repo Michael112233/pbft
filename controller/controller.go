@@ -5,9 +5,12 @@ import (
 
 	"github.com/michael112233/pbft/client"
 	"github.com/michael112233/pbft/config"
+	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/data"
 	"github.com/michael112233/pbft/node"
 )
+
+var Blockchain *core.Blockchain
 
 func runNode(cfg *config.Config) {
 	Node := node.NewNode(cfg)
@@ -19,6 +22,10 @@ func runNode(cfg *config.Config) {
 }
 
 func runClient(cfg *config.Config) {
+	// Init a blockchain
+	sequenceNumber := GenerateRandomSequenceNumber()
+	Blockchain = core.NewBlockchain(sequenceNumber)
+
 	// Init a client
 	client := client.NewClient(config.ClientAddr, cfg)
 	defer client.Stop()

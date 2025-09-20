@@ -1,8 +1,8 @@
-[INFO] 2025/09/20 17:41:04 clientMessageHub started
-[INFO] 2025/09/20 17:41:04 start listening on localhost:10000
-[INFO] 2025/09/20 17:41:04 Msg Sent: MsgRequestMessage, From localhost:10000, To localhost:18000, Txs 1000
-[INFO] 2025/09/20 17:41:05 Msg Sent: MsgRequestMessage, From localhost:10000, To localhost:18000, Txs 1000
-[INFO] 2025/09/20 17:41:06 Msg Sent: MsgRequestMessage, From localhost:10000, To localhost:18000, Txs 1000
-[INFO] 2025/09/20 17:41:07 Msg Sent: MsgRequestMessage, From localhost:10000, To localhost:18000, Txs 1000
-[INFO] 2025/09/20 17:41:08 Msg Sent: MsgRequestMessage, From localhost:10000, To localhost:18000, Txs 1000
-[DEBUG] 2025/09/20 17:41:09 client stopped
+[INFO] 2025/09/20 18:29:36 clientMessageHub started
+[INFO] 2025/09/20 18:29:36 start listening on localhost:10000
+[INFO] 2025/09/20 18:29:36 Msg Sent: MsgRequestMessage, From localhost:10000, To localhost:18000, Txs 1000
+[INFO] 2025/09/20 18:29:37 Msg Sent: MsgRequestMessage, From localhost:10000, To localhost:18000, Txs 1000
+[INFO] 2025/09/20 18:29:38 Msg Sent: MsgRequestMessage, From localhost:10000, To localhost:18000, Txs 1000
+[INFO] 2025/09/20 18:29:39 Msg Sent: MsgRequestMessage, From localhost:10000, To localhost:18000, Txs 1000
+[INFO] 2025/09/20 18:29:40 Msg Sent: MsgRequestMessage, From localhost:10000, To localhost:18000, Txs 1000
+[DEBUG] 2025/09/20 18:29:41 client stopped

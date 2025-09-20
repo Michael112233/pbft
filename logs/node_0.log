@@ -1,8 +1,8 @@
-[INFO] 2025/09/20 17:41:02 node started
-[INFO] 2025/09/20 17:41:02 start listening on localhost:18000
-[INFO] 2025/09/20 17:41:04 Received request message from localhost:10000 to localhost:18000 with 1000 transactions
-[INFO] 2025/09/20 17:41:05 Received request message from localhost:10000 to localhost:18000 with 1000 transactions
-[INFO] 2025/09/20 17:41:06 Received request message from localhost:10000 to localhost:18000 with 1000 transactions
-[INFO] 2025/09/20 17:41:07 Received request message from localhost:10000 to localhost:18000 with 1000 transactions
-[INFO] 2025/09/20 17:41:08 Received request message from localhost:10000 to localhost:18000 with 1000 transactions
-[INFO] 2025/09/20 17:41:12 node stopped
+[INFO] 2025/09/20 18:29:33 node started
+[INFO] 2025/09/20 18:29:33 start listening on localhost:18000
+[INFO] 2025/09/20 18:29:36 Received request message from localhost:10000 to localhost:18000 with 1000 transactions
+[INFO] 2025/09/20 18:29:37 Received request message from localhost:10000 to localhost:18000 with 1000 transactions
+[INFO] 2025/09/20 18:29:38 Received request message from localhost:10000 to localhost:18000 with 1000 transactions
+[INFO] 2025/09/20 18:29:39 Received request message from localhost:10000 to localhost:18000 with 1000 transactions
+[INFO] 2025/09/20 18:29:40 Received request message from localhost:10000 to localhost:18000 with 1000 transactions
+[INFO] 2025/09/20 18:29:43 node stopped

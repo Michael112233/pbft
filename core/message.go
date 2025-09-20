@@ -11,3 +11,12 @@ type RequestMessage struct {
 	To        string
 	Txs       []*Transaction
 }
+
+type PreprepareMessage struct {
+	Timestamp      int64
+	From           string
+	To             string
+	SequenceNumber int64
+	ViewNumber     int64
+	RequestMessage *RequestMessage
+}
