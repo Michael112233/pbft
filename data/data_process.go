@@ -13,9 +13,9 @@ const (
 	DataDir = "data/len3_data.csv"
 )
 
-var log = logger.NewLogger(0, "others")
+var log = logger.NewLogger(0, "data")
 
-func ReadData() []*core.Transaction {
+func ReadData(maxTxNum int64) []*core.Transaction {
 	csvFile, err := os.Open(DataDir)
 	if err != nil {
 		log.Error("failed to open csv file: %v", err)
@@ -32,6 +32,9 @@ func ReadData() []*core.Transaction {
 	var txs []*core.Transaction
 
 	for i, record := range records {
+		if int64(i) > maxTxNum {
+			break
+		}
 		// skip the header line
 		if i == 0 {
 			continue

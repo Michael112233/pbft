@@ -15,8 +15,7 @@ func NewBlockchain(sequenceNumber int64) *Blockchain {
 		Blocks:             make([]*Block, 0),
 		InitSequenceNumber: sequenceNumber,
 		LastSequenceNumber: sequenceNumber,
-
-		logger: logger.NewLogger(0, "blockchain"),
+		logger:             logger.NewLogger(0, "blockchain"),
 	}
 }
 

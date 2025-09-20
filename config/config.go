@@ -16,6 +16,8 @@ type Config struct {
 	NodeID  int64 `json:"node_id"`
 
 	FaultyNodesNum int64
+
+	ElectionMethod string `json:"election_method"`
 }
 
 func ReadCfg(filename string) *Config {

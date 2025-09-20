@@ -6,6 +6,6 @@ import (
 
 func PrintTxs(txs []*core.Transaction, num int) {
 	for i, tx := range txs[:num] {
-		log.Test("Transaction %d: %v\n", i, tx)
+		log.Debug("Transaction %d: %v\n", i, tx)
 	}
 }

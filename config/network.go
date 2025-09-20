@@ -14,7 +14,7 @@ func GenerateLocalNetwork(nodeNum int) {
 	ClientAddr = localIp + "1000"
 	NodeAddr = make(map[int]string)
 	for i := 0; i < nodeNum; i++ {
-		NodeAddr[i] = fmt.Sprintf("%s:%d", localIp, 8000+i*100)
+		NodeAddr[i] = fmt.Sprintf("%s%d", localIp, 8000+i*100)
 	}
 }
 

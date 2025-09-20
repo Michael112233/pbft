@@ -4,11 +4,15 @@ import (
 	"github.com/michael112233/pbft/client"
 	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/data"
+	"github.com/michael112233/pbft/node"
 )
 
 func runNode(cfg *config.Config) {
-	// Node := node.NewNode(cfg)
-	// Node.Start()
+	Node := node.NewNode(cfg)
+
+	Node.Start()
+
+	Node.Stop()
 }
 
 func runClient(cfg *config.Config) {
@@ -16,12 +20,12 @@ func runClient(cfg *config.Config) {
 	client := client.NewClient(config.ClientAddr, cfg)
 
 	// Get the transaction details
-	txs := data.ReadData()
+	txs := data.ReadData(cfg.MaxTxNum)
 	client.AddTxs(txs)
 
-	// Start the client
-	// client.Start()
-	data.PrintTxs(txs, 50)
+	client.Start()
+	client.InjectTxs()
+	client.Stop()
 }
 
 func Main(role, mode, cfgPath string) {
