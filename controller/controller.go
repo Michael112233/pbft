@@ -23,7 +23,7 @@ func runNode(nodeID int64, cfg *config.Config) {
 
 func runClient(cfg *config.Config) {
 	// Init a blockchain
-	Blockchain = core.NewBlockchain()
+	core.NewBlockchain()
 
 	// Init a client
 	client := client.NewClient(config.ClientAddr, cfg)

@@ -1,43 +1,53 @@
 package core
 
-import "github.com/michael112233/pbft/logger"
+import (
+	"sync"
+
+	"github.com/michael112233/pbft/logger"
+)
 
 type Blockchain struct {
-	Blocks             []*Block
-	InitSequenceNumber int64
-	LastSequenceNumber int64
+	Blocks []*Block
 
-	logger *logger.Logger
+	logger   *logger.Logger
+	addMutex sync.Mutex
 }
 
-func NewBlockchain() *Blockchain {
+var Chain *Blockchain
+
+func NewBlockchain() {
 	log := logger.NewLogger(0, "blockchain")
 	log.Info("blockchain initialized")
-	return &Blockchain{
-		Blocks:             make([]*Block, 0),
-		InitSequenceNumber: -1,
-		LastSequenceNumber: -1,
-		logger:             log,
+	Chain = &Blockchain{
+		Blocks: make([]*Block, 0),
+		logger: log,
 	}
 }
 
 func (b *Blockchain) AddBlock(block *Block) {
-	b.Blocks = append(b.Blocks, block)
-	if len(b.Blocks) == 1 {
-		b.InitSequenceNumber = block.SequenceNumber
+	b.addMutex.Lock()
+	defer b.addMutex.Unlock()
+
+	if existingBlock, ok := b.GetBlock(block.SequenceNumber); ok {
+		existingBlock.AddCommittedNode(block.committedNode[0])
+		b.logger.Info("current committed: %v to block %d", existingBlock.committedNode, block.SequenceNumber)
+	} else {
+		b.Blocks = append(b.Blocks, block)
+		b.logger.Info("add block %d, who committed: %v, who proposed: %s", block.SequenceNumber, block.committedNode, block.proposedLeader)
 	}
-	b.LastSequenceNumber = block.SequenceNumber
-	b.logger.Info("add block %d", block.SequenceNumber)
 }
 
-func (b *Blockchain) GetBlock(index int64) *Block {
-	if index <= b.InitSequenceNumber || index >= b.LastSequenceNumber {
-		b.logger.Error("index out of range: %d", index)
-		return nil
+func (b *Blockchain) GetBlock(index int64) (*Block, bool) {
+	for _, block := range b.Blocks {
+		if block.SequenceNumber == index {
+			return block, true
+		}
 	}
-	return b.Blocks[index]
+	return nil, false
 }
 
 func (b *Blockchain) GetLastBlock() *Block {
-	return b.Blocks[b.LastSequenceNumber]
+	b.addMutex.Lock()
+	defer b.addMutex.Unlock()
+	return b.Blocks[len(b.Blocks)-1]
 }

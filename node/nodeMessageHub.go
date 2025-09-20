@@ -106,6 +106,8 @@ func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, call
 		hub.sendPrepareMessage(msg)
 	case core.MsgCommitMessage:
 		hub.sendCommitMessage(msg)
+	case core.MsgReplyMessage:
+		hub.sendReplyMessage(msg)
 	default:
 		hub.log.Error("Unknown message type received. msgType=" + msgType)
 	}
@@ -311,6 +313,31 @@ func (hub *NodeMessageHub) sendCommitMessage(msg interface{}) {
 		conn, err = hub.Dial(addr)
 		if err != nil {
 			hub.log.Error(fmt.Sprintf("Dial Error. Send Commit Message. caller: %s targetAddr: %s", data.From, addr))
+		}
+		conns2Node.Add(addr, conn)
+	}
+	writer := bufio.NewWriter(conn)
+	writer.Write(msg_bytes)
+	writer.Flush()
+}
+
+func (hub *NodeMessageHub) sendReplyMessage(msg interface{}) {
+	data := msg.(core.ReplyMessage)
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	err := enc.Encode(&data)
+	if err != nil {
+		hub.log.Error(fmt.Sprintf("gobEncodeErr. Send Preprepare Message. caller: %s targetAddr: %s", data.From, data.To))
+	}
+
+	msg_bytes := hub.packMsg("MsgReplyMessage", buf.Bytes())
+
+	addr := data.To
+	conn, ok := conns2Node.Get(addr)
+	if !ok {
+		conn, err = hub.Dial(addr)
+		if err != nil {
+			hub.log.Error(fmt.Sprintf("Dial Error. Send Reply Message. caller: %s targetAddr: %s", data.From, addr))
 		}
 		conns2Node.Add(addr, conn)
 	}

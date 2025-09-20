@@ -38,3 +38,12 @@ type CommitMessage struct {
 	ViewNumber     int64
 	RequestMessage *RequestMessage
 }
+
+type ReplyMessage struct {
+	Timestamp      int64
+	From           string
+	To             string
+	SequenceNumber int64
+	ViewNumber     int64
+	RequestMessage *RequestMessage
+}

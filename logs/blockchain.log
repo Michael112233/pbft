@@ -1,1 +1,21 @@
-[INFO] 2025/09/21 00:58:13 blockchain initialized
+[INFO] 2025/09/21 02:12:54 blockchain initialized
+[INFO] 2025/09/21 02:12:55 add block 55625, who committed: [localhost:28200], who proposed: localhost:28000
+[INFO] 2025/09/21 02:12:55 current committed: [localhost:28200 localhost:28000] to block 55625
+[INFO] 2025/09/21 02:12:55 current committed: [localhost:28200 localhost:28000 localhost:28100] to block 55625
+[INFO] 2025/09/21 02:12:55 current committed: [localhost:28200 localhost:28000 localhost:28100 localhost:28300] to block 55625
+[INFO] 2025/09/21 02:12:56 add block 55626, who committed: [localhost:28200], who proposed: localhost:28000
+[INFO] 2025/09/21 02:12:56 current committed: [localhost:28200 localhost:28300] to block 55626
+[INFO] 2025/09/21 02:12:56 current committed: [localhost:28200 localhost:28300 localhost:28000] to block 55626
+[INFO] 2025/09/21 02:12:56 current committed: [localhost:28200 localhost:28300 localhost:28000 localhost:28100] to block 55626
+[INFO] 2025/09/21 02:12:57 add block 55627, who committed: [localhost:28100], who proposed: localhost:28000
+[INFO] 2025/09/21 02:12:57 current committed: [localhost:28100 localhost:28200] to block 55627
+[INFO] 2025/09/21 02:12:57 current committed: [localhost:28100 localhost:28200 localhost:28000] to block 55627
+[INFO] 2025/09/21 02:12:57 current committed: [localhost:28100 localhost:28200 localhost:28000 localhost:28300] to block 55627
+[INFO] 2025/09/21 02:12:58 add block 55628, who committed: [localhost:28100], who proposed: localhost:28000
+[INFO] 2025/09/21 02:12:58 current committed: [localhost:28100 localhost:28000] to block 55628
+[INFO] 2025/09/21 02:12:58 current committed: [localhost:28100 localhost:28000 localhost:28200] to block 55628
+[INFO] 2025/09/21 02:12:58 current committed: [localhost:28100 localhost:28000 localhost:28200 localhost:28300] to block 55628
+[INFO] 2025/09/21 02:12:59 add block 55629, who committed: [localhost:28000], who proposed: localhost:28000
+[INFO] 2025/09/21 02:12:59 current committed: [localhost:28000 localhost:28100] to block 55629
+[INFO] 2025/09/21 02:12:59 current committed: [localhost:28000 localhost:28100 localhost:28200] to block 55629
+[INFO] 2025/09/21 02:12:59 current committed: [localhost:28000 localhost:28100 localhost:28200 localhost:28300] to block 55629

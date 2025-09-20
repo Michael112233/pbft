@@ -3,16 +3,17 @@ package core
 type Block struct {
 	SequenceNumber int64
 	Transactions   []*Transaction
-	isGenesis      bool
-	// PreparedMsgs   []*Message
-	// CommittedMsgs  []*Message
+
+	proposedLeader string
+	committedNode  []string
 }
 
-func NewBlock(sequenceNumber int64, isGenesis bool) *Block {
+func NewBlock(sequenceNumber int64, txs []*Transaction, leader string) *Block {
 	block := &Block{
 		SequenceNumber: sequenceNumber,
-		Transactions:   make([]*Transaction, 0),
-		isGenesis:      isGenesis,
+		Transactions:   txs,
+		proposedLeader: leader,
+		committedNode:  make([]string, 0),
 	}
 
 	return block
@@ -22,10 +23,6 @@ func (b *Block) AddTransaction(txs []*Transaction) {
 	b.Transactions = append(b.Transactions, txs...)
 }
 
-// func (b *Block) AddPreparedMsg(msgs []*Message) {
-// 	b.PreparedMsgs = append(b.PreparedMsgs, msgs...)
-// }
-
-// func (b *Block) AddCommittedMsg(msgs []*Message) {
-// 	b.CommittedMsgs = append(b.CommittedMsgs, msgs...)
-// }
+func (b *Block) AddCommittedNode(node string) {
+	b.committedNode = append(b.committedNode, node)
+}

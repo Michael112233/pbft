@@ -58,7 +58,7 @@ func (n *Node) SendCommitMessage(data core.PrepareMessage) {
 		if othersIp == n.GetAddr() {
 			continue
 		}
-		prepareMessage := core.CommitMessage{
+		commitMessage := core.CommitMessage{
 			Timestamp:      time.Now().Unix(),
 			From:           n.GetAddr(),
 			To:             othersIp,
@@ -67,6 +67,19 @@ func (n *Node) SendCommitMessage(data core.PrepareMessage) {
 			RequestMessage: data.RequestMessage,
 		}
 		n.log.Info(fmt.Sprintf("Send commit message to %s", othersIp))
-		n.messageHub.Send(core.MsgCommitMessage, othersIp, prepareMessage, nil)
+		n.messageHub.Send(core.MsgCommitMessage, othersIp, commitMessage, nil)
 	}
+}
+
+func (n *Node) SendReplyMessage(data core.CommitMessage) {
+	replyMessage := core.ReplyMessage{
+		Timestamp:      time.Now().Unix(),
+		From:           n.GetAddr(),
+		To:             config.ClientAddr,
+		SequenceNumber: data.SequenceNumber,
+		ViewNumber:     n.viewNumber,
+		RequestMessage: data.RequestMessage,
+	}
+	n.log.Info(fmt.Sprintf("Send reply message to %s", config.ClientAddr))
+	n.messageHub.Send(core.MsgReplyMessage, config.ClientAddr, replyMessage, nil)
 }

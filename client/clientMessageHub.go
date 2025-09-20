@@ -167,6 +167,8 @@ func (hub *ClientMessageHub) handleConnection(conn net.Conn, ln net.Listener) {
 
 		msg := hub.unpackMsg(packedMsg)
 		switch msg.MsgType {
+		case core.MsgReplyMessage:
+			hub.handleReplyMessage(msg.Data)
 		default:
 			hub.log.Error(fmt.Sprintf("Unknown message type received: msgType=%s", msg.MsgType))
 		}
@@ -176,6 +178,18 @@ func (hub *ClientMessageHub) handleConnection(conn net.Conn, ln net.Listener) {
 // --------------------------------------------------------
 // Communication for Unmarshalling Received Messages
 // --------------------------------------------------------
+func (hub *ClientMessageHub) handleReplyMessage(dataBytes []byte) {
+	var buf bytes.Buffer
+	buf.Write(dataBytes)
+	dataDec := gob.NewDecoder(&buf)
+
+	var data core.ReplyMessage
+	err := dataDec.Decode(&data)
+	if err != nil {
+		hub.log.Error(fmt.Sprintf("handleReplyMessageErr: err=%v, dataBytes=%v", err, dataBytes))
+	}
+	hub.client_ref.HandleReplyMessage(data)
+}
 
 // --------------------------------------------------------
 // Communication for Marshalling Messages to Send
