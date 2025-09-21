@@ -65,68 +65,56 @@ class LinuxLocalExperiment:
             print(f"Build failed with error: {e}")
             return False
 
-    # Start multiple terminals to run
+    # Start multiple processes to run
     def start_terminals(self):
         try:
-            # 0. Close all existing terminals first
-            print("Closing existing terminals before starting new ones...")
-            self.close_all_terminals()
+            # 0. Clean up any existing processes first
+            print("Cleaning up existing processes...")
+            self.cleanup_processes()
             
-            # 1. start node terminals
+            # 1. start node processes
             for node_id in range(self.node_num):
                 self.start_node_terminal(node_id)
-                print(f"Node {node_id} terminal started")
+                time.sleep(1)  # Small delay between starting nodes
 
-            # 2. start client terminal
+            # 2. start client process
             self.start_client_terminal()
-            print(f"Client terminal started")
 
             return True
 
         except Exception as e:
-            print(f"Start terminals failed with error: {e}")
+            print(f"Start processes failed with error: {e}")
             return False
 
 
-    # Implement Client Terminal Function
+    # Implement Client Process Function
     def start_client_terminal(self):
         try:
-            # Use AppleScript to Control Terminal.app
-            applescript = f'''
-            tell application "Terminal"
-                activate
-                do script "cd {os.getcwd()}/pbft && ./pbft_main -r client -m local"
-            end tell
-            '''
+            # Start client process in background
+            process = subprocess.Popen([
+                "./pbft_main", "-r", "client", "-m", "local"
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             
-            subprocess.run([
-                "osascript", "-e", applescript
-            ], check=True)
+            self.processes.append(process)
+            print(f"Client process started with PID {process.pid}")
             
-            print("Client terminal started")
-            
-        except subprocess.CalledProcessError as e:
-            print(f"Failed to start client terminal: {e}")
+        except Exception as e:
+            print(f"Failed to start client process: {e}")
             raise
 
-    # Implement Node Terminal Function
+    # Implement Node Process Function
     def start_node_terminal(self, node_id):
         try:
-            applescript = f'''
-            tell application "Terminal"
-                activate
-                do script "cd {os.getcwd()}/pbft && ./pbft_main -r node -m local -n {node_id}"
-            end tell
-            '''
+            # Start node process in background
+            process = subprocess.Popen([
+                "./pbft_main", "-r", "node", "-m", "local", "-n", str(node_id)
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             
-            subprocess.run([
-                "osascript", "-e", applescript
-            ], check=True)
+            self.processes.append(process)
+            print(f"Node {node_id} process started with PID {process.pid}")
             
-            print(f"Node {node_id} terminal started")
-            
-        except subprocess.CalledProcessError as e:
-            print(f"Failed to start node {node_id} terminal: {e}")
+        except Exception as e:
+            print(f"Failed to start node {node_id} process: {e}")
             raise
 
 
@@ -171,25 +159,54 @@ class LinuxLocalExperiment:
     def wait_for_interrupt(self):
         try:
             while True:
+                # Check if any process has died
+                dead_processes = []
+                for i, process in enumerate(self.processes):
+                    if process.poll() is not None:
+                        dead_processes.append(i)
+                        print(f"Process {process.pid} has terminated")
+                
+                # Remove dead processes from the list
+                for i in reversed(dead_processes):
+                    self.processes.pop(i)
+                
+                # If all processes are dead, exit
+                if not self.processes:
+                    print("All processes have terminated")
+                    break
+                
                 time.sleep(1)
         except KeyboardInterrupt:
             print("\nShutting down experiment...")
             self.cleanup()
 
+    def cleanup_processes(self):
+        """Clean up existing PBFT processes"""
+        try:
+            # Kill any existing pbft_main processes
+            subprocess.run(["pkill", "-f", "pbft_main"], capture_output=True)
+            print("Cleaned up existing PBFT processes")
+        except:
+            pass
+    
     def cleanup(self):
         print("Cleaning up...")
         
-        # Close all terminals
-        try:
-            applescript = '''
-            tell application "Terminal"
-                close every window
-            end tell
-            '''
-            subprocess.run(["osascript", "-e", applescript], check=True)
-            print("All terminals closed")
-        except:
-            print("Failed to close terminals")
+        # Terminate all started processes
+        for process in self.processes:
+            try:
+                if process.poll() is None:  # Process is still running
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                    print(f"Terminated process {process.pid}")
+            except:
+                pass
+        
+        self.processes.clear()
+        print("All processes cleaned up")
 
     def clean_ports(self):
         # Clean ports
@@ -210,39 +227,6 @@ class LinuxLocalExperiment:
             except:
                 pass
 
-    def close_all_terminals(self):
-        """Close all unused terminals before starting the experiment"""
-        try:
-            print("Closing all unused terminals...")
-            
-            # Try to close common Linux terminal emulators
-            terminal_processes = [
-                "gnome-terminal",
-                "konsole", 
-                "xterm",
-                "terminator",
-                "xfce4-terminal",
-                "mate-terminal"
-            ]
-            
-            for terminal in terminal_processes:
-                try:
-                    # Kill all instances of the terminal
-                    result = subprocess.run([
-                        "pkill", "-f", terminal
-                    ], capture_output=True, text=True)
-                    
-                    if result.returncode == 0:
-                        print(f"Closed {terminal} instances")
-                except:
-                    pass
-            
-            print("Terminal cleanup completed")
-            return True
-            
-        except Exception as e:
-            print(f"Error closing terminals: {e}")
-            return False
 
     def clean_log_files(self):
         """Delete all log files before starting the experiment"""
