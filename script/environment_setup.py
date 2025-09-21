@@ -109,13 +109,6 @@ def install_go():
         # 2. Delete old version and install new version
         print("Installing Go...")
         result = subprocess.run(
-            ["sudo", "rm", "-rf", "/usr/local/go"], 
-            capture_output=True, 
-            text=True, 
-            timeout=30
-        )
-        
-        result = subprocess.run(
             ["sudo", "tar", "-C", "/usr/local", "-xzf", go_file], 
             capture_output=True, 
             text=True, 
