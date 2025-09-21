@@ -11,6 +11,8 @@ import signal
 import sys
 import shutil
 import re
+import requests
+import urllib.parse
 
 class PBFTExperiment:
     def __init__(self, node_count=4):
@@ -18,6 +20,74 @@ class PBFTExperiment:
         self.node_count = node_count
         # Ports that need to be cleaned before starting experiment
         self.required_ports = [20000, 28000, 28100, 28200, 28300]
+        # CSV file download URL
+        self.csv_url = "https://drive.google.com/file/d/1gIBGcneoUz9jaU48PYCjP6xjWegRlgE-/view"
+        self.csv_filename = "len3_data.csv"
+        self.data_dir = "data"
+    
+    def download_csv_file(self):
+        """Download CSV file from Google Drive"""
+        print("Downloading CSV file...")
+        
+        # Create data directory if it doesn't exist
+        os.makedirs(self.data_dir, exist_ok=True)
+        
+        csv_path = os.path.join(self.data_dir, self.csv_filename)
+        
+        # Check if file already exists
+        if os.path.exists(csv_path):
+            print(f"CSV file already exists: {csv_path}")
+            return True
+        
+        try:
+            # Convert Google Drive share URL to direct download URL
+            file_id = "1gIBGcneoUz9jaU48PYCjP6xjWegRlgE-"
+            
+            # First, try to get the download confirmation URL
+            session = requests.Session()
+            direct_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+            
+            print(f"Downloading from: {direct_url}")
+            
+            # First request to get the confirmation page
+            response = session.get(direct_url, stream=True, timeout=30)
+            response.raise_for_status()
+            
+            # Check if we got the virus scan warning page
+            if "Google Drive can't scan this file for viruses" in response.text:
+                print("File requires virus scan confirmation. Getting download link...")
+                
+                # Extract the download form action URL
+                import re
+                form_match = re.search(r'action="([^"]*)"', response.text)
+                if form_match:
+                    download_url = form_match.group(1)
+                    # Add the form parameters
+                    download_url += f"?id={file_id}&export=download&confirm=t"
+                    
+                    print(f"Downloading from confirmation URL: {download_url}")
+                    response = session.get(download_url, stream=True, timeout=60)
+                    response.raise_for_status()
+                else:
+                    raise Exception("Could not find download confirmation URL")
+            
+            # Save the file
+            with open(csv_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            
+            print(f"CSV file downloaded successfully: {csv_path}")
+            return True
+            
+        except requests.exceptions.RequestException as e:
+            print(f"Error downloading CSV file: {e}")
+            print("Please manually download the file from:")
+            print(self.csv_url)
+            print(f"And place it in: {csv_path}")
+            return False
+        except Exception as e:
+            print(f"Unexpected error downloading CSV file: {e}")
+            return False
         
     def clean_logs(self):
         """Delete existing logs"""
@@ -220,7 +290,12 @@ class PBFTExperiment:
             if not self.build_project():
                 return False
             
-            # 4. Start all nodes in separate terminals
+            # 4. Download CSV file after build (must succeed)
+            if not self.download_csv_file():
+                print("Error: CSV file download failed. Cannot continue without data file.")
+                return False
+            
+            # 5. Start all nodes in separate terminals
             for node_id in range(self.node_count):
                 if not self.start_node_terminal(node_id):
                     return False
@@ -228,7 +303,7 @@ class PBFTExperiment:
             
             time.sleep(3)  # Wait 3 seconds before starting client
             
-            # 5. Start client in new terminal
+            # 6. Start client in new terminal
             if not self.start_client_terminal():
                 return False
             

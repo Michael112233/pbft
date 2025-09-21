@@ -1,1 +1,1 @@
-python3 script/local_experiment.py
+/Users/michael/opt/anaconda3/bin/python script/local_experiment.py
