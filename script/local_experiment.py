@@ -203,11 +203,11 @@ class PBFTExperiment:
             print("Created logs directory")
             
             # Build project directly
-            result = subprocess.run(["go", "mod", "tidy"], 
-                                  capture_output=True, text=True, timeout=30)
-            if result.returncode != 0:
-                print(f"go mod tidy failed: {result.stderr}")
-                return False
+            # result = subprocess.run(["go", "mod", "tidy"], 
+            #                       capture_output=True, text=True, timeout=30)
+            # if result.returncode != 0:
+            #     print(f"go mod tidy failed: {result.stderr}")
+            #     return False
             
             result = subprocess.run(["go", "build", "-o", "pbft_main", "main.go"], 
                                   capture_output=True, text=True, timeout=60)
