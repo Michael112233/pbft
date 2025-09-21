@@ -8,6 +8,7 @@ import (
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/data"
 	"github.com/michael112233/pbft/node"
+	"github.com/michael112233/pbft/result"
 )
 
 var Blockchain *core.Blockchain
@@ -22,6 +23,7 @@ func runNode(nodeID int64, cfg *config.Config) {
 }
 
 func runClient(cfg *config.Config) {
+	defer result.PrintResult()
 	// Init a blockchain
 	core.NewBlockchain()
 

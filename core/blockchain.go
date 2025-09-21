@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/michael112233/pbft/logger"
+	"github.com/michael112233/pbft/result"
 )
 
 type Blockchain struct {
@@ -34,6 +35,7 @@ func (b *Blockchain) AddBlock(block *Block) {
 	} else {
 		b.Blocks = append(b.Blocks, block)
 		b.logger.Info("add block %d, who committed: %v, who proposed: %s", block.SequenceNumber, block.committedNode, block.proposedLeader)
+		result.AddCommittedTransactionNum(int64(len(block.Transactions)))
 	}
 }
 

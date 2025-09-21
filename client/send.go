@@ -4,9 +4,11 @@ import (
 	"time"
 
 	"github.com/michael112233/pbft/core"
+	"github.com/michael112233/pbft/result"
 )
 
 func (c *Client) InjectTxs() {
+	result.SetStartTime(time.Now())
 	c.wait.Add(1)
 	go func() {
 		defer c.wait.Done()

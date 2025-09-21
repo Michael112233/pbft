@@ -28,6 +28,8 @@ func NewLogger(nodeID int64, role string) *Logger {
 		logFile = "logs/client.log"
 	case "blockchain":
 		logFile = "logs/blockchain.log"
+	case "result":
+		logFile = "logs/result.log"
 	default:
 		logFile = "logs/others.log"
 	}
