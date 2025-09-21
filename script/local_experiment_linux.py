@@ -15,9 +15,10 @@ import requests
 import urllib.parse
 
 class PBFTExperiment:
-    def __init__(self, node_count=4):
+    def __init__(self, node_count=4, headless=False):
         self.processes = []
         self.node_count = node_count
+        self.headless = headless
         # Ports that need to be cleaned before starting experiment
         self.required_ports = [20000, 28000, 28100, 28200, 28300]
         # CSV file download URL
@@ -36,10 +37,15 @@ class PBFTExperiment:
             "alacritty",
             "kitty"
         ]
-        self.terminal_cmd = self._find_terminal_emulator()
+        self.terminal_cmd = self._find_terminal_emulator() if not headless else None
     
     def _find_terminal_emulator(self):
         """Find available terminal emulator on Linux"""
+        # Check if DISPLAY is set
+        if not os.environ.get('DISPLAY'):
+            print("No DISPLAY environment variable found. Running in headless mode.")
+            return None
+            
         for terminal in self.terminal_emulators:
             try:
                 result = subprocess.run(["which", terminal], 
@@ -50,8 +56,8 @@ class PBFTExperiment:
             except:
                 continue
         
-        print("Warning: No supported terminal emulator found. Will try gnome-terminal as default.")
-        return "gnome-terminal"
+        print("Warning: No supported terminal emulator found. Running in headless mode.")
+        return None
     
     def download_csv_file(self):
         """Download CSV file from Google Drive"""
@@ -259,85 +265,131 @@ class PBFTExperiment:
             return False
     
     def start_client_terminal(self):
-        """Start client in a new terminal"""
-        print("Starting client in new terminal...")
+        """Start client in a new terminal or headless mode"""
+        print("Starting client...")
         try:
-            # Use Linux terminal emulator
             current_dir = os.getcwd()
             command = f"cd {current_dir} && ./pbft_main -r client -m local"
             
-            if self.terminal_cmd == "gnome-terminal":
-                cmd = ["gnome-terminal", "--", "bash", "-c", f"{command}; exec bash"]
-            elif self.terminal_cmd == "xterm":
-                cmd = ["xterm", "-e", f"bash -c '{command}; exec bash'"]
-            elif self.terminal_cmd == "konsole":
-                cmd = ["konsole", "-e", f"bash -c '{command}; exec bash'"]
-            elif self.terminal_cmd == "xfce4-terminal":
-                cmd = ["xfce4-terminal", "-e", f"bash -c '{command}; exec bash'"]
-            elif self.terminal_cmd == "mate-terminal":
-                cmd = ["mate-terminal", "-e", f"bash -c '{command}; exec bash'"]
-            elif self.terminal_cmd == "lxterminal":
-                cmd = ["lxterminal", "-e", f"bash -c '{command}; exec bash'"]
-            elif self.terminal_cmd == "terminator":
-                cmd = ["terminator", "-e", f"bash -c '{command}; exec bash'"]
-            elif self.terminal_cmd == "alacritty":
-                cmd = ["alacritty", "-e", "bash", "-c", f"{command}; exec bash"]
-            elif self.terminal_cmd == "kitty":
-                cmd = ["kitty", "bash", "-c", f"{command}; exec bash"]
+            if self.headless or not self.terminal_cmd:
+                # Run in headless mode (background process)
+                print("Starting client in headless mode...")
+                process = subprocess.Popen(
+                    ["bash", "-c", command],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    cwd=current_dir
+                )
+                self.processes.append(process)
+                print("Client started in background")
+                return True
             else:
-                # Default fallback
-                cmd = ["gnome-terminal", "--", "bash", "-c", f"{command}; exec bash"]
-            
-            process = subprocess.Popen(cmd)
-            self.processes.append(process)
-            print("Client terminal started")
-            return True
+                # Use Linux terminal emulator
+                print("Starting client in new terminal...")
+                if self.terminal_cmd == "gnome-terminal":
+                    cmd = ["gnome-terminal", "--", "bash", "-c", f"{command}; exec bash"]
+                elif self.terminal_cmd == "xterm":
+                    cmd = ["xterm", "-e", f"bash -c '{command}; exec bash'"]
+                elif self.terminal_cmd == "konsole":
+                    cmd = ["konsole", "-e", f"bash -c '{command}; exec bash'"]
+                elif self.terminal_cmd == "xfce4-terminal":
+                    cmd = ["xfce4-terminal", "-e", f"bash -c '{command}; exec bash'"]
+                elif self.terminal_cmd == "mate-terminal":
+                    cmd = ["mate-terminal", "-e", f"bash -c '{command}; exec bash'"]
+                elif self.terminal_cmd == "lxterminal":
+                    cmd = ["lxterminal", "-e", f"bash -c '{command}; exec bash'"]
+                elif self.terminal_cmd == "terminator":
+                    cmd = ["terminator", "-e", f"bash -c '{command}; exec bash'"]
+                elif self.terminal_cmd == "alacritty":
+                    cmd = ["alacritty", "-e", "bash", "-c", f"{command}; exec bash"]
+                elif self.terminal_cmd == "kitty":
+                    cmd = ["kitty", "bash", "-c", f"{command}; exec bash"]
+                else:
+                    # Default fallback
+                    cmd = ["gnome-terminal", "--", "bash", "-c", f"{command}; exec bash"]
+                
+                process = subprocess.Popen(cmd)
+                self.processes.append(process)
+                print("Client terminal started")
+                return True
         except FileNotFoundError:
-            print(f"Terminal emulator {self.terminal_cmd} not found")
-            return False
+            print(f"Terminal emulator {self.terminal_cmd} not found, falling back to headless mode")
+            # Fallback to headless mode
+            process = subprocess.Popen(
+                ["bash", "-c", command],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=current_dir
+            )
+            self.processes.append(process)
+            print("Client started in headless mode (fallback)")
+            return True
         except Exception as e:
-            print(f"Error starting client terminal: {e}")
+            print(f"Error starting client: {e}")
             return False
     
     def start_node_terminal(self, node_id):
-        """Start node in a new terminal with specific node ID"""
-        print(f"Starting node {node_id} in new terminal...")
+        """Start node in a new terminal or headless mode"""
+        print(f"Starting node {node_id}...")
         try:
-            # Use Linux terminal emulator
             current_dir = os.getcwd()
             command = f"cd {current_dir} && ./pbft_main -r node -m local -n {node_id}"
             
-            if self.terminal_cmd == "gnome-terminal":
-                cmd = ["gnome-terminal", "--", "bash", "-c", f"{command}; exec bash"]
-            elif self.terminal_cmd == "xterm":
-                cmd = ["xterm", "-e", f"bash -c '{command}; exec bash'"]
-            elif self.terminal_cmd == "konsole":
-                cmd = ["konsole", "-e", f"bash -c '{command}; exec bash'"]
-            elif self.terminal_cmd == "xfce4-terminal":
-                cmd = ["xfce4-terminal", "-e", f"bash -c '{command}; exec bash'"]
-            elif self.terminal_cmd == "mate-terminal":
-                cmd = ["mate-terminal", "-e", f"bash -c '{command}; exec bash'"]
-            elif self.terminal_cmd == "lxterminal":
-                cmd = ["lxterminal", "-e", f"bash -c '{command}; exec bash'"]
-            elif self.terminal_cmd == "terminator":
-                cmd = ["terminator", "-e", f"bash -c '{command}; exec bash'"]
-            elif self.terminal_cmd == "alacritty":
-                cmd = ["alacritty", "-e", "bash", "-c", f"{command}; exec bash"]
-            elif self.terminal_cmd == "kitty":
-                cmd = ["kitty", "bash", "-c", f"{command}; exec bash"]
+            if self.headless or not self.terminal_cmd:
+                # Run in headless mode (background process)
+                print(f"Starting node {node_id} in headless mode...")
+                process = subprocess.Popen(
+                    ["bash", "-c", command],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    cwd=current_dir
+                )
+                self.processes.append(process)
+                print(f"Node {node_id} started in background")
+                return True
             else:
-                # Default fallback
-                cmd = ["gnome-terminal", "--", "bash", "-c", f"{command}; exec bash"]
-            
-            process = subprocess.Popen(cmd)
-            self.processes.append(process)
-            print(f"Node {node_id} terminal started")
-            return True
+                # Use Linux terminal emulator
+                print(f"Starting node {node_id} in new terminal...")
+                if self.terminal_cmd == "gnome-terminal":
+                    cmd = ["gnome-terminal", "--", "bash", "-c", f"{command}; exec bash"]
+                elif self.terminal_cmd == "xterm":
+                    cmd = ["xterm", "-e", f"bash -c '{command}; exec bash'"]
+                elif self.terminal_cmd == "konsole":
+                    cmd = ["konsole", "-e", f"bash -c '{command}; exec bash'"]
+                elif self.terminal_cmd == "xfce4-terminal":
+                    cmd = ["xfce4-terminal", "-e", f"bash -c '{command}; exec bash'"]
+                elif self.terminal_cmd == "mate-terminal":
+                    cmd = ["mate-terminal", "-e", f"bash -c '{command}; exec bash'"]
+                elif self.terminal_cmd == "lxterminal":
+                    cmd = ["lxterminal", "-e", f"bash -c '{command}; exec bash'"]
+                elif self.terminal_cmd == "terminator":
+                    cmd = ["terminator", "-e", f"bash -c '{command}; exec bash'"]
+                elif self.terminal_cmd == "alacritty":
+                    cmd = ["alacritty", "-e", "bash", "-c", f"{command}; exec bash"]
+                elif self.terminal_cmd == "kitty":
+                    cmd = ["kitty", "bash", "-c", f"{command}; exec bash"]
+                else:
+                    # Default fallback
+                    cmd = ["gnome-terminal", "--", "bash", "-c", f"{command}; exec bash"]
+                
+                process = subprocess.Popen(cmd)
+                self.processes.append(process)
+                print(f"Node {node_id} terminal started")
+                return True
         except FileNotFoundError:
-            print(f"Terminal emulator {self.terminal_cmd} not found")
-            return False
+            print(f"Terminal emulator {self.terminal_cmd} not found, falling back to headless mode")
+            # Fallback to headless mode
+            process = subprocess.Popen(
+                ["bash", "-c", command],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=current_dir
+            )
+            self.processes.append(process)
+            print(f"Node {node_id} started in headless mode (fallback)")
+            return True
         except Exception as e:
-            print(f"Error starting node {node_id} terminal: {e}")
+            print(f"Error starting node {node_id}: {e}")
             return False
     
     def signal_handler(self, signum, frame):
@@ -374,8 +426,8 @@ class PBFTExperiment:
             self.clean_ports()
             
             # 3. Build the project (includes cleaning logs)
-            if not self.build_project():
-                return False
+            # if not self.build_project():
+            #     return False
             
             # 4. Download CSV file after build (must succeed)
             if not self.download_csv_file():
@@ -420,21 +472,25 @@ class PBFTExperiment:
 
 def main():
     """Main function"""
-    # Get node count from command line or use default
-    node_count = 4
-    if len(sys.argv) > 1:
-        try:
-            node_count = int(sys.argv[1])
-            if node_count < 1 or node_count > 10:
-                print("Node count must be between 1 and 10")
-                sys.exit(1)
-        except ValueError:
-            print("Invalid node count. Please provide a number.")
-            sys.exit(1)
+    import argparse
     
-    print(f"Starting PBFT experiment with {node_count} nodes")
+    parser = argparse.ArgumentParser(description='PBFT Local Experiment Script for Linux')
+    parser.add_argument('node_count', type=int, nargs='?', default=4,
+                       help='Number of nodes to start (default: 4)')
+    parser.add_argument('--headless', action='store_true',
+                       help='Run in headless mode (no GUI terminals)')
     
-    experiment = PBFTExperiment(node_count)
+    args = parser.parse_args()
+    
+    if args.node_count < 1 or args.node_count > 10:
+        print("Node count must be between 1 and 10")
+        sys.exit(1)
+    
+    print(f"Starting PBFT experiment with {args.node_count} nodes")
+    if args.headless:
+        print("Running in headless mode")
+    
+    experiment = PBFTExperiment(args.node_count, headless=args.headless)
     success = experiment.run_experiment()
     
     if success:

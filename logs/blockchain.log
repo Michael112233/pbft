@@ -1,21 +1,21 @@
-[INFO] 2025/09/21 08:31:38 blockchain initialized
-[INFO] 2025/09/21 08:31:38 add block 60021, who committed: [localhost:28200], who proposed: localhost:28000
-[INFO] 2025/09/21 08:31:38 current committed: [localhost:28200 localhost:28000] to block 60021
-[INFO] 2025/09/21 08:31:38 current committed: [localhost:28200 localhost:28000 localhost:28300] to block 60021
-[INFO] 2025/09/21 08:31:38 current committed: [localhost:28200 localhost:28000 localhost:28300 localhost:28100] to block 60021
-[INFO] 2025/09/21 08:31:39 add block 60022, who committed: [localhost:28000], who proposed: localhost:28000
-[INFO] 2025/09/21 08:31:39 current committed: [localhost:28000 localhost:28300] to block 60022
-[INFO] 2025/09/21 08:31:39 current committed: [localhost:28000 localhost:28300 localhost:28100] to block 60022
-[INFO] 2025/09/21 08:31:39 current committed: [localhost:28000 localhost:28300 localhost:28100 localhost:28200] to block 60022
-[INFO] 2025/09/21 08:31:40 add block 60023, who committed: [localhost:28200], who proposed: localhost:28000
-[INFO] 2025/09/21 08:31:40 current committed: [localhost:28200 localhost:28000] to block 60023
-[INFO] 2025/09/21 08:31:40 current committed: [localhost:28200 localhost:28000 localhost:28100] to block 60023
-[INFO] 2025/09/21 08:31:40 current committed: [localhost:28200 localhost:28000 localhost:28100 localhost:28300] to block 60023
-[INFO] 2025/09/21 08:31:41 add block 60024, who committed: [localhost:28200], who proposed: localhost:28000
-[INFO] 2025/09/21 08:31:41 current committed: [localhost:28200 localhost:28000] to block 60024
-[INFO] 2025/09/21 08:31:41 current committed: [localhost:28200 localhost:28000 localhost:28100] to block 60024
-[INFO] 2025/09/21 08:31:41 current committed: [localhost:28200 localhost:28000 localhost:28100 localhost:28300] to block 60024
-[INFO] 2025/09/21 08:31:42 add block 60025, who committed: [localhost:28000], who proposed: localhost:28000
-[INFO] 2025/09/21 08:31:42 current committed: [localhost:28000 localhost:28200] to block 60025
-[INFO] 2025/09/21 08:31:42 current committed: [localhost:28000 localhost:28200 localhost:28100] to block 60025
-[INFO] 2025/09/21 08:31:42 current committed: [localhost:28000 localhost:28200 localhost:28100 localhost:28300] to block 60025
+[INFO] 2025/09/21 16:57:12 blockchain initialized
+[INFO] 2025/09/21 16:57:13 add block 21328, who committed: [localhost:28100], who proposed: localhost:28000
+[INFO] 2025/09/21 16:57:13 current committed: [localhost:28100 localhost:28200] to block 21328
+[INFO] 2025/09/21 16:57:13 current committed: [localhost:28100 localhost:28200 localhost:28000] to block 21328
+[INFO] 2025/09/21 16:57:13 current committed: [localhost:28100 localhost:28200 localhost:28000 localhost:28300] to block 21328
+[INFO] 2025/09/21 16:57:14 add block 21329, who committed: [localhost:28100], who proposed: localhost:28000
+[INFO] 2025/09/21 16:57:14 current committed: [localhost:28100 localhost:28300] to block 21329
+[INFO] 2025/09/21 16:57:14 current committed: [localhost:28100 localhost:28300 localhost:28200] to block 21329
+[INFO] 2025/09/21 16:57:14 current committed: [localhost:28100 localhost:28300 localhost:28200 localhost:28000] to block 21329
+[INFO] 2025/09/21 16:57:15 add block 21330, who committed: [localhost:28200], who proposed: localhost:28000
+[INFO] 2025/09/21 16:57:15 current committed: [localhost:28200 localhost:28300] to block 21330
+[INFO] 2025/09/21 16:57:15 current committed: [localhost:28200 localhost:28300 localhost:28000] to block 21330
+[INFO] 2025/09/21 16:57:15 current committed: [localhost:28200 localhost:28300 localhost:28000 localhost:28100] to block 21330
+[INFO] 2025/09/21 16:57:16 add block 21331, who committed: [localhost:28000], who proposed: localhost:28000
+[INFO] 2025/09/21 16:57:16 current committed: [localhost:28000 localhost:28200] to block 21331
+[INFO] 2025/09/21 16:57:16 current committed: [localhost:28000 localhost:28200 localhost:28300] to block 21331
+[INFO] 2025/09/21 16:57:16 current committed: [localhost:28000 localhost:28200 localhost:28300 localhost:28100] to block 21331
+[INFO] 2025/09/21 16:57:17 add block 21332, who committed: [localhost:28200], who proposed: localhost:28000
+[INFO] 2025/09/21 16:57:17 current committed: [localhost:28200 localhost:28100] to block 21332
+[INFO] 2025/09/21 16:57:17 current committed: [localhost:28200 localhost:28100 localhost:28000] to block 21332
+[INFO] 2025/09/21 16:57:17 current committed: [localhost:28200 localhost:28100 localhost:28000 localhost:28300] to block 21332
