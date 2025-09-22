@@ -1,5 +1,15 @@
 #!/bin/bash
 
+echo "Closing any open terminal emulator windows..."
+terminals=(gnome-terminal konsole xterm terminator xfce4-terminal mate-terminal lxterminal alacritty kitty)
+for term in "${terminals[@]}"; do
+  if pgrep -f "$term" >/dev/null 2>&1; then
+    echo "Killing $term processes"
+    pkill -f "$term" >/dev/null 2>&1 || true
+  fi
+done
+echo "Terminal emulators closed (if any)."
+
 echo "Cleaning up log files..."
 rm -f logs/*.log
 echo "Log files cleaned up."
