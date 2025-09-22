@@ -209,8 +209,9 @@ func (hub *ClientMessageHub) sendRequestMessage(msg interface{}) {
 	conn, ok := conns2Node.Get(addr)
 	if !ok {
 		conn, err = hub.Dial(addr)
-		if err != nil {
+		if err != nil || conn == nil {
 			hub.log.Error(fmt.Sprintf("Dial Error. Send Request Message. caller: %s targetAddr: %s", data.From, addr))
+			return
 		}
 		conns2Node.Add(addr, conn)
 	}
