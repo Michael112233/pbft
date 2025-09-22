@@ -3,6 +3,7 @@ package core
 import (
 	"sync"
 
+	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/logger"
 	"github.com/michael112233/pbft/result"
 )
@@ -10,18 +11,22 @@ import (
 type Blockchain struct {
 	Blocks []*Block
 
-	logger   *logger.Logger
-	addMutex sync.Mutex
+	logger          *logger.Logger
+	addMutex        sync.Mutex
+	cfg             *config.Config
+	FinishInjecting sync.WaitGroup
 }
 
 var Chain *Blockchain
 
-func NewBlockchain() {
+func NewBlockchain(cfg *config.Config) {
 	log := logger.NewLogger(0, "blockchain")
 	log.Info("blockchain initialized")
 	Chain = &Blockchain{
-		Blocks: make([]*Block, 0),
-		logger: log,
+		Blocks:          make([]*Block, 0),
+		logger:          log,
+		cfg:             cfg,
+		FinishInjecting: sync.WaitGroup{},
 	}
 }
 
@@ -36,6 +41,10 @@ func (b *Blockchain) AddBlock(block *Block) {
 		b.Blocks = append(b.Blocks, block)
 		b.logger.Info("add block %d, who committed: %v, who proposed: %s", block.SequenceNumber, block.committedNode, block.proposedLeader)
 		result.AddCommittedTransactionNum(int64(len(block.Transactions)))
+		if b.cfg.MaxTxNum == result.GetCommittedTransactionNum() {
+			b.logger.Info("finish injecting: %d=%d", b.cfg.MaxTxNum, result.GetCommittedTransactionNum())
+			b.FinishInjecting.Done()
+		}
 	}
 }
 

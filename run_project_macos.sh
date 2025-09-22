@@ -4,6 +4,21 @@ echo "Cleaning up log files..."
 rm -f logs/*.log
 echo "Log files cleaned up."
 
+echo "Closing all Terminal windows..."
+osascript -e 'tell application "Terminal" to close every window'
+echo "All Terminal windows closed."
+
+echo "Freeing required ports..."
+ports=(20000 28000 28100 28200 28300)
+for p in "${ports[@]}"; do
+  pids=$(lsof -ti :$p 2>/dev/null || true)
+  if [ -n "$pids" ]; then
+    echo "Killing processes on port $p: $pids"
+    kill -9 $pids 2>/dev/null || true
+  fi
+done
+echo "Ports freed."
+
 echo "Installing Python dependencies..."
 pip3 install --break-system-packages requests
 

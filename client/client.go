@@ -16,7 +16,7 @@ type Client struct {
 	txs         []*core.Transaction
 	currentView int64
 
-	wait sync.WaitGroup
+	WaitGroup sync.WaitGroup
 
 	leaderElection *leader_election.LeaderElection
 	log            *logger.Logger
@@ -29,7 +29,7 @@ func NewClient(addr string, config *config.Config) *Client {
 		currentView: 0,
 		config:      config,
 
-		wait: sync.WaitGroup{},
+		WaitGroup: sync.WaitGroup{},
 
 		leaderElection: leader_election.NewLeaderElection(config),
 		log:            logger.NewLogger(0, "client"),
@@ -45,8 +45,7 @@ func (c *Client) Start() {
 }
 
 func (c *Client) Stop() {
-	// TODO: implement
-	c.wait.Wait()
+	c.WaitGroup.Wait()
 	c.log.Debug("client stopped")
 }
 

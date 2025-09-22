@@ -36,6 +36,10 @@ func AddCommittedTransactionNum(n int64) {
 	committedTransactionNum.Add(n)
 }
 
+func GetCommittedTransactionNum() int64 {
+	return committedTransactionNum.Load()
+}
+
 func PrintResult() {
 	log.Info("Result:")
 	log.Info("TPS: %f\n", CalculateTPS())

@@ -9,9 +9,9 @@ import (
 
 func (c *Client) InjectTxs() {
 	result.SetStartTime(time.Now())
-	c.wait.Add(1)
+	c.WaitGroup.Add(1)
 	go func() {
-		defer c.wait.Done()
+		defer c.WaitGroup.Done()
 		var injectTxs []*core.Transaction
 		for i := int64(0); (i+1)*c.injectSpeed <= int64(len(c.txs)); i++ {
 			injectTxs = c.txs[i*c.injectSpeed : (i+1)*c.injectSpeed]

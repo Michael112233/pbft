@@ -7,11 +7,12 @@ import (
 	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/data"
+	"github.com/michael112233/pbft/logger"
 	"github.com/michael112233/pbft/node"
 	"github.com/michael112233/pbft/result"
 )
 
-var Blockchain *core.Blockchain
+var log = logger.NewLogger(0, "controller")
 
 func runNode(nodeID int64, cfg *config.Config) {
 	Node := node.NewNode(nodeID, cfg)
@@ -19,17 +20,27 @@ func runNode(nodeID int64, cfg *config.Config) {
 
 	Node.Start()
 
-	time.Sleep(30 * time.Second)
+	time.Sleep(45 * time.Second)
 }
 
 func runClient(cfg *config.Config) {
-	defer result.PrintResult()
 	// Init a blockchain
-	core.NewBlockchain()
+	core.NewBlockchain(cfg)
+	core.Chain.FinishInjecting.Add(1)
 
 	// Init a client
 	client := client.NewClient(config.ClientAddr, cfg)
-	defer client.Stop()
+
+	defer func() {
+		log.Info("111")
+		core.Chain.FinishInjecting.Wait()
+
+		log.Info("222")
+		result.PrintResult()
+
+		log.Info("333")
+		client.Stop()
+	}()
 
 	// Get the transaction details
 	txs := data.ReadData(cfg.MaxTxNum)
