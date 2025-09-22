@@ -1,131 +1,128 @@
-[INFO] 2025/09/21 16:57:08 node started
-[INFO] 2025/09/21 16:57:08 start listening on localhost:28100
-[INFO] 2025/09/21 16:57:13 Received preprepare message from localhost:28000, sequence number 21328
-[INFO] 2025/09/21 16:57:13 Send prepare message to localhost:28000
-[INFO] 2025/09/21 16:57:13 Send prepare message to localhost:28200
-[INFO] 2025/09/21 16:57:13 Send prepare message to localhost:28300
-[INFO] 2025/09/21 16:57:13 Received prepare message from localhost:28200, sequence number 21328
-[INFO] 2025/09/21 16:57:13 Prepare message count for sequence 21328 is now 1
-[INFO] 2025/09/21 16:57:13 After receiving from localhost:28200, current prepare messages number is 1
-[INFO] 2025/09/21 16:57:13 Received commit message from localhost:28000, sequence number 21328
-[INFO] 2025/09/21 16:57:13 Commit message count for sequence 21328 is now 1
-[INFO] 2025/09/21 16:57:13 After receiving from localhost:28000, current prepare messages number is 1
-[INFO] 2025/09/21 16:57:13 Received commit message from localhost:28300, sequence number 21328
-[INFO] 2025/09/21 16:57:13 Commit message count for sequence 21328 is now 2
-[INFO] 2025/09/21 16:57:13 After receiving from localhost:28300, current prepare messages number is 1
-[INFO] 2025/09/21 16:57:13 Received 1 prepare messages, enough to commit the block.
-[INFO] 2025/09/21 16:57:13 Send reply message to localhost:20000
-[INFO] 2025/09/21 16:57:13 Received prepare message from localhost:28300, sequence number 21328
-[INFO] 2025/09/21 16:57:13 Prepare message count for sequence 21328 is now 2
-[INFO] 2025/09/21 16:57:13 After receiving from localhost:28300, current prepare messages number is 2
-[INFO] 2025/09/21 16:57:13 Received 2 prepare messages, enough to commit the block.
-[INFO] 2025/09/21 16:57:13 Send commit message to localhost:28000
-[INFO] 2025/09/21 16:57:13 Send commit message to localhost:28200
-[INFO] 2025/09/21 16:57:13 Send commit message to localhost:28300
-[INFO] 2025/09/21 16:57:13 Received commit message from localhost:28200, sequence number 21328
-[INFO] 2025/09/21 16:57:13 Commit message count for sequence 21328 is now 3
-[INFO] 2025/09/21 16:57:13 After receiving from localhost:28200, current prepare messages number is 2
-[INFO] 2025/09/21 16:57:14 Received preprepare message from localhost:28000, sequence number 21329
-[INFO] 2025/09/21 16:57:14 Send prepare message to localhost:28200
-[INFO] 2025/09/21 16:57:14 Send prepare message to localhost:28300
-[INFO] 2025/09/21 16:57:14 Send prepare message to localhost:28000
-[INFO] 2025/09/21 16:57:14 Received prepare message from localhost:28300, sequence number 21329
-[INFO] 2025/09/21 16:57:14 Prepare message count for sequence 21329 is now 1
-[INFO] 2025/09/21 16:57:14 After receiving from localhost:28300, current prepare messages number is 1
-[INFO] 2025/09/21 16:57:14 Received prepare message from localhost:28200, sequence number 21329
-[INFO] 2025/09/21 16:57:14 Prepare message count for sequence 21329 is now 2
-[INFO] 2025/09/21 16:57:14 After receiving from localhost:28200, current prepare messages number is 2
-[INFO] 2025/09/21 16:57:14 Received 2 prepare messages, enough to commit the block.
-[INFO] 2025/09/21 16:57:14 Send commit message to localhost:28000
-[INFO] 2025/09/21 16:57:14 Send commit message to localhost:28200
-[INFO] 2025/09/21 16:57:14 Send commit message to localhost:28300
-[INFO] 2025/09/21 16:57:14 Received commit message from localhost:28300, sequence number 21329
-[INFO] 2025/09/21 16:57:14 Commit message count for sequence 21329 is now 1
-[INFO] 2025/09/21 16:57:14 After receiving from localhost:28300, current prepare messages number is 2
-[INFO] 2025/09/21 16:57:14 Received commit message from localhost:28200, sequence number 21329
-[INFO] 2025/09/21 16:57:14 Commit message count for sequence 21329 is now 2
-[INFO] 2025/09/21 16:57:14 After receiving from localhost:28200, current prepare messages number is 2
-[INFO] 2025/09/21 16:57:14 Received 2 prepare messages, enough to commit the block.
-[INFO] 2025/09/21 16:57:14 Send reply message to localhost:20000
-[INFO] 2025/09/21 16:57:14 Received commit message from localhost:28000, sequence number 21329
-[INFO] 2025/09/21 16:57:14 Commit message count for sequence 21329 is now 3
-[INFO] 2025/09/21 16:57:14 After receiving from localhost:28000, current prepare messages number is 2
-[INFO] 2025/09/21 16:57:15 Received preprepare message from localhost:28000, sequence number 21330
-[INFO] 2025/09/21 16:57:15 Send prepare message to localhost:28000
-[INFO] 2025/09/21 16:57:15 Send prepare message to localhost:28200
-[INFO] 2025/09/21 16:57:15 Send prepare message to localhost:28300
-[INFO] 2025/09/21 16:57:15 Received prepare message from localhost:28200, sequence number 21330
-[INFO] 2025/09/21 16:57:15 Prepare message count for sequence 21330 is now 1
-[INFO] 2025/09/21 16:57:15 After receiving from localhost:28200, current prepare messages number is 1
-[INFO] 2025/09/21 16:57:15 Received prepare message from localhost:28300, sequence number 21330
-[INFO] 2025/09/21 16:57:15 Prepare message count for sequence 21330 is now 2
-[INFO] 2025/09/21 16:57:15 After receiving from localhost:28300, current prepare messages number is 2
-[INFO] 2025/09/21 16:57:15 Received 2 prepare messages, enough to commit the block.
-[INFO] 2025/09/21 16:57:15 Send commit message to localhost:28000
-[INFO] 2025/09/21 16:57:15 Received commit message from localhost:28000, sequence number 21330
-[INFO] 2025/09/21 16:57:15 Commit message count for sequence 21330 is now 1
-[INFO] 2025/09/21 16:57:15 After receiving from localhost:28000, current prepare messages number is 2
-[INFO] 2025/09/21 16:57:15 Send commit message to localhost:28200
-[INFO] 2025/09/21 16:57:15 Send commit message to localhost:28300
-[INFO] 2025/09/21 16:57:15 Received commit message from localhost:28300, sequence number 21330
-[INFO] 2025/09/21 16:57:15 Commit message count for sequence 21330 is now 2
-[INFO] 2025/09/21 16:57:15 After receiving from localhost:28300, current prepare messages number is 2
-[INFO] 2025/09/21 16:57:15 Received 2 prepare messages, enough to commit the block.
-[INFO] 2025/09/21 16:57:15 Send reply message to localhost:20000
-[INFO] 2025/09/21 16:57:15 Received commit message from localhost:28200, sequence number 21330
-[INFO] 2025/09/21 16:57:15 Commit message count for sequence 21330 is now 3
-[INFO] 2025/09/21 16:57:15 After receiving from localhost:28200, current prepare messages number is 2
-[INFO] 2025/09/21 16:57:16 Received preprepare message from localhost:28000, sequence number 21331
-[INFO] 2025/09/21 16:57:16 Send prepare message to localhost:28000
-[INFO] 2025/09/21 16:57:16 Send prepare message to localhost:28200
-[INFO] 2025/09/21 16:57:16 Send prepare message to localhost:28300
-[INFO] 2025/09/21 16:57:16 Received prepare message from localhost:28200, sequence number 21331
-[INFO] 2025/09/21 16:57:16 Prepare message count for sequence 21331 is now 1
-[INFO] 2025/09/21 16:57:16 After receiving from localhost:28200, current prepare messages number is 1
-[INFO] 2025/09/21 16:57:16 Received commit message from localhost:28000, sequence number 21331
-[INFO] 2025/09/21 16:57:16 Commit message count for sequence 21331 is now 1
-[INFO] 2025/09/21 16:57:16 After receiving from localhost:28000, current prepare messages number is 1
-[INFO] 2025/09/21 16:57:16 Received prepare message from localhost:28300, sequence number 21331
-[INFO] 2025/09/21 16:57:16 Prepare message count for sequence 21331 is now 2
-[INFO] 2025/09/21 16:57:16 After receiving from localhost:28300, current prepare messages number is 2
-[INFO] 2025/09/21 16:57:16 Received 2 prepare messages, enough to commit the block.
-[INFO] 2025/09/21 16:57:16 Send commit message to localhost:28300
-[INFO] 2025/09/21 16:57:16 Send commit message to localhost:28000
-[INFO] 2025/09/21 16:57:16 Send commit message to localhost:28200
-[INFO] 2025/09/21 16:57:16 Received commit message from localhost:28300, sequence number 21331
-[INFO] 2025/09/21 16:57:16 Commit message count for sequence 21331 is now 2
-[INFO] 2025/09/21 16:57:16 After receiving from localhost:28300, current prepare messages number is 2
-[INFO] 2025/09/21 16:57:16 Received 2 prepare messages, enough to commit the block.
-[INFO] 2025/09/21 16:57:16 Send reply message to localhost:20000
-[INFO] 2025/09/21 16:57:16 Received commit message from localhost:28200, sequence number 21331
-[INFO] 2025/09/21 16:57:16 Commit message count for sequence 21331 is now 3
-[INFO] 2025/09/21 16:57:16 After receiving from localhost:28200, current prepare messages number is 2
-[INFO] 2025/09/21 16:57:16 Received commit message from localhost:28300, sequence number 21331
-[INFO] 2025/09/21 16:57:16 Commit message count for sequence 21331 is now 4
-[INFO] 2025/09/21 16:57:16 After receiving from localhost:28300, current prepare messages number is 2
-[INFO] 2025/09/21 16:57:17 Received preprepare message from localhost:28000, sequence number 21332
-[INFO] 2025/09/21 16:57:17 Send prepare message to localhost:28000
-[INFO] 2025/09/21 16:57:17 Send prepare message to localhost:28200
-[INFO] 2025/09/21 16:57:17 Send prepare message to localhost:28300
-[INFO] 2025/09/21 16:57:17 Received prepare message from localhost:28200, sequence number 21332
-[INFO] 2025/09/21 16:57:17 Prepare message count for sequence 21332 is now 1
-[INFO] 2025/09/21 16:57:17 After receiving from localhost:28200, current prepare messages number is 1
-[INFO] 2025/09/21 16:57:17 Received commit message from localhost:28000, sequence number 21332
-[INFO] 2025/09/21 16:57:17 Commit message count for sequence 21332 is now 1
-[INFO] 2025/09/21 16:57:17 After receiving from localhost:28000, current prepare messages number is 1
-[INFO] 2025/09/21 16:57:17 Received prepare message from localhost:28300, sequence number 21332
-[INFO] 2025/09/21 16:57:17 Prepare message count for sequence 21332 is now 2
-[INFO] 2025/09/21 16:57:17 After receiving from localhost:28300, current prepare messages number is 2
-[INFO] 2025/09/21 16:57:17 Received 2 prepare messages, enough to commit the block.
-[INFO] 2025/09/21 16:57:17 Send commit message to localhost:28300
-[INFO] 2025/09/21 16:57:17 Received commit message from localhost:28200, sequence number 21332
-[INFO] 2025/09/21 16:57:17 Commit message count for sequence 21332 is now 2
-[INFO] 2025/09/21 16:57:17 After receiving from localhost:28200, current prepare messages number is 2
-[INFO] 2025/09/21 16:57:17 Received 2 prepare messages, enough to commit the block.
-[INFO] 2025/09/21 16:57:17 Send reply message to localhost:20000
-[INFO] 2025/09/21 16:57:17 Send commit message to localhost:28000
-[INFO] 2025/09/21 16:57:17 Send commit message to localhost:28200
-[INFO] 2025/09/21 16:57:17 Received commit message from localhost:28300, sequence number 21332
-[INFO] 2025/09/21 16:57:17 Commit message count for sequence 21332 is now 3
-[INFO] 2025/09/21 16:57:17 After receiving from localhost:28300, current prepare messages number is 2
-[INFO] 2025/09/21 16:57:38 node stopped
+[INFO] 2025/09/22 14:06:47 node started
+[INFO] 2025/09/22 14:06:47 start listening on localhost:28100
+[INFO] 2025/09/22 14:06:47 Received preprepare message from localhost:28000, sequence number 16976
+[INFO] 2025/09/22 14:06:47 Send prepare message to localhost:28300
+[INFO] 2025/09/22 14:06:47 Send prepare message to localhost:28000
+[INFO] 2025/09/22 14:06:47 Send prepare message to localhost:28200
+[INFO] 2025/09/22 14:06:47 Received prepare message from localhost:28200, sequence number 16976
+[INFO] 2025/09/22 14:06:47 Prepare message count for sequence 16976 is now 1
+[INFO] 2025/09/22 14:06:47 After receiving from localhost:28200, current prepare messages number is 1
+[INFO] 2025/09/22 14:06:47 Received commit message from localhost:28000, sequence number 16976
+[INFO] 2025/09/22 14:06:47 Commit message count for sequence 16976 is now 1
+[INFO] 2025/09/22 14:06:47 After receiving from localhost:28000, current prepare messages number is 1
+[INFO] 2025/09/22 14:06:47 Received prepare message from localhost:28300, sequence number 16976
+[INFO] 2025/09/22 14:06:47 Prepare message count for sequence 16976 is now 2
+[INFO] 2025/09/22 14:06:47 After receiving from localhost:28300, current prepare messages number is 2
+[INFO] 2025/09/22 14:06:47 Received 2 prepare messages, enough to commit the block.
+[INFO] 2025/09/22 14:06:47 Send commit message to localhost:28000
+[INFO] 2025/09/22 14:06:47 Received commit message from localhost:28200, sequence number 16976
+[INFO] 2025/09/22 14:06:47 Commit message count for sequence 16976 is now 2
+[INFO] 2025/09/22 14:06:47 After receiving from localhost:28200, current prepare messages number is 2
+[INFO] 2025/09/22 14:06:47 Received 2 prepare messages, enough to commit the block.
+[INFO] 2025/09/22 14:06:47 Send reply message to localhost:20000
+[INFO] 2025/09/22 14:06:47 Send commit message to localhost:28200
+[INFO] 2025/09/22 14:06:47 Send commit message to localhost:28300
+[INFO] 2025/09/22 14:06:47 Received commit message from localhost:28300, sequence number 16976
+[INFO] 2025/09/22 14:06:47 Commit message count for sequence 16976 is now 3
+[INFO] 2025/09/22 14:06:47 After receiving from localhost:28300, current prepare messages number is 2
+[INFO] 2025/09/22 14:06:48 Received preprepare message from localhost:28000, sequence number 16977
+[INFO] 2025/09/22 14:06:48 Send prepare message to localhost:28000
+[INFO] 2025/09/22 14:06:48 Send prepare message to localhost:28200
+[INFO] 2025/09/22 14:06:48 Send prepare message to localhost:28300
+[INFO] 2025/09/22 14:06:48 Received prepare message from localhost:28200, sequence number 16977
+[INFO] 2025/09/22 14:06:48 Prepare message count for sequence 16977 is now 1
+[INFO] 2025/09/22 14:06:48 After receiving from localhost:28200, current prepare messages number is 1
+[INFO] 2025/09/22 14:06:48 Received prepare message from localhost:28300, sequence number 16977
+[INFO] 2025/09/22 14:06:48 Prepare message count for sequence 16977 is now 2
+[INFO] 2025/09/22 14:06:48 After receiving from localhost:28300, current prepare messages number is 2
+[INFO] 2025/09/22 14:06:48 Received 2 prepare messages, enough to commit the block.
+[INFO] 2025/09/22 14:06:48 Send commit message to localhost:28200
+[INFO] 2025/09/22 14:06:48 Received commit message from localhost:28000, sequence number 16977
+[INFO] 2025/09/22 14:06:48 Commit message count for sequence 16977 is now 1
+[INFO] 2025/09/22 14:06:48 After receiving from localhost:28000, current prepare messages number is 2
+[INFO] 2025/09/22 14:06:48 Send commit message to localhost:28300
+[INFO] 2025/09/22 14:06:48 Send commit message to localhost:28000
+[INFO] 2025/09/22 14:06:48 Received commit message from localhost:28300, sequence number 16977
+[INFO] 2025/09/22 14:06:48 Commit message count for sequence 16977 is now 2
+[INFO] 2025/09/22 14:06:48 After receiving from localhost:28300, current prepare messages number is 2
+[INFO] 2025/09/22 14:06:48 Received 2 prepare messages, enough to commit the block.
+[INFO] 2025/09/22 14:06:48 Send reply message to localhost:20000
+[INFO] 2025/09/22 14:06:48 Received commit message from localhost:28200, sequence number 16977
+[INFO] 2025/09/22 14:06:48 Commit message count for sequence 16977 is now 3
+[INFO] 2025/09/22 14:06:48 After receiving from localhost:28200, current prepare messages number is 2
+[INFO] 2025/09/22 14:06:49 Received preprepare message from localhost:28000, sequence number 16978
+[INFO] 2025/09/22 14:06:49 Send prepare message to localhost:28000
+[INFO] 2025/09/22 14:06:49 Send prepare message to localhost:28200
+[INFO] 2025/09/22 14:06:49 Send prepare message to localhost:28300
+[INFO] 2025/09/22 14:06:49 Received prepare message from localhost:28300, sequence number 16978
+[INFO] 2025/09/22 14:06:49 Prepare message count for sequence 16978 is now 1
+[INFO] 2025/09/22 14:06:49 After receiving from localhost:28300, current prepare messages number is 1
+[INFO] 2025/09/22 14:06:49 Received prepare message from localhost:28200, sequence number 16978
+[INFO] 2025/09/22 14:06:49 Prepare message count for sequence 16978 is now 2
+[INFO] 2025/09/22 14:06:49 After receiving from localhost:28200, current prepare messages number is 2
+[INFO] 2025/09/22 14:06:49 Received 2 prepare messages, enough to commit the block.
+[INFO] 2025/09/22 14:06:49 Send commit message to localhost:28000
+[INFO] 2025/09/22 14:06:49 Send commit message to localhost:28200
+[INFO] 2025/09/22 14:06:49 Send commit message to localhost:28300
+[INFO] 2025/09/22 14:06:49 Received commit message from localhost:28300, sequence number 16978
+[INFO] 2025/09/22 14:06:49 Commit message count for sequence 16978 is now 1
+[INFO] 2025/09/22 14:06:49 After receiving from localhost:28300, current prepare messages number is 2
+[INFO] 2025/09/22 14:06:49 Received commit message from localhost:28200, sequence number 16978
+[INFO] 2025/09/22 14:06:49 Commit message count for sequence 16978 is now 2
+[INFO] 2025/09/22 14:06:49 After receiving from localhost:28200, current prepare messages number is 2
+[INFO] 2025/09/22 14:06:49 Received 2 prepare messages, enough to commit the block.
+[INFO] 2025/09/22 14:06:49 Send reply message to localhost:20000
+[INFO] 2025/09/22 14:06:49 Received commit message from localhost:28000, sequence number 16978
+[INFO] 2025/09/22 14:06:49 Commit message count for sequence 16978 is now 3
+[INFO] 2025/09/22 14:06:49 After receiving from localhost:28000, current prepare messages number is 2
+[INFO] 2025/09/22 14:06:50 Received preprepare message from localhost:28000, sequence number 16979
+[INFO] 2025/09/22 14:06:50 Send prepare message to localhost:28000
+[INFO] 2025/09/22 14:06:50 Send prepare message to localhost:28200
+[INFO] 2025/09/22 14:06:50 Send prepare message to localhost:28300
+[INFO] 2025/09/22 14:06:50 Received prepare message from localhost:28300, sequence number 16979
+[INFO] 2025/09/22 14:06:50 Prepare message count for sequence 16979 is now 1
+[INFO] 2025/09/22 14:06:50 After receiving from localhost:28300, current prepare messages number is 1
+[INFO] 2025/09/22 14:06:50 Received prepare message from localhost:28200, sequence number 16979
+[INFO] 2025/09/22 14:06:50 Prepare message count for sequence 16979 is now 2
+[INFO] 2025/09/22 14:06:50 After receiving from localhost:28200, current prepare messages number is 2
+[INFO] 2025/09/22 14:06:50 Received 2 prepare messages, enough to commit the block.
+[INFO] 2025/09/22 14:06:50 Send commit message to localhost:28200
+[INFO] 2025/09/22 14:06:50 Send commit message to localhost:28300
+[INFO] 2025/09/22 14:06:50 Received commit message from localhost:28000, sequence number 16979
+[INFO] 2025/09/22 14:06:50 Commit message count for sequence 16979 is now 1
+[INFO] 2025/09/22 14:06:50 After receiving from localhost:28000, current prepare messages number is 2
+[INFO] 2025/09/22 14:06:50 Send commit message to localhost:28000
+[INFO] 2025/09/22 14:06:50 Received commit message from localhost:28300, sequence number 16979
+[INFO] 2025/09/22 14:06:50 Commit message count for sequence 16979 is now 2
+[INFO] 2025/09/22 14:06:50 After receiving from localhost:28300, current prepare messages number is 2
+[INFO] 2025/09/22 14:06:50 Received 2 prepare messages, enough to commit the block.
+[INFO] 2025/09/22 14:06:50 Send reply message to localhost:20000
+[INFO] 2025/09/22 14:06:50 Received commit message from localhost:28200, sequence number 16979
+[INFO] 2025/09/22 14:06:50 Commit message count for sequence 16979 is now 3
+[INFO] 2025/09/22 14:06:50 After receiving from localhost:28200, current prepare messages number is 2
+[INFO] 2025/09/22 14:06:51 Received preprepare message from localhost:28000, sequence number 16980
+[INFO] 2025/09/22 14:06:51 Send prepare message to localhost:28200
+[INFO] 2025/09/22 14:06:51 Send prepare message to localhost:28300
+[INFO] 2025/09/22 14:06:51 Send prepare message to localhost:28000
+[INFO] 2025/09/22 14:06:51 Received prepare message from localhost:28300, sequence number 16980
+[INFO] 2025/09/22 14:06:51 Prepare message count for sequence 16980 is now 1
+[INFO] 2025/09/22 14:06:51 After receiving from localhost:28300, current prepare messages number is 1
+[INFO] 2025/09/22 14:06:51 Received prepare message from localhost:28200, sequence number 16980
+[INFO] 2025/09/22 14:06:51 Prepare message count for sequence 16980 is now 2
+[INFO] 2025/09/22 14:06:51 After receiving from localhost:28200, current prepare messages number is 2
+[INFO] 2025/09/22 14:06:51 Received 2 prepare messages, enough to commit the block.
+[INFO] 2025/09/22 14:06:51 Send commit message to localhost:28000
+[INFO] 2025/09/22 14:06:51 Send commit message to localhost:28200
+[INFO] 2025/09/22 14:06:51 Send commit message to localhost:28300
+[INFO] 2025/09/22 14:06:51 Received commit message from localhost:28200, sequence number 16980
+[INFO] 2025/09/22 14:06:51 Commit message count for sequence 16980 is now 1
+[INFO] 2025/09/22 14:06:51 After receiving from localhost:28200, current prepare messages number is 2
+[INFO] 2025/09/22 14:06:51 Received commit message from localhost:28000, sequence number 16980
+[INFO] 2025/09/22 14:06:51 Commit message count for sequence 16980 is now 2
+[INFO] 2025/09/22 14:06:51 After receiving from localhost:28000, current prepare messages number is 2
+[INFO] 2025/09/22 14:06:51 Received 2 prepare messages, enough to commit the block.
+[INFO] 2025/09/22 14:06:51 Send reply message to localhost:20000
+[INFO] 2025/09/22 14:06:51 Received commit message from localhost:28300, sequence number 16980
+[INFO] 2025/09/22 14:06:51 Commit message count for sequence 16980 is now 3
+[INFO] 2025/09/22 14:06:51 After receiving from localhost:28300, current prepare messages number is 2
+[INFO] 2025/09/22 14:07:17 node stopped
