@@ -24,6 +24,8 @@ func runNode(nodeID int64, cfg *config.Config) {
 }
 
 func runClient(cfg *config.Config) {
+	defer result.PrintResult()
+
 	// Init a blockchain
 	core.NewBlockchain(cfg)
 	core.Chain.FinishInjecting.Add(1)
@@ -31,16 +33,7 @@ func runClient(cfg *config.Config) {
 	// Init a client
 	client := client.NewClient(config.ClientAddr, cfg)
 
-	defer func() {
-		log.Info("111")
-		core.Chain.FinishInjecting.Wait()
-
-		log.Info("222")
-		result.PrintResult()
-
-		log.Info("333")
-		client.Stop()
-	}()
+	defer client.Stop()
 
 	// Get the transaction details
 	txs := data.ReadData(cfg.MaxTxNum)
