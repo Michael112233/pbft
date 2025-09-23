@@ -17,6 +17,10 @@ type Config struct {
 	FaultyNodesNum int64
 
 	ElectionMethod string `json:"election_method"`
+	
+	ExpireTime int64 `json:"expire_time"`
+	SeqNumberUpperBound int64 `json:"seq_number_upper_bound"`
+	SeqNumberLowerBound int64 `json:"seq_number_lower_bound"`
 }
 
 func ReadCfg(filename string) *Config {

@@ -13,7 +13,7 @@ var sequenceNumber int64 = -1
 
 func (n *Node) SendPreprepareMessage(data core.RequestMessage) {
 	if sequenceNumber == -1 {
-		sequenceNumber = GenerateRandomSequenceNumber() % 100000
+		sequenceNumber = GenerateRandomSequenceNumber()
 	} else {
 		sequenceNumber++
 	}

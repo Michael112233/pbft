@@ -26,7 +26,9 @@ type Node struct {
 	log        *logger.Logger
 	messageHub *NodeMessageHub
 
-	timer_list []*time.Timer
+	expireTimer *time.Timer
+	expire      bool
+	expireLock  sync.RWMutex
 }
 
 func NewNode(nodeID int64, cfg *config.Config) *Node {
@@ -53,7 +55,8 @@ func NewNode(nodeID int64, cfg *config.Config) *Node {
 		cfg:              cfg,
 		log:              logger.NewLogger(nodeID, "node"),
 		messageHub:       NewNodeMessageHub(),
-		timer_list:       make([]*time.Timer, 0),
+		expireTimer:      nil,
+		expire:           false,
 	}
 }
 
@@ -63,6 +66,8 @@ func (n *Node) Start() {
 }
 
 func (n *Node) Stop() {
+	// Stop the expire timer to prevent resource leaks
+	n.StopExpireTimer()
 	n.log.Info("node stopped")
 }
 
@@ -76,14 +81,103 @@ func (n *Node) SetPreprepareSequenceNumber(seqNumber int64) {
 	n.lastPreprepareSeqNumber = seqNumber
 }
 
+func (n *Node) GetPreprepareSequenceNumber() int64 {
+	n.preprepareSeqLock.Lock()
+	defer n.preprepareSeqLock.Unlock()
+	return n.lastPreprepareSeqNumber
+}
+
 func (n *Node) SetPrepareSequenceNumber(seqNumber int64) {
 	n.prepareSeqLock.Lock()
 	defer n.prepareSeqLock.Unlock()
 	n.lastPrepareSeqNumber = seqNumber
 }
 
+func (n *Node) GetPrepareSequenceNumber() int64 {
+	n.prepareSeqLock.Lock()
+	defer n.prepareSeqLock.Unlock()
+	return n.lastPrepareSeqNumber
+}
+
 func (n *Node) SetCommitSequenceNumber(seqNumber int64) {
 	n.commitSeqLock.Lock()
 	defer n.commitSeqLock.Unlock()
 	n.lastCommitSeqNumber = seqNumber
+}
+
+func (n *Node) GetCommitSequenceNumber() int64 {
+	n.commitSeqLock.Lock()
+	defer n.commitSeqLock.Unlock()
+	return n.lastCommitSeqNumber
+}
+
+// StartExpireTimer starts the expire timer with proper checks
+// If timer is already running, it stops the old one and starts a new one
+func (n *Node) StartExpireTimer() {
+	// Reset expire flag
+	n.expireLock.Lock()
+	n.expire = false
+	n.expireLock.Unlock()
+
+	// Stop existing timer if it's running
+	if n.expireTimer != nil {
+		if !n.expireTimer.Stop() {
+			// If timer already expired, drain the channel
+			select {
+			case <-n.expireTimer.C:
+			default:
+			}
+		}
+	}
+
+	// Create new timer
+	n.expireTimer = time.NewTimer(time.Duration(n.cfg.ExpireTime) * time.Second)
+	n.log.Debug("expire timer started with duration: %d seconds", n.cfg.ExpireTime)
+
+	// Start monitoring goroutine
+	go n.monitorTimer()
+}
+
+// StopExpireTimer stops the expire timer safely
+func (n *Node) StopExpireTimer() {
+	if n.expireTimer != nil {
+		if n.expireTimer.Stop() {
+			n.log.Debug("expire timer stopped")
+		} else {
+			// Timer already expired, drain the channel
+			select {
+			case <-n.expireTimer.C:
+			default:
+			}
+			n.log.Debug("expire timer was already expired, drained channel")
+		}
+	}
+}
+
+// IsExpired returns the current expire status
+func (n *Node) IsExpired() bool {
+	n.expireLock.RLock()
+	defer n.expireLock.RUnlock()
+	return n.expire
+}
+
+// SetExpired sets the expire status (used internally)
+func (n *Node) SetExpired(expired bool) {
+	n.expireLock.Lock()
+	defer n.expireLock.Unlock()
+	n.expire = expired
+}
+
+// monitorTimer monitors the timer and sets expire flag when timeout occurs
+func (n *Node) monitorTimer() {
+	if n.expireTimer == nil {
+		return
+	}
+
+	// Wait for timer to expire
+	<-n.expireTimer.C
+
+	// Set expire flag
+	n.SetExpired(true)
+	n.log.Info("Timer expired! Setting expire flag to true")
 }

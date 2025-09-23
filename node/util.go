@@ -8,5 +8,5 @@ import (
 // GenerateSequenceNumber generates a random int64 sequence number
 func GenerateRandomSequenceNumber() int64 {
 	rand.Seed(time.Now().UnixNano())
-	return rand.Int63()
+	return rand.Int63() % (config.SeqNumberUpperBound - config.SeqNumberLowerBound) + config.SeqNumberLowerBound
 }

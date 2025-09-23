@@ -8,5 +8,9 @@
 
     "node_num": 4,
 
-    "election_method": "round_robin"
+    "election_method": "round_robin",
+
+    "expire_time": 10,
+    "seq_number_upper_bound": 300000,
+    "seq_number_lower_bound": 1000
 }
