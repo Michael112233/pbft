@@ -1,4 +1,1 @@
-[ERROR] 2025/09/23 00:55:54 failed to open csv file: open data/len3_data.csv: no such file or directory
-[INFO] 2025/09/23 00:55:54 111
-[ERROR] 2025/09/23 00:55:58 failed to open csv file: open data/len3_data.csv: no such file or directory
-[INFO] 2025/09/23 00:55:58 111
+[INFO] 2025/09/23 23:39:02 Read 32000 transactions from data file

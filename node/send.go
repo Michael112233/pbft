@@ -5,7 +5,8 @@ import (
 	"time"
 
 	"github.com/michael112233/pbft/config"
-	"github.com/michael112233/pbft/core"
+	"github.com/michael112233/pbft/core"	
+	"github.com/michael112233/pbft/utils"
 )
 
 var sequenceNumber int64 = -1
@@ -26,6 +27,7 @@ func (n *Node) SendPreprepareMessage(data core.RequestMessage) {
 			To:             othersIp,
 			SequenceNumber: sequenceNumber,
 			ViewNumber:     n.viewNumber,
+			Digest:         utils.GetDigest(&data),
 			RequestMessage: &data,
 		}
 		n.log.Info(fmt.Sprintf("Send preprepare message to %s", othersIp))
@@ -45,6 +47,7 @@ func (n *Node) SendPrepareMessage(data core.PreprepareMessage) {
 			To:             othersIp,
 			SequenceNumber: data.SequenceNumber,
 			ViewNumber:     n.viewNumber,
+			Digest:         data.Digest,
 			RequestMessage: data.RequestMessage,
 		}
 		n.log.Info(fmt.Sprintf("Send prepare message to %s", othersIp))
@@ -64,6 +67,7 @@ func (n *Node) SendCommitMessage(data core.PrepareMessage) {
 			To:             othersIp,
 			SequenceNumber: data.SequenceNumber,
 			ViewNumber:     n.viewNumber,
+			Digest:         data.Digest,
 			RequestMessage: data.RequestMessage,
 		}
 		n.log.Info(fmt.Sprintf("Send commit message to %s", othersIp))

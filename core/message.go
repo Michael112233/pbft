@@ -18,6 +18,7 @@ type PreprepareMessage struct {
 	To             string
 	SequenceNumber int64
 	ViewNumber     int64
+	Digest         string
 	RequestMessage *RequestMessage
 }
 
@@ -27,6 +28,7 @@ type PrepareMessage struct {
 	To             string
 	SequenceNumber int64
 	ViewNumber     int64
+	Digest         string
 	RequestMessage *RequestMessage
 }
 
@@ -36,6 +38,7 @@ type CommitMessage struct {
 	To             string
 	SequenceNumber int64
 	ViewNumber     int64
+	Digest         string
 	RequestMessage *RequestMessage
 }
 

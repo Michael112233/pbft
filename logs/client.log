@@ -1,6 +1,166 @@
-[INFO] 2025/09/23 00:55:54 clientMessageHub started
-[ERROR] 2025/09/23 00:55:54 Error setting up listener. err: listen tcp 127.0.0.1:20000: bind: address already in use
-[INFO] 2025/09/23 00:55:54 start listening on localhost:20000
-[INFO] 2025/09/23 00:55:58 clientMessageHub started
-[ERROR] 2025/09/23 00:55:58 Error setting up listener. err: listen tcp 127.0.0.1:20000: bind: address already in use
-[INFO] 2025/09/23 00:55:58 start listening on localhost:20000
+[INFO] 2025/09/23 23:39:02 clientMessageHub started
+[INFO] 2025/09/23 23:39:02 start listening on localhost:20000
+[INFO] 2025/09/23 23:39:02 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:02 Received reply message from localhost:28000, sequence number 24284
+[INFO] 2025/09/23 23:39:02 Received reply message from localhost:28300, sequence number 24284
+[INFO] 2025/09/23 23:39:02 Received reply message from localhost:28200, sequence number 24284
+[INFO] 2025/09/23 23:39:02 Received reply message from localhost:28100, sequence number 24284
+[INFO] 2025/09/23 23:39:03 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:03 Received reply message from localhost:28000, sequence number 24285
+[INFO] 2025/09/23 23:39:03 Received reply message from localhost:28300, sequence number 24285
+[INFO] 2025/09/23 23:39:03 Received reply message from localhost:28100, sequence number 24285
+[INFO] 2025/09/23 23:39:03 Received reply message from localhost:28200, sequence number 24285
+[INFO] 2025/09/23 23:39:04 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:04 Received reply message from localhost:28100, sequence number 24286
+[INFO] 2025/09/23 23:39:04 Received reply message from localhost:28000, sequence number 24286
+[INFO] 2025/09/23 23:39:04 Received reply message from localhost:28200, sequence number 24286
+[INFO] 2025/09/23 23:39:04 Received reply message from localhost:28300, sequence number 24286
+[INFO] 2025/09/23 23:39:05 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:05 Received reply message from localhost:28100, sequence number 24287
+[INFO] 2025/09/23 23:39:05 Received reply message from localhost:28200, sequence number 24287
+[INFO] 2025/09/23 23:39:05 Received reply message from localhost:28300, sequence number 24287
+[INFO] 2025/09/23 23:39:05 Received reply message from localhost:28000, sequence number 24287
+[INFO] 2025/09/23 23:39:06 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:06 Received reply message from localhost:28200, sequence number 24288
+[INFO] 2025/09/23 23:39:06 Received reply message from localhost:28300, sequence number 24288
+[INFO] 2025/09/23 23:39:06 Received reply message from localhost:28100, sequence number 24288
+[INFO] 2025/09/23 23:39:06 Received reply message from localhost:28000, sequence number 24288
+[INFO] 2025/09/23 23:39:07 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:07 Received reply message from localhost:28000, sequence number 24289
+[INFO] 2025/09/23 23:39:07 Received reply message from localhost:28200, sequence number 24289
+[INFO] 2025/09/23 23:39:07 Received reply message from localhost:28100, sequence number 24289
+[INFO] 2025/09/23 23:39:07 Received reply message from localhost:28300, sequence number 24289
+[INFO] 2025/09/23 23:39:08 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:08 Received reply message from localhost:28000, sequence number 24290
+[INFO] 2025/09/23 23:39:08 Received reply message from localhost:28200, sequence number 24290
+[INFO] 2025/09/23 23:39:08 Received reply message from localhost:28300, sequence number 24290
+[INFO] 2025/09/23 23:39:08 Received reply message from localhost:28100, sequence number 24290
+[INFO] 2025/09/23 23:39:09 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:09 Received reply message from localhost:28100, sequence number 24291
+[INFO] 2025/09/23 23:39:09 Received reply message from localhost:28300, sequence number 24291
+[INFO] 2025/09/23 23:39:09 Received reply message from localhost:28200, sequence number 24291
+[INFO] 2025/09/23 23:39:09 Received reply message from localhost:28000, sequence number 24291
+[INFO] 2025/09/23 23:39:10 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:10 Received reply message from localhost:28000, sequence number 24292
+[INFO] 2025/09/23 23:39:10 Received reply message from localhost:28200, sequence number 24292
+[INFO] 2025/09/23 23:39:10 Received reply message from localhost:28300, sequence number 24292
+[INFO] 2025/09/23 23:39:10 Received reply message from localhost:28100, sequence number 24292
+[INFO] 2025/09/23 23:39:10 Received reply message from localhost:28100, sequence number 24292
+[INFO] 2025/09/23 23:39:11 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:11 Received reply message from localhost:28300, sequence number 24293
+[INFO] 2025/09/23 23:39:11 Received reply message from localhost:28200, sequence number 24293
+[INFO] 2025/09/23 23:39:11 Received reply message from localhost:28100, sequence number 24293
+[INFO] 2025/09/23 23:39:11 Received reply message from localhost:28000, sequence number 24293
+[INFO] 2025/09/23 23:39:12 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:12 Received reply message from localhost:28200, sequence number 24294
+[INFO] 2025/09/23 23:39:12 Received reply message from localhost:28200, sequence number 24294
+[INFO] 2025/09/23 23:39:12 Received reply message from localhost:28100, sequence number 24294
+[INFO] 2025/09/23 23:39:12 Received reply message from localhost:28300, sequence number 24294
+[INFO] 2025/09/23 23:39:13 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:13 Received reply message from localhost:28200, sequence number 24295
+[INFO] 2025/09/23 23:39:13 Received reply message from localhost:28300, sequence number 24295
+[INFO] 2025/09/23 23:39:13 Received reply message from localhost:28000, sequence number 24295
+[INFO] 2025/09/23 23:39:13 Received reply message from localhost:28100, sequence number 24295
+[INFO] 2025/09/23 23:39:14 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:14 Received reply message from localhost:28300, sequence number 24296
+[INFO] 2025/09/23 23:39:14 Received reply message from localhost:28000, sequence number 24296
+[INFO] 2025/09/23 23:39:14 Received reply message from localhost:28200, sequence number 24296
+[INFO] 2025/09/23 23:39:14 Received reply message from localhost:28100, sequence number 24296
+[INFO] 2025/09/23 23:39:14 Received reply message from localhost:28100, sequence number 24296
+[INFO] 2025/09/23 23:39:15 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:15 Received reply message from localhost:28200, sequence number 24297
+[INFO] 2025/09/23 23:39:15 Received reply message from localhost:28000, sequence number 24297
+[INFO] 2025/09/23 23:39:15 Received reply message from localhost:28300, sequence number 24297
+[INFO] 2025/09/23 23:39:15 Received reply message from localhost:28100, sequence number 24297
+[INFO] 2025/09/23 23:39:16 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:16 Received reply message from localhost:28000, sequence number 24298
+[INFO] 2025/09/23 23:39:16 Received reply message from localhost:28100, sequence number 24298
+[INFO] 2025/09/23 23:39:16 Received reply message from localhost:28200, sequence number 24298
+[INFO] 2025/09/23 23:39:16 Received reply message from localhost:28300, sequence number 24298
+[INFO] 2025/09/23 23:39:17 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:17 Received reply message from localhost:28100, sequence number 24299
+[INFO] 2025/09/23 23:39:17 Received reply message from localhost:28200, sequence number 24299
+[INFO] 2025/09/23 23:39:17 Received reply message from localhost:28300, sequence number 24299
+[INFO] 2025/09/23 23:39:17 Received reply message from localhost:28000, sequence number 24299
+[INFO] 2025/09/23 23:39:18 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:18 Received reply message from localhost:28100, sequence number 24300
+[INFO] 2025/09/23 23:39:18 Received reply message from localhost:28200, sequence number 24300
+[INFO] 2025/09/23 23:39:18 Received reply message from localhost:28300, sequence number 24300
+[INFO] 2025/09/23 23:39:18 Received reply message from localhost:28000, sequence number 24300
+[INFO] 2025/09/23 23:39:19 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:19 Received reply message from localhost:28000, sequence number 24301
+[INFO] 2025/09/23 23:39:19 Received reply message from localhost:28200, sequence number 24301
+[INFO] 2025/09/23 23:39:19 Received reply message from localhost:28100, sequence number 24301
+[INFO] 2025/09/23 23:39:19 Received reply message from localhost:28300, sequence number 24301
+[INFO] 2025/09/23 23:39:20 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:20 Received reply message from localhost:28100, sequence number 24302
+[INFO] 2025/09/23 23:39:20 Received reply message from localhost:28300, sequence number 24302
+[INFO] 2025/09/23 23:39:20 Received reply message from localhost:28200, sequence number 24302
+[INFO] 2025/09/23 23:39:20 Received reply message from localhost:28000, sequence number 24302
+[INFO] 2025/09/23 23:39:21 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:21 Received reply message from localhost:28000, sequence number 24303
+[INFO] 2025/09/23 23:39:21 Received reply message from localhost:28000, sequence number 24303
+[INFO] 2025/09/23 23:39:21 Received reply message from localhost:28300, sequence number 24303
+[INFO] 2025/09/23 23:39:21 Received reply message from localhost:28100, sequence number 24303
+[INFO] 2025/09/23 23:39:21 Received reply message from localhost:28200, sequence number 24303
+[INFO] 2025/09/23 23:39:22 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:22 Received reply message from localhost:28200, sequence number 24304
+[INFO] 2025/09/23 23:39:22 Received reply message from localhost:28100, sequence number 24304
+[INFO] 2025/09/23 23:39:22 Received reply message from localhost:28000, sequence number 24304
+[INFO] 2025/09/23 23:39:22 Received reply message from localhost:28300, sequence number 24304
+[INFO] 2025/09/23 23:39:23 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:23 Received reply message from localhost:28200, sequence number 24305
+[INFO] 2025/09/23 23:39:23 Received reply message from localhost:28100, sequence number 24305
+[INFO] 2025/09/23 23:39:23 Received reply message from localhost:28300, sequence number 24305
+[INFO] 2025/09/23 23:39:23 Received reply message from localhost:28000, sequence number 24305
+[INFO] 2025/09/23 23:39:24 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:24 Received reply message from localhost:28000, sequence number 24306
+[INFO] 2025/09/23 23:39:24 Received reply message from localhost:28100, sequence number 24306
+[INFO] 2025/09/23 23:39:24 Received reply message from localhost:28200, sequence number 24306
+[INFO] 2025/09/23 23:39:24 Received reply message from localhost:28300, sequence number 24306
+[INFO] 2025/09/23 23:39:25 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:25 Received reply message from localhost:28300, sequence number 24307
+[INFO] 2025/09/23 23:39:25 Received reply message from localhost:28000, sequence number 24307
+[INFO] 2025/09/23 23:39:25 Received reply message from localhost:28200, sequence number 24307
+[INFO] 2025/09/23 23:39:25 Received reply message from localhost:28100, sequence number 24307
+[INFO] 2025/09/23 23:39:26 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:26 Received reply message from localhost:28200, sequence number 24308
+[INFO] 2025/09/23 23:39:26 Received reply message from localhost:28000, sequence number 24308
+[INFO] 2025/09/23 23:39:26 Received reply message from localhost:28300, sequence number 24308
+[INFO] 2025/09/23 23:39:26 Received reply message from localhost:28100, sequence number 24308
+[INFO] 2025/09/23 23:39:27 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:27 Received reply message from localhost:28300, sequence number 24309
+[INFO] 2025/09/23 23:39:27 Received reply message from localhost:28100, sequence number 24309
+[INFO] 2025/09/23 23:39:27 Received reply message from localhost:28000, sequence number 24309
+[INFO] 2025/09/23 23:39:27 Received reply message from localhost:28200, sequence number 24309
+[INFO] 2025/09/23 23:39:28 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:28 Received reply message from localhost:28300, sequence number 24310
+[INFO] 2025/09/23 23:39:28 Received reply message from localhost:28000, sequence number 24310
+[INFO] 2025/09/23 23:39:28 Received reply message from localhost:28100, sequence number 24310
+[INFO] 2025/09/23 23:39:28 Received reply message from localhost:28200, sequence number 24310
+[INFO] 2025/09/23 23:39:29 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:29 Received reply message from localhost:28300, sequence number 24311
+[INFO] 2025/09/23 23:39:29 Received reply message from localhost:28000, sequence number 24311
+[INFO] 2025/09/23 23:39:29 Received reply message from localhost:28200, sequence number 24311
+[INFO] 2025/09/23 23:39:29 Received reply message from localhost:28100, sequence number 24311
+[INFO] 2025/09/23 23:39:30 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:30 Received reply message from localhost:28300, sequence number 24312
+[INFO] 2025/09/23 23:39:30 Received reply message from localhost:28200, sequence number 24312
+[INFO] 2025/09/23 23:39:30 Received reply message from localhost:28000, sequence number 24312
+[INFO] 2025/09/23 23:39:30 Received reply message from localhost:28100, sequence number 24312
+[INFO] 2025/09/23 23:39:31 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:31 Received reply message from localhost:28000, sequence number 24313
+[INFO] 2025/09/23 23:39:31 Received reply message from localhost:28300, sequence number 24313
+[INFO] 2025/09/23 23:39:31 Received reply message from localhost:28200, sequence number 24313
+[INFO] 2025/09/23 23:39:31 Received reply message from localhost:28100, sequence number 24313
+[INFO] 2025/09/23 23:39:32 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:32 Received reply message from localhost:28300, sequence number 24314
+[INFO] 2025/09/23 23:39:32 Received reply message from localhost:28000, sequence number 24314
+[INFO] 2025/09/23 23:39:32 Received reply message from localhost:28200, sequence number 24314
+[INFO] 2025/09/23 23:39:32 Received reply message from localhost:28100, sequence number 24314
+[INFO] 2025/09/23 23:39:33 Msg Sent: MsgRequestMessage, From localhost:20000, To localhost:28000, Txs 1000
+[INFO] 2025/09/23 23:39:33 Received reply message from localhost:28100, sequence number 24315
+[INFO] 2025/09/23 23:39:33 Received reply message from localhost:28000, sequence number 24315
+[INFO] 2025/09/23 23:39:33 Received reply message from localhost:28300, sequence number 24315
+[INFO] 2025/09/23 23:39:33 Received reply message from localhost:28200, sequence number 24315
+[DEBUG] 2025/09/23 23:39:34 client stopped
