@@ -26,9 +26,11 @@ type Node struct {
 	log        *logger.Logger
 	messageHub *NodeMessageHub
 
-	expireTimer *time.Timer
-	expire      bool
-	expireLock  sync.RWMutex
+	expireTimers map[string]*time.Timer
+	expire       bool
+	expireLock   sync.RWMutex
+	timerLock    sync.RWMutex
+	handleMessageLock sync.Mutex
 }
 
 func NewNode(nodeID int64, cfg *config.Config) *Node {
@@ -55,7 +57,7 @@ func NewNode(nodeID int64, cfg *config.Config) *Node {
 		cfg:              cfg,
 		log:              logger.NewLogger(nodeID, "node"),
 		messageHub:       NewNodeMessageHub(),
-		expireTimer:      nil,
+		expireTimers:     make(map[string]*time.Timer),
 		expire:           false,
 	}
 }
@@ -66,8 +68,8 @@ func (n *Node) Start() {
 }
 
 func (n *Node) Stop() {
-	// Stop the expire timer to prevent resource leaks
-	n.StopExpireTimer()
+	// Stop all expire timers to prevent resource leaks
+	n.StopAllExpireTimers()
 	n.log.Info("node stopped")
 }
 
@@ -111,47 +113,79 @@ func (n *Node) GetCommitSequenceNumber() int64 {
 	return n.lastCommitSeqNumber
 }
 
-// StartExpireTimer starts the expire timer with proper checks
-// If timer is already running, it stops the old one and starts a new one
-func (n *Node) StartExpireTimer() {
-	// Reset expire flag
+// StartExpireTimer starts a new expire timer with a unique ID
+// Multiple timers can run concurrently
+func (n *Node) StartExpireTimer(timerID string) {
+	// Reset expire flag when starting new timer
 	n.expireLock.Lock()
 	n.expire = false
 	n.expireLock.Unlock()
 
-	// Stop existing timer if it's running
-	if n.expireTimer != nil {
-		if !n.expireTimer.Stop() {
+	// Stop existing timer with same ID if it exists
+	n.timerLock.Lock()
+	if existingTimer, exists := n.expireTimers[timerID]; exists {
+		if !existingTimer.Stop() {
 			// If timer already expired, drain the channel
 			select {
-			case <-n.expireTimer.C:
+			case <-existingTimer.C:
 			default:
 			}
 		}
+		delete(n.expireTimers, timerID)
 	}
 
 	// Create new timer
-	n.expireTimer = time.NewTimer(time.Duration(n.cfg.ExpireTime) * time.Second)
-	n.log.Debug("expire timer started with duration: %d seconds", n.cfg.ExpireTime)
+	newTimer := time.NewTimer(time.Duration(n.cfg.ExpireTime) * time.Second)
+	n.expireTimers[timerID] = newTimer
+	n.timerLock.Unlock()
 
-	// Start monitoring goroutine
-	go n.monitorTimer()
+	n.log.Debug("expire timer '%s' started with duration: %d seconds", timerID, n.cfg.ExpireTime)
+
+	// Start monitoring goroutine for this specific timer
+	go n.monitorTimer(timerID, newTimer)
 }
 
-// StopExpireTimer stops the expire timer safely
-func (n *Node) StopExpireTimer() {
-	if n.expireTimer != nil {
-		if n.expireTimer.Stop() {
-			n.log.Debug("expire timer stopped")
+// StopExpireTimer stops a specific timer by ID
+func (n *Node) StopExpireTimer(timerID string) {
+	n.timerLock.Lock()
+	defer n.timerLock.Unlock()
+	
+	if timer, exists := n.expireTimers[timerID]; exists {
+		if timer.Stop() {
+			n.log.Debug("expire timer '%s' stopped", timerID)
 		} else {
 			// Timer already expired, drain the channel
 			select {
-			case <-n.expireTimer.C:
+			case <-timer.C:
 			default:
 			}
-			n.log.Debug("expire timer was already expired, drained channel")
+			n.log.Debug("expire timer '%s' was already expired, drained channel", timerID)
+		}
+		delete(n.expireTimers, timerID)
+	}
+}
+
+// StopAllExpireTimers stops all running timers
+func (n *Node) StopAllExpireTimers() {
+	n.timerLock.Lock()
+	defer n.timerLock.Unlock()
+	
+	for timerID, timer := range n.expireTimers {
+		if timer.Stop() {
+			n.log.Debug("expire timer '%s' stopped", timerID)
+		} else {
+			// Timer already expired, drain the channel
+			select {
+			case <-timer.C:
+			default:
+			}
+			n.log.Debug("expire timer '%s' was already expired, drained channel", timerID)
 		}
 	}
+	
+	// Clear all timers
+	n.expireTimers = make(map[string]*time.Timer)
+	n.log.Debug("all expire timers stopped")
 }
 
 // IsExpired returns the current expire status
@@ -168,16 +202,20 @@ func (n *Node) SetExpired(expired bool) {
 	n.expire = expired
 }
 
-// monitorTimer monitors the timer and sets expire flag when timeout occurs
-func (n *Node) monitorTimer() {
-	if n.expireTimer == nil {
+// monitorTimer monitors a specific timer and sets expire flag when timeout occurs
+func (n *Node) monitorTimer(timerID string, timer *time.Timer) {
+	if timer == nil {
 		return
 	}
 
 	// Wait for timer to expire
-	<-n.expireTimer.C
+	<-timer.C
 
 	// Set expire flag
 	n.SetExpired(true)
-	n.log.Info("Timer expired! Setting expire flag to true")
+	n.log.Info("Timer '%s' expired! Setting expire flag to true", timerID)
+	
+	// Stop all other timers when this one expires
+	n.StopAllExpireTimers()
+	n.log.Info("All timers stopped after timer '%s' expiration", timerID)
 }

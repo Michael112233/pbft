@@ -21,6 +21,7 @@ func (c *Client) InjectTxs() {
 				From:      c.addr,
 				To:        leader,
 				Txs:       injectTxs,
+				Id:        int64(i),
 			}
 			c.messageHub.Send(core.MsgRequestMessage, c.addr, msg, nil)
 			time.Sleep(1 * time.Second)

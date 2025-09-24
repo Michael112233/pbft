@@ -10,6 +10,7 @@ type RequestMessage struct {
 	From      string
 	To        string
 	Txs       []*Transaction
+	Id        int64
 }
 
 type PreprepareMessage struct {
@@ -48,5 +49,6 @@ type ReplyMessage struct {
 	To             string
 	SequenceNumber int64
 	ViewNumber     int64
+	Digest         string
 	RequestMessage *RequestMessage
 }

@@ -13,7 +13,7 @@ var sequenceNumber int64 = -1
 
 func (n *Node) SendPreprepareMessage(data core.RequestMessage) {
 	if sequenceNumber == -1 {
-		sequenceNumber = GenerateRandomSequenceNumber()
+		sequenceNumber = GenerateRandomSequenceNumber(n.cfg.SeqNumberUpperBound, n.cfg.SeqNumberLowerBound)
 	} else {
 		sequenceNumber++
 	}
@@ -85,5 +85,7 @@ func (n *Node) SendReplyMessage(data core.CommitMessage) {
 		RequestMessage: data.RequestMessage,
 	}
 	n.log.Info(fmt.Sprintf("Send reply message to %s", config.ClientAddr))
+	timerID := fmt.Sprintf("request_%d_%d", n.NodeID, data.RequestMessage.Id)
+	n.StopExpireTimer(timerID)
 	n.messageHub.Send(core.MsgReplyMessage, config.ClientAddr, replyMessage, nil)
 }
