@@ -31,10 +31,10 @@ func (n *Node) HandlePreprepareMessage(data core.PreprepareMessage) {
 		return
 	}
 	n.log.Info(fmt.Sprintf("SeqNumber %d: Received preprepare message from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
-	// if n.NodeID == 1 {
-	// 	n.log.Error("node 1 is faulty!")
-	// 	return
-	// }
+	if n.NodeID == 1 {
+		n.log.Error("node 1 is faulty!")
+		return
+	}
 	if data.Digest != utils.GetDigest(data.RequestMessage) {
 		n.log.Error(fmt.Sprintf("SeqNumber %d: Preprepare message digest mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
 		return
@@ -48,6 +48,7 @@ func (n *Node) HandlePreprepareMessage(data core.PreprepareMessage) {
 		n.log.Error(fmt.Sprintf("SeqNumber %d: Preprepare message sequence number mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
 		return
 	} else {
+		n.log.Info(fmt.Sprintf("SeqNumber %d: Preprepare message sequence number succeeds. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
 		n.SetPreprepareSequenceNumber(data.SequenceNumber)
 		n.SendPrepareMessage(data)
 	}
