@@ -43,7 +43,6 @@ func (b *Blockchain) AddBlock(block *Block) {
 		result.AddCommittedTransactionNum(int64(len(block.Transactions)))
 		if b.cfg.MaxTxNum == result.GetCommittedTransactionNum() {
 			b.logger.Info("finish injecting: %d=%d", b.cfg.MaxTxNum, result.GetCommittedTransactionNum())
-			b.FinishInjecting.Done()
 		}
 	}
 }

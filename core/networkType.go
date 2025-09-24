@@ -6,4 +6,5 @@ const (
 	MsgPrepareMessage    string = "MsgPrepareMessage"
 	MsgCommitMessage     string = "MsgCommitMessage"
 	MsgReplyMessage      string = "MsgReplyMessage"
+	MsgCloseMessage      string = "MsgCloseMessage"
 )

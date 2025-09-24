@@ -2,35 +2,39 @@ package node
 
 import (
 	"sync"
-	"time"
 	"sync/atomic"
+	"time"
 
 	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/logger"
 )
 
 type Node struct {
-	NodeID           int64
-	viewNumber       int64
-	prepareMsgNumber map[int64]*atomic.Int32
-	commitMsgNumber  map[int64]*atomic.Int32
+	NodeID                  int64
+	viewNumber              int64
+	prepareMsgNumber        map[int64]*atomic.Int32
+	commitMsgNumber         map[int64]*atomic.Int32
 	lastPreprepareSeqNumber int64
-	lastPrepareSeqNumber int64
-	lastCommitSeqNumber int64
+	lastPrepareSeqNumber    int64
+	lastCommitSeqNumber     int64
 
-	preprepareSeqLock sync.Mutex
-	prepareSeqLock sync.Mutex
-	commitSeqLock sync.Mutex
+	preprepareSeqLock  sync.Mutex
+	prepareSeqLock     sync.Mutex
+	commitSeqLock      sync.Mutex
+	PrepareMessageLock sync.Mutex
+	CommitMessageLock  sync.Mutex
 
 	cfg        *config.Config
 	log        *logger.Logger
 	messageHub *NodeMessageHub
 
-	expireTimers map[string]*time.Timer
-	expire       bool
-	expireLock   sync.RWMutex
-	timerLock    sync.RWMutex
+	expireTimers      map[string]*time.Timer
+	expire            bool
+	expireLock        sync.RWMutex
+	timerLock         sync.RWMutex
 	handleMessageLock sync.Mutex
+
+	StopChan chan struct{}
 }
 
 func NewNode(nodeID int64, cfg *config.Config) *Node {
@@ -47,18 +51,19 @@ func NewNode(nodeID int64, cfg *config.Config) *Node {
 	}
 
 	return &Node{
-		NodeID:           nodeID,
-		viewNumber:       0,
-		prepareMsgNumber: prepareMsgNumber,
-		commitMsgNumber:  commitMsgNumber,
+		NodeID:                  nodeID,
+		viewNumber:              0,
+		prepareMsgNumber:        prepareMsgNumber,
+		commitMsgNumber:         commitMsgNumber,
 		lastPreprepareSeqNumber: -1,
-		lastPrepareSeqNumber: -1,
-		lastCommitSeqNumber: -1,
-		cfg:              cfg,
-		log:              logger.NewLogger(nodeID, "node"),
-		messageHub:       NewNodeMessageHub(),
-		expireTimers:     make(map[string]*time.Timer),
-		expire:           false,
+		lastPrepareSeqNumber:    -1,
+		lastCommitSeqNumber:     -1,
+		cfg:                     cfg,
+		log:                     logger.NewLogger(nodeID, "node"),
+		messageHub:              NewNodeMessageHub(),
+		expireTimers:            make(map[string]*time.Timer),
+		expire:                  false,
+		StopChan:                make(chan struct{}),
 	}
 }
 
@@ -70,6 +75,10 @@ func (n *Node) Start() {
 func (n *Node) Stop() {
 	// Stop all expire timers to prevent resource leaks
 	n.StopAllExpireTimers()
+	// Close network resources to stop listeners and connections
+	if n.messageHub != nil {
+		n.messageHub.Close()
+	}
 	n.log.Info("node stopped")
 }
 
@@ -113,6 +122,30 @@ func (n *Node) GetCommitSequenceNumber() int64 {
 	return n.lastCommitSeqNumber
 }
 
+func (n *Node) GetPrepareMessageNumber(seqNumber int64) int32 {
+	n.PrepareMessageLock.Lock()
+	defer n.PrepareMessageLock.Unlock()
+	return n.prepareMsgNumber[seqNumber].Load()
+}
+
+func (n *Node) GetCommitMessageNumber(seqNumber int64) int32 {
+	n.CommitMessageLock.Lock()
+	defer n.CommitMessageLock.Unlock()
+	return n.commitMsgNumber[seqNumber].Load()
+}
+
+func (n *Node) AddPrepareMessageNumber(seqNumber int64) {
+	n.PrepareMessageLock.Lock()
+	defer n.PrepareMessageLock.Unlock()
+	n.prepareMsgNumber[seqNumber].Add(1)
+}
+
+func (n *Node) AddCommitMessageNumber(seqNumber int64) {
+	n.CommitMessageLock.Lock()
+	defer n.CommitMessageLock.Unlock()
+	n.commitMsgNumber[seqNumber].Add(1)
+}
+
 // StartExpireTimer starts a new expire timer with a unique ID
 // Multiple timers can run concurrently
 func (n *Node) StartExpireTimer(timerID string) {
@@ -149,7 +182,7 @@ func (n *Node) StartExpireTimer(timerID string) {
 func (n *Node) StopExpireTimer(timerID string) {
 	n.timerLock.Lock()
 	defer n.timerLock.Unlock()
-	
+
 	if timer, exists := n.expireTimers[timerID]; exists {
 		if timer.Stop() {
 			n.log.Debug("expire timer '%s' stopped", timerID)
@@ -169,7 +202,7 @@ func (n *Node) StopExpireTimer(timerID string) {
 func (n *Node) StopAllExpireTimers() {
 	n.timerLock.Lock()
 	defer n.timerLock.Unlock()
-	
+
 	for timerID, timer := range n.expireTimers {
 		if timer.Stop() {
 			n.log.Debug("expire timer '%s' stopped", timerID)
@@ -182,7 +215,7 @@ func (n *Node) StopAllExpireTimers() {
 			n.log.Debug("expire timer '%s' was already expired, drained channel", timerID)
 		}
 	}
-	
+
 	// Clear all timers
 	n.expireTimers = make(map[string]*time.Timer)
 	n.log.Debug("all expire timers stopped")
@@ -214,7 +247,7 @@ func (n *Node) monitorTimer(timerID string, timer *time.Timer) {
 	// Set expire flag
 	n.SetExpired(true)
 	n.log.Info("Timer '%s' expired! Setting expire flag to true", timerID)
-	
+
 	// Stop all other timers when this one expires
 	n.StopAllExpireTimers()
 	n.log.Info("All timers stopped after timer '%s' expiration", timerID)

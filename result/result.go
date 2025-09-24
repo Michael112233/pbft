@@ -41,6 +41,7 @@ func GetCommittedTransactionNum() int64 {
 }
 
 func PrintResult() {
+	SetEndTime(time.Now())
 	log.Info("Result:")
 	log.Info("TPS: %f\n", CalculateTPS())
 	log.Info("Latency: %f\n", endTime.Sub(startTime).Seconds())

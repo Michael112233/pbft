@@ -16,29 +16,40 @@ var log = logger.NewLogger(0, "controller")
 
 func runNode(nodeID int64, cfg *config.Config) {
 	Node := node.NewNode(nodeID, cfg)
-	defer Node.Stop()
-
 	Node.Start()
 
-	time.Sleep(45 * time.Second)
+	// Keep the node process alive until a stop signal is received
+	for {
+		select {
+		case <-Node.StopChan:
+			Node.Stop()
+			return
+		default:
+			time.Sleep(1 * time.Second)
+		}
+	}
 }
 
 func runClient(cfg *config.Config) {
 	defer result.PrintResult()
 
-	// Init a blockchain
+	// Init a blockchain (no FinishInjecting usage)
 	core.NewBlockchain(cfg)
-	core.Chain.FinishInjecting.Add(1)
 
 	// Init a client
 	client := client.NewClient(config.ClientAddr, cfg)
-
-	defer client.Stop()
 
 	// Get the transaction details
 	txs := data.ReadData(cfg.MaxTxNum)
 	client.AddTxs(txs)
 	client.Start()
+
+	// Wait for client's injection goroutine(s) to finish
+	// client.Stop() waits for WaitGroup and then returns; message hub remains available to send close messages
+	client.Stop()
+
+	// Broadcast close to all nodes after injection completes
+	client.BroadcastClose()
 }
 
 func Main(nodeID int64, role, mode, cfgPath string) {

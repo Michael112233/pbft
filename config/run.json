@@ -1,7 +1,7 @@
 {
     "data_dir": "data/len3_data.csv",
-    "max_tx_num": 32000,
-    "inject_speed": 1000,
+    "max_tx_num": 64000,
+    "inject_speed": 2000,
     "max_block_size": 1000,
 
     "experiment_mode": "local",

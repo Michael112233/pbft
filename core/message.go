@@ -52,3 +52,9 @@ type ReplyMessage struct {
 	Digest         string
 	RequestMessage *RequestMessage
 }
+
+type CloseMessage struct {
+	Timestamp int64
+	From      string
+	To        string
+}

@@ -104,6 +104,8 @@ func (hub *ClientMessageHub) Send(msgType string, ip string, msg interface{}, ca
 	switch msgType {
 	case core.MsgRequestMessage:
 		hub.sendRequestMessage(msg)
+	case core.MsgCloseMessage:
+		hub.sendCloseMessage(msg)
 	default:
 		hub.log.Error(fmt.Sprintf("Unknown message type received: msgType=%s", msgType))
 	}
@@ -220,4 +222,32 @@ func (hub *ClientMessageHub) sendRequestMessage(msg interface{}) {
 	writer.Flush()
 
 	hub.log.Info(fmt.Sprintf("Msg Sent: MsgRequestMessage, From %s, To %s, Txs %d", data.From, data.To, len(data.Txs)))
+}
+
+func (hub *ClientMessageHub) sendCloseMessage(msg interface{}) {
+	data := msg.(core.CloseMessage)
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	err := enc.Encode(&data)
+	if err != nil {
+		hub.log.Error(fmt.Sprintf("gobEncodeErr: err=%v, data=%v", err, data))
+	}
+
+	msg_bytes := hub.packMsg("MsgCloseMessage", buf.Bytes())
+
+	addr := data.To
+	conn, ok := conns2Node.Get(addr)
+	if !ok {
+		conn, err = hub.Dial(addr)
+		if err != nil || conn == nil {
+			hub.log.Error(fmt.Sprintf("Dial Error. Send Close Message. caller: %s targetAddr: %s", data.From, addr))
+			return
+		}
+		conns2Node.Add(addr, conn)
+	}
+	writer := bufio.NewWriter(conn)
+	writer.Write(msg_bytes)
+	writer.Flush()
+
+	hub.log.Info(fmt.Sprintf("Msg Sent: MsgCloseMessage, From %s, To %s", data.From, data.To))
 }

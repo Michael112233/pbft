@@ -179,6 +179,8 @@ func (hub *NodeMessageHub) handleConnection(conn net.Conn, ln net.Listener) {
 			hub.handlePrepareMessage(msg.Data)
 		case core.MsgCommitMessage:
 			hub.handleCommitMessage(msg.Data)
+		case core.MsgCloseMessage:
+			hub.handleCloseMessage(msg.Data)
 		default:
 			hub.log.Error(fmt.Sprintf("Unknown message type received: msgType=%s", msg.MsgType))
 		}
@@ -241,6 +243,19 @@ func (hub *NodeMessageHub) handleCommitMessage(dataBytes []byte) {
 		hub.log.Error(fmt.Sprintf("handleCommitMessageErr: err=%v, dataBytes=%v", err, dataBytes))
 	}
 	hub.node_ref.HandleCommitMessage(data)
+}
+
+func (hub *NodeMessageHub) handleCloseMessage(dataBytes []byte) {
+	var buf bytes.Buffer
+	buf.Write(dataBytes)
+	dataDec := gob.NewDecoder(&buf)
+
+	var data core.CloseMessage
+	err := dataDec.Decode(&data)
+	if err != nil {
+		hub.log.Error(fmt.Sprintf("handleCloseMessageErr: err=%v, dataBytes=%v", err, dataBytes))
+	}
+	hub.node_ref.HandleCloseMessage(data)
 }
 
 // --------------------------------------------------------
