@@ -251,7 +251,8 @@ func (n *Node) monitorTimer(timerID string, timer *time.Timer) {
 
 	// start view changer
 	if !n.viewChange.IsInViewChange() {
-		n.viewChange.StartViewChange(n.viewNumber, n.lastStableCheckpoint)
+		n.log.Error("Node %d is expired and Start to trigger view change", n.NodeID)
+		// n.viewChange.StartViewChange(n.viewNumber, n.lastStableCheckpoint)
 		// n.SendViewChangeMessage()
 	}
 }
