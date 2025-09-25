@@ -7,4 +7,6 @@ const (
 	MsgCommitMessage     string = "MsgCommitMessage"
 	MsgReplyMessage      string = "MsgReplyMessage"
 	MsgCloseMessage      string = "MsgCloseMessage"
+	MsgViewChangeMessage string = "MsgViewChangeMessage"
+	MsgCheckpointMessage string = "MsgCheckpointMessage"
 )

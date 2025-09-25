@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/michael112233/pbft/config"
-	"github.com/michael112233/pbft/core"	
+	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/utils"
 )
 

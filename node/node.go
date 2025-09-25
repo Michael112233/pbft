@@ -17,19 +17,22 @@ type Node struct {
 	lastPreprepareSeqNumber int64
 	lastPrepareSeqNumber    int64
 	lastCommitSeqNumber     int64
-
-	preprepareSeqLock  sync.Mutex
-	prepareSeqLock     sync.Mutex
-	commitSeqLock      sync.Mutex
-	PrepareMessageLock sync.Mutex
-	CommitMessageLock  sync.Mutex
+	initCommitSeqNumber     int64
+	lastStableCheckpoint    int64
+	checkpointList          map[int64]*atomic.Int32
+	seq2digest              map[int64]string
+	preprepareSeqLock       sync.Mutex
+	prepareSeqLock          sync.Mutex
+	commitSeqLock           sync.Mutex
+	PrepareMessageLock      sync.Mutex
+	CommitMessageLock       sync.Mutex
 
 	cfg        *config.Config
 	log        *logger.Logger
 	messageHub *NodeMessageHub
+	viewChange *ViewChanger
 
 	expireTimers      map[string]*time.Timer
-	expire            bool
 	expireLock        sync.RWMutex
 	timerLock         sync.RWMutex
 	handleMessageLock sync.Mutex
@@ -38,16 +41,21 @@ type Node struct {
 }
 
 func NewNode(nodeID int64, cfg *config.Config) *Node {
-	prepareMsgNumber := make(map[int64]*atomic.Int32, 200000)
-	for i := 0; i < 200000; i++ {
+	prepareMsgNumber := make(map[int64]*atomic.Int32, cfg.SeqNumberUpperBound)
+	for i := cfg.SeqNumberLowerBound; i <= cfg.SeqNumberUpperBound; i++ {
 		prepareMsgNumber[int64(i)] = &atomic.Int32{}
 		prepareMsgNumber[int64(i)].Store(0)
 	}
 
-	commitMsgNumber := make(map[int64]*atomic.Int32, 200000)
-	for i := 0; i < 200000; i++ {
+	commitMsgNumber := make(map[int64]*atomic.Int32, cfg.SeqNumberUpperBound)
+	for i := cfg.SeqNumberLowerBound; i <= cfg.SeqNumberUpperBound; i++ {
 		commitMsgNumber[int64(i)] = &atomic.Int32{}
 		commitMsgNumber[int64(i)].Store(0)
+	}
+
+	seq2digest := make(map[int64]string, cfg.SeqNumberUpperBound)
+	for i := cfg.SeqNumberLowerBound; i <= cfg.SeqNumberUpperBound; i++ {
+		seq2digest[int64(i)] = ""
 	}
 
 	return &Node{
@@ -55,6 +63,8 @@ func NewNode(nodeID int64, cfg *config.Config) *Node {
 		viewNumber:              0,
 		prepareMsgNumber:        prepareMsgNumber,
 		commitMsgNumber:         commitMsgNumber,
+		seq2digest:              seq2digest,
+		initCommitSeqNumber:     -1,
 		lastPreprepareSeqNumber: -1,
 		lastPrepareSeqNumber:    -1,
 		lastCommitSeqNumber:     -1,
@@ -62,13 +72,14 @@ func NewNode(nodeID int64, cfg *config.Config) *Node {
 		log:                     logger.NewLogger(nodeID, "node"),
 		messageHub:              NewNodeMessageHub(),
 		expireTimers:            make(map[string]*time.Timer),
-		expire:                  false,
+		viewChange:              NewViewChanger(cfg),
 		StopChan:                make(chan struct{}),
 	}
 }
 
 func (n *Node) Start() {
 	n.messageHub.Start(n, &sync.WaitGroup{})
+	n.StartGarbageCollection()
 	n.log.Info("node started")
 }
 
@@ -114,6 +125,9 @@ func (n *Node) SetCommitSequenceNumber(seqNumber int64) {
 	n.commitSeqLock.Lock()
 	defer n.commitSeqLock.Unlock()
 	n.lastCommitSeqNumber = seqNumber
+	if n.initCommitSeqNumber == -1 {
+		n.initCommitSeqNumber = seqNumber
+	}
 }
 
 func (n *Node) GetCommitSequenceNumber() int64 {
@@ -151,7 +165,7 @@ func (n *Node) AddCommitMessageNumber(seqNumber int64) {
 func (n *Node) StartExpireTimer(timerID string) {
 	// Reset expire flag when starting new timer
 	n.expireLock.Lock()
-	n.expire = false
+	n.viewChange.ResetViewChanger()
 	n.expireLock.Unlock()
 
 	// Stop existing timer with same ID if it exists
@@ -221,20 +235,6 @@ func (n *Node) StopAllExpireTimers() {
 	n.log.Debug("all expire timers stopped")
 }
 
-// IsExpired returns the current expire status
-func (n *Node) IsExpired() bool {
-	n.expireLock.RLock()
-	defer n.expireLock.RUnlock()
-	return n.expire
-}
-
-// SetExpired sets the expire status (used internally)
-func (n *Node) SetExpired(expired bool) {
-	n.expireLock.Lock()
-	defer n.expireLock.Unlock()
-	n.expire = expired
-}
-
 // monitorTimer monitors a specific timer and sets expire flag when timeout occurs
 func (n *Node) monitorTimer(timerID string, timer *time.Timer) {
 	if timer == nil {
@@ -243,12 +243,15 @@ func (n *Node) monitorTimer(timerID string, timer *time.Timer) {
 
 	// Wait for timer to expire
 	<-timer.C
-
-	// Set expire flag
-	n.SetExpired(true)
-	n.log.Info("Timer '%s' expired! Setting expire flag to true", timerID)
+	n.log.Info("Timer '%s' expired! Setting inViewChange flag to true", timerID)
 
 	// Stop all other timers when this one expires
 	n.StopAllExpireTimers()
 	n.log.Info("All timers stopped after timer '%s' expiration", timerID)
+
+	// start view changer
+	if !n.viewChange.IsInViewChange() {
+		n.viewChange.StartViewChange(n.viewNumber, n.lastStableCheckpoint)
+		// n.SendViewChangeMessage()
+	}
 }

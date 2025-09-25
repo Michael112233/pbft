@@ -22,6 +22,7 @@ func runNode(nodeID int64, cfg *config.Config) {
 	for {
 		select {
 		case <-Node.StopChan:
+			time.Sleep(20 * time.Second)
 			Node.Stop()
 			return
 		default:

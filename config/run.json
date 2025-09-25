@@ -12,5 +12,6 @@
 
     "expire_time": 10,
     "seq_number_upper_bound": 300000,
-    "seq_number_lower_bound": 1000
+    "seq_number_lower_bound": 1000,
+    "checkpoint_interval": 4
 }

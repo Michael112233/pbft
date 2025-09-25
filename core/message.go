@@ -58,3 +58,21 @@ type CloseMessage struct {
 	From      string
 	To        string
 }
+
+type ViewChangeMessage struct {
+	Timestamp           int64
+	From                string
+	To                  string
+	CheckpointSeqNumber int64
+	ViewNumber          int64
+	CheckpointMsgNumber int32
+	HavePreparedList    map[int64]bool
+}
+
+type CheckpointMessage struct {
+	Timestamp      int64
+	From           string
+	To             string
+	SequenceNumber int64
+	Digest         string
+}

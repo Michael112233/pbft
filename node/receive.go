@@ -11,12 +11,12 @@ import (
 func (n *Node) HandleRequestMessage(data core.RequestMessage) {
 	n.handleMessageLock.Lock()
 	defer n.handleMessageLock.Unlock()
-	timerID := fmt.Sprintf("request_%d_%d", n.NodeID, data.Id)
-	n.StartExpireTimer(timerID)
-	if n.IsExpired() {
-		n.log.Error("Node %d is expired and Start to trigger view change", n.NodeID)
+	if n.viewChange.IsInViewChange() {
+		n.log.Error("Node %d is in view change and Ignore request message", n.NodeID)
 		return
 	}
+	timerID := fmt.Sprintf("request_%d_%d", n.NodeID, data.Id)
+	n.StartExpireTimer(timerID)
 	n.log.Info(fmt.Sprintf("Received request message from %s to %s with %d transactions", data.From, data.To, len(data.Txs)))
 	n.SendPreprepareMessage(data)
 }
@@ -26,15 +26,15 @@ func (n *Node) HandlePreprepareMessage(data core.PreprepareMessage) {
 	defer n.handleMessageLock.Unlock()
 	timerID := fmt.Sprintf("request_%d_%d", n.NodeID, data.RequestMessage.Id)
 	n.StartExpireTimer(timerID)
-	if n.IsExpired() {
+	if n.viewChange.IsInViewChange() {
 		n.log.Error("Node %d is expired and Start to trigger view change", n.NodeID)
 		return
 	}
 	n.log.Info(fmt.Sprintf("SeqNumber %d: Received preprepare message from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
-	if n.NodeID == 1 {
-		n.log.Error("node 1 is faulty!")
-		return
-	}
+	// if n.NodeID == 1 {
+	// 	n.log.Error("node 1 is faulty!")
+	// 	return
+	// }
 	if data.Digest != utils.GetDigest(data.RequestMessage) {
 		n.log.Error(fmt.Sprintf("SeqNumber %d: Preprepare message digest mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
 		return
@@ -58,7 +58,7 @@ func (n *Node) HandlePreprepareMessage(data core.PreprepareMessage) {
 func (n *Node) HandlePrepareMessage(data core.PrepareMessage) {
 	n.handleMessageLock.Lock()
 	defer n.handleMessageLock.Unlock()
-	if n.IsExpired() {
+	if n.viewChange.IsInViewChange() {
 		n.log.Error("Node %d is expired and Start to trigger view change", n.NodeID)
 		return
 	}
@@ -95,7 +95,7 @@ func (n *Node) HandlePrepareMessage(data core.PrepareMessage) {
 func (n *Node) HandleCommitMessage(data core.CommitMessage) {
 	n.handleMessageLock.Lock()
 	defer n.handleMessageLock.Unlock()
-	if n.IsExpired() {
+	if n.viewChange.IsInViewChange() {
 		n.log.Error("Node %d is expired and Start to trigger view change", n.NodeID)
 		return
 	}
@@ -125,6 +125,8 @@ func (n *Node) HandleCommitMessage(data core.CommitMessage) {
 	if n.GetCommitMessageNumber(data.SequenceNumber) == 2*int32(n.cfg.FaultyNodesNum) {
 		n.log.Info(fmt.Sprintf("SeqNumber %d: Received %d commit messages, enough to reply to client.", data.SequenceNumber, n.commitMsgNumber[data.SequenceNumber].Load()))
 		n.SetCommitSequenceNumber(data.SequenceNumber)
+		n.seq2digest[data.SequenceNumber] = data.Digest
+		go n.TriggerGarbageCollection(data.SequenceNumber, data.Digest)
 		n.SendReplyMessage(data)
 	}
 }
