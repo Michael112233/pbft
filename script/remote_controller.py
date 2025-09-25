@@ -42,8 +42,12 @@ for port in ports:
                 pass
             continue
     try:
-        stdin, stdout, stderr = client.exec_command("git pull origin main")
+        stdin, stdout, stderr = client.exec_command("cd pbft && rm -rf logs && rm -rf pbft_main")
         print(stdout.read().decode())
+        print(stderr.read().decode())
+        stdin, stdout, stderr = client.exec_command("cd pbft && git pull origin main && git checkout main && chmod +x remote_run_linux.sh")
+        print(stdout.read().decode())
+        print(stderr.read().decode())
     finally:
         try:
             client.close()
