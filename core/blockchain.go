@@ -42,6 +42,8 @@ func (b *Blockchain) AddBlock(block *Block) {
 
 		b.logger.Info("add block %d, who committed: %v, tx number: %d", block.SequenceNumber, block.committedNode, len(block.Transactions))
 		result.AddCommittedTransactionNum(int64(len(block.Transactions)))
+		current_latency := block.Timestamp - block.ProposedTimestamp
+		result.AddLatency(float64(current_latency))
 		result.PrintResult()
 		if b.cfg.MaxTxNum == result.GetCommittedTransactionNum() {
 			b.logger.Info("finish injecting: %d=%d", b.cfg.MaxTxNum, result.GetCommittedTransactionNum())
