@@ -21,7 +21,7 @@ func runNode(nodeID int64, cfg *config.Config) {
 	Node.Start()
 
 	// Keep the node process alive until a stop signal is received
-	time.Sleep(50 * time.Second)
+	time.Sleep(45 * time.Second)
 }
 
 func runClient(cfg *config.Config) {
@@ -45,7 +45,7 @@ func runClient(cfg *config.Config) {
 	client.Start()
 
 	// Wait for 60 seconds to allow transaction processing
-	time.Sleep(30 * time.Second)
+	time.Sleep(20 * time.Second)
 
 	// client.Stop() waits for WaitGroup and then returns; message hub remains available to send close messages
 	client.Stop()
