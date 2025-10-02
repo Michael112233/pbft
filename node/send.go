@@ -30,7 +30,7 @@ func (n *Node) SendPreprepareMessage(data core.RequestMessage) {
 			Digest:         utils.GetDigest(&data),
 			RequestMessage: &data,
 		}
-		n.log.Info(fmt.Sprintf("Send preprepare message to %s", othersIp))
+		n.log.Info(fmt.Sprintf("Send preprepare message to %s with sequence number %d", othersIp, sequenceNumber))
 		n.messageHub.Send(core.MsgPreprepareMessage, othersIp, preprepareMessage, nil)
 	}
 }
@@ -52,7 +52,7 @@ func (n *Node) SendPrepareMessage(data core.PreprepareMessage) {
 			Digest:         data.Digest,
 			RequestMessage: data.RequestMessage,
 		}
-		n.log.Info(fmt.Sprintf("Send prepare message to %s", othersIp))
+		n.log.Info(fmt.Sprintf("Send prepare message to %s with sequence number %d", othersIp, data.SequenceNumber))
 		n.messageHub.Send(core.MsgPrepareMessage, othersIp, prepareMessage, nil)
 	}
 }
@@ -75,7 +75,7 @@ func (n *Node) SendCommitMessage(data core.PrepareMessage) {
 			Digest:         data.Digest,
 			RequestMessage: data.RequestMessage,
 		}
-		n.log.Info(fmt.Sprintf("Send commit message to %s", othersIp))
+		n.log.Info(fmt.Sprintf("Send commit message to %s with sequence number %d", othersIp, data.SequenceNumber))
 		n.messageHub.Send(core.MsgCommitMessage, othersIp, commitMessage, nil)
 	}
 }
@@ -89,7 +89,7 @@ func (n *Node) SendReplyMessage(data core.CommitMessage) {
 		ViewNumber:     n.viewNumber,
 		RequestMessage: data.RequestMessage,
 	}
-	n.log.Info(fmt.Sprintf("Send reply message to %s", config.ClientAddr))
+	n.log.Info(fmt.Sprintf("Send reply message to %s with sequence number %d", config.ClientAddr, data.SequenceNumber))
 	timerID := fmt.Sprintf("request_%d_%d", n.NodeID, data.RequestMessage.Id)
 	n.StopExpireTimer(timerID)
 	n.messageHub.Send(core.MsgReplyMessage, config.ClientAddr, replyMessage, nil)
