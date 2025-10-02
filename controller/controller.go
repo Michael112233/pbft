@@ -21,12 +21,12 @@ func runNode(nodeID int64, cfg *config.Config) {
 	Node.Start()
 
 	// Keep the node process alive until a stop signal is received
-	time.Sleep(60 * time.Second)
+	time.Sleep(20 * time.Second)
 }
 
 func runClient(cfg *config.Config) {
 	defer func() {
-		result.PrintResult()
+		// result.PrintResult()
 		// Export results to CSV
 		if err := result.ExportToCSV("tps_results.csv"); err != nil {
 			log.Error("Failed to export CSV: %v", err)
@@ -45,7 +45,7 @@ func runClient(cfg *config.Config) {
 	client.Start()
 
 	// Wait for 60 seconds to allow transaction processing
-	time.Sleep(60 * time.Second)
+	time.Sleep(20 * time.Second)
 
 	// client.Stop() waits for WaitGroup and then returns; message hub remains available to send close messages
 	client.Stop()

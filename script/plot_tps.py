@@ -81,7 +81,7 @@ def plot_tps_data(csv_file='tps_results.csv', tps_output='tps_plot.png', latency
         # Customize Latency plot
         plt.title('PBFT System Performance: Latency vs Time', fontsize=16, fontweight='bold')
         plt.xlabel('Time (seconds)', fontsize=14)
-        plt.ylabel('Latency (seconds)', fontsize=14)
+        plt.ylabel('Latency (milliseconds)', fontsize=14)
         plt.grid(True, alpha=0.3)
         
         # Add Latency statistics
@@ -90,7 +90,7 @@ def plot_tps_data(csv_file='tps_results.csv', tps_output='tps_plot.png', latency
         min_latency = df['Latency'].min()
         
         # Add text box with Latency statistics
-        latency_stats_text = f'Max Latency: {max_latency:.4f}s\nAvg Latency: {avg_latency:.4f}s\nMin Latency: {min_latency:.4f}s'
+        latency_stats_text = f'Max Latency: {max_latency:.4f}ms\nAvg Latency: {avg_latency:.4f}ms\nMin Latency: {min_latency:.4f}ms'
         plt.text(0.02, 0.98, latency_stats_text, transform=plt.gca().transAxes, 
                 verticalalignment='top', bbox=dict(boxstyle='round', facecolor='lightcoral', alpha=0.8))
         
@@ -109,11 +109,11 @@ def plot_tps_data(csv_file='tps_results.csv', tps_output='tps_plot.png', latency
         print(f"Total data points: {len(df)}")
         print(f"Time range: {df['Time'].min():.2f}s - {df['Time'].max():.2f}s")
         print(f"TPS range: {df['TPS'].min():.2f} - {df['TPS'].max():.2f}")
-        print(f"Latency range: {df['Latency'].min():.4f}s - {df['Latency'].max():.4f}s")
+        print(f"Latency range: {df['Latency'].min():.4f}ms - {df['Latency'].max():.4f}ms")
         print(f"Average TPS: {avg_tps:.2f}")
         print(f"Maximum TPS: {max_tps:.2f}")
-        print(f"Average Latency: {avg_latency:.4f}s")
-        print(f"Maximum Latency: {max_latency:.4f}s")
+        print(f"Average Latency: {avg_latency:.4f}ms")
+        print(f"Maximum Latency: {max_latency:.4f}ms")
         
         return True
         

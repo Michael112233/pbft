@@ -9,8 +9,8 @@ import (
 
 // handle request message
 func (n *Node) HandleRequestMessage(data core.RequestMessage) {
-	n.handleMessageLock.Lock()
-	defer n.handleMessageLock.Unlock()
+	// n.handleMessageLock.Lock()
+	// defer n.handleMessageLock.Unlock()
 	// COMMENTED OUT: viewchange related code
 	// if n.viewChange.IsInViewChange() {
 	// 	n.log.Error("Node %d is in view change and Ignore request message", n.NodeID)
@@ -23,8 +23,8 @@ func (n *Node) HandleRequestMessage(data core.RequestMessage) {
 }
 
 func (n *Node) HandlePreprepareMessage(data core.PreprepareMessage) {
-	n.handleMessageLock.Lock()
-	defer n.handleMessageLock.Unlock()
+	// n.handleMessageLock.Lock()
+	// defer n.handleMessageLock.Unlock()
 	timerID := fmt.Sprintf("request_%d_%d", n.NodeID, data.RequestMessage.Id)
 	n.StartExpireTimer(timerID)
 	// COMMENTED OUT: viewchange related code
@@ -58,8 +58,8 @@ func (n *Node) HandlePreprepareMessage(data core.PreprepareMessage) {
 }
 
 func (n *Node) HandlePrepareMessage(data core.PrepareMessage) {
-	n.handleMessageLock.Lock()
-	defer n.handleMessageLock.Unlock()
+	// n.handleMessageLock.Lock()
+	// defer n.handleMessageLock.Unlock()
 	// COMMENTED OUT: viewchange related code
 	// if n.viewChange.IsInViewChange() {
 	// 	n.log.Error("Node %d is expired and Start to trigger view change", n.NodeID)
@@ -96,8 +96,8 @@ func (n *Node) HandlePrepareMessage(data core.PrepareMessage) {
 }
 
 func (n *Node) HandleCommitMessage(data core.CommitMessage) {
-	n.handleMessageLock.Lock()
-	defer n.handleMessageLock.Unlock()
+	// n.handleMessageLock.Lock()
+	// defer n.handleMessageLock.Unlock()
 	// COMMENTED OUT: viewchange related code
 	// if n.viewChange.IsInViewChange() {
 	// 	n.log.Error("Node %d is expired and Start to trigger view change", n.NodeID)

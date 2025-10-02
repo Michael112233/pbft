@@ -31,24 +31,28 @@ func NewBlockchain(cfg *config.Config) {
 }
 
 func (b *Blockchain) AddBlock(block *Block) {
-	b.addMutex.Lock()
-	defer b.addMutex.Unlock()
-
 	if existingBlock, ok := b.GetBlock(block.SequenceNumber); ok {
 		existingBlock.AddCommittedNode(block.committedNode[0])
 		b.logger.Info("current committed: %v to block %d", existingBlock.committedNode, block.SequenceNumber)
 	} else {
+		// add block to blockchain
+		b.addMutex.Lock()
 		b.Blocks = append(b.Blocks, block)
-		b.logger.Info("add block %d, who committed: %v, who proposed: %s", block.SequenceNumber, block.committedNode, block.proposedLeader)
+		b.addMutex.Unlock()
+
+		b.logger.Info("add block %d, who committed: %v, tx number: %d", block.SequenceNumber, block.committedNode, len(block.Transactions))
 		result.AddCommittedTransactionNum(int64(len(block.Transactions)))
+		result.PrintResult()
 		if b.cfg.MaxTxNum == result.GetCommittedTransactionNum() {
 			b.logger.Info("finish injecting: %d=%d", b.cfg.MaxTxNum, result.GetCommittedTransactionNum())
 		}
-		result.PrintResult()
 	}
 }
 
 func (b *Blockchain) GetBlock(index int64) (*Block, bool) {
+	b.addMutex.Lock()
+	defer b.addMutex.Unlock()
+
 	for _, block := range b.Blocks {
 		if block.SequenceNumber == index {
 			return block, true

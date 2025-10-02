@@ -59,8 +59,8 @@ func (n *Node) SendCheckpointMessage(sequenceNumber int64, digest string) {
 }
 
 func (n *Node) HandleCheckpointMessage(data core.CheckpointMessage) {
-	n.handleMessageLock.Lock()
-	defer n.handleMessageLock.Unlock()
+	// n.handleMessageLock.Lock()
+	// defer n.handleMessageLock.Unlock()
 	n.log.Info(fmt.Sprintf("Received checkpoint message from %s, sequence number %d", data.From, data.SequenceNumber))
 
 	// Get checkpoint counter with read lock
