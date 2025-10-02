@@ -15,8 +15,8 @@ func (c *Client) InjectTxs() {
 	go func() {
 		defer c.WaitGroup.Done()
 		var injectTxs []*core.Transaction
-		for i := int64(0); (i+1)*c.injectSpeed <= int64(len(c.txs)); i++ {
-			injectTxs = c.txs[i*c.injectSpeed : (i+1)*c.injectSpeed]
+		for i := int64(0); (i+1)*c.config.MaxBlockSize < int64(len(c.txs)); i++ {
+			injectTxs = c.txs[i*c.config.MaxBlockSize : (i+1)*c.config.MaxBlockSize]
 			leader := c.leaderElection.GetLeader(c.currentView)
 			msg := core.RequestMessage{
 				Timestamp: time.Now().Unix(),
@@ -26,7 +26,10 @@ func (c *Client) InjectTxs() {
 				Id:        int64(i),
 			}
 			c.messageHub.Send(core.MsgRequestMessage, c.addr, msg, nil)
-			time.Sleep(2 * time.Second)
+			if (i+1)%c.injectSpeed == 0 {
+				time.Sleep(1 * time.Second)
+			}
+			c.log.Info(fmt.Sprintf("Send request message to %s with %d transactions", leader, int64(i)))
 		}
 	}()
 }

@@ -1,11 +1,13 @@
 package node
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/michael112233/pbft/config"
+	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/logger"
 )
 
@@ -13,6 +15,7 @@ type Node struct {
 	NodeID                  int64
 	viewNumber              int64
 	prepareMsgNumber        map[int64]*atomic.Int32
+	preprepareMsg           map[int64][]*core.PreprepareMessage
 	commitMsgNumber         map[int64]*atomic.Int32
 	lastPreprepareSeqNumber int64
 	lastPrepareSeqNumber    int64
@@ -26,11 +29,13 @@ type Node struct {
 	commitSeqLock           sync.Mutex
 	PrepareMessageLock      sync.Mutex
 	CommitMessageLock       sync.Mutex
+	checkpointLock          sync.RWMutex
+	seq2digestLock          sync.RWMutex
 
 	cfg        *config.Config
 	log        *logger.Logger
 	messageHub *NodeMessageHub
-	viewChange *ViewChanger
+	// viewChange *ViewChanger // COMMENTED OUT: viewchange related code
 
 	expireTimers      map[string]*time.Timer
 	expireLock        sync.RWMutex
@@ -58,9 +63,15 @@ func NewNode(nodeID int64, cfg *config.Config) *Node {
 		seq2digest[int64(i)] = ""
 	}
 
+	preprepareMsg := make(map[int64][]*core.PreprepareMessage, cfg.SeqNumberUpperBound)
+	for i := cfg.SeqNumberLowerBound; i <= cfg.SeqNumberUpperBound; i++ {
+		preprepareMsg[int64(i)] = make([]*core.PreprepareMessage, 0)
+	}
+
 	return &Node{
 		NodeID:                  nodeID,
 		viewNumber:              0,
+		preprepareMsg:           preprepareMsg,
 		prepareMsgNumber:        prepareMsgNumber,
 		commitMsgNumber:         commitMsgNumber,
 		seq2digest:              seq2digest,
@@ -72,8 +83,8 @@ func NewNode(nodeID int64, cfg *config.Config) *Node {
 		log:                     logger.NewLogger(nodeID, "node"),
 		messageHub:              NewNodeMessageHub(),
 		expireTimers:            make(map[string]*time.Timer),
-		viewChange:              NewViewChanger(cfg),
-		StopChan:                make(chan struct{}),
+		// viewChange:              NewViewChanger(cfg), // COMMENTED OUT: viewchange related code
+		StopChan: make(chan struct{}),
 	}
 }
 
@@ -97,10 +108,12 @@ func (n *Node) GetAddr() string {
 	return config.NodeAddr[int(n.NodeID)]
 }
 
-func (n *Node) SetPreprepareSequenceNumber(seqNumber int64) {
+func (n *Node) SetPreprepareSequenceNumber(seqNumber int64, preprepareMessage *core.PreprepareMessage) {
 	n.preprepareSeqLock.Lock()
 	defer n.preprepareSeqLock.Unlock()
 	n.lastPreprepareSeqNumber = seqNumber
+	n.preprepareMsg[seqNumber] = append(n.preprepareMsg[seqNumber], preprepareMessage)
+	n.log.Info(fmt.Sprintf("Add preprepare message to map, sequence number is %d", seqNumber))
 }
 
 func (n *Node) GetPreprepareSequenceNumber() int64 {
@@ -164,9 +177,10 @@ func (n *Node) AddCommitMessageNumber(seqNumber int64) {
 // Multiple timers can run concurrently
 func (n *Node) StartExpireTimer(timerID string) {
 	// Reset expire flag when starting new timer
-	n.expireLock.Lock()
-	n.viewChange.ResetViewChanger()
-	n.expireLock.Unlock()
+	// COMMENTED OUT: viewchange related code
+	// n.expireLock.Lock()
+	// n.viewChange.ResetViewChanger()
+	// n.expireLock.Unlock()
 
 	// Stop existing timer with same ID if it exists
 	n.timerLock.Lock()
@@ -250,9 +264,9 @@ func (n *Node) monitorTimer(timerID string, timer *time.Timer) {
 	n.log.Info("All timers stopped after timer '%s' expiration", timerID)
 
 	// start view changer
-	if !n.viewChange.IsInViewChange() {
-		n.log.Error("Node %d is expired and Start to trigger view change", n.NodeID)
-		// n.viewChange.StartViewChange(n.viewNumber, n.lastStableCheckpoint)
-		// n.SendViewChangeMessage()
-	}
+	// COMMENTED OUT: viewchange related code
+	// if !n.viewChange.IsInViewChange() {
+	// 	n.viewChange.StartViewChange(n.viewNumber, n.lastStableCheckpoint)
+	// 	n.SendViewChangeMessage()
+	// }
 }

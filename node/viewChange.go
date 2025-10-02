@@ -1,5 +1,6 @@
 package node
 
+/*
 import (
 	"fmt"
 	"sync"
@@ -19,17 +20,17 @@ type ViewChanger struct {
 	currentView           int64
 	currentSequenceNumber int64
 	leaderElection        *leader_election.LeaderElection
-	addr2vcMsg            map[string]core.ViewChangeMessage
+	viewChangeMessages    []core.ViewChangeMessage
 
-	addr2vcMsgLock sync.Mutex
+	viewChangeMessagesLock sync.Mutex
 }
 
 func NewViewChanger(cfg *config.Config) *ViewChanger {
 	return &ViewChanger{
-		isInViewChange: false,
-		currentView:    -1,
-		leaderElection: leader_election.NewLeaderElection(cfg),
-		addr2vcMsg:     make(map[string]core.ViewChangeMessage),
+		isInViewChange:     false,
+		currentView:        -1,
+		leaderElection:     leader_election.NewLeaderElection(cfg),
+		viewChangeMessages: make([]core.ViewChangeMessage, 0),
 	}
 }
 
@@ -37,14 +38,14 @@ func (vc *ViewChanger) StartViewChange(currentView int64, currentSequenceNumber 
 	vc.isInViewChange = true
 	vc.currentView = currentView
 	vc.currentSequenceNumber = currentSequenceNumber
-	vc.addr2vcMsg = make(map[string]core.ViewChangeMessage)
+	vc.viewChangeMessages = make([]core.ViewChangeMessage, 0)
 }
 
 func (vc *ViewChanger) ResetViewChanger() {
 	vc.isInViewChange = false
 	vc.currentView = -1
 	vc.currentSequenceNumber = -1
-	vc.addr2vcMsg = make(map[string]core.ViewChangeMessage)
+	vc.viewChangeMessages = make([]core.ViewChangeMessage, 0)
 }
 
 func (vc *ViewChanger) IsInViewChange() bool {
@@ -68,9 +69,14 @@ func (n *Node) SendViewChangeMessage() {
 		Timestamp:           time.Now().Unix(),
 		CheckpointSeqNumber: n.lastStableCheckpoint,
 		ViewNumber:          n.viewChange.currentView + 1,
-		CheckpointMsgNumber: n.checkpointList[n.lastStableCheckpoint].Load(),
+		CheckpointMsgNumber: func() int32 {
+			n.checkpointLock.RLock()
+			defer n.checkpointLock.RUnlock()
+			return n.checkpointList[n.lastStableCheckpoint].Load()
+		}(),
 		From:                n.GetAddr(),
 		HavePreparedList:    havePreparedList,
+		PreprepareMessages:  n.preprepareMsg,
 		To:                  "",
 	}
 	for _, othersIp := range config.NodeAddr {
@@ -84,17 +90,41 @@ func (n *Node) SendViewChangeMessage() {
 }
 
 func (n *Node) sendNewViewMessage() {
-	// n.viewChange.currentView++
-	// n.viewNumber = n.viewChange.currentView
+	n.viewChange.currentView++
+	n.viewNumber = n.viewChange.currentView
 
-	// // TODO: Set V - valid view change message
+	viewChangeMessages := n.viewChange.viewChangeMessages
+	WaitingPreprepareMessages := make(map[int64]*core.PreprepareMessage)
+	// Waiting to do, judge whether the leader can send different transactions to different nodes
+	for _, viewChangeMessage := range viewChangeMessages {
+		preprepareMessages := viewChangeMessage.PreprepareMessages
+		currentMsg := preprepareMessages[0][0]
+		preprepareMsg := core.PreprepareMessage{
+			Timestamp:      time.Now().Unix(),
+			From:           n.GetAddr(),
+			To:             "",
+			SequenceNumber: currentMsg.SequenceNumber,
+			ViewNumber:     n.viewChange.currentView,
+			Digest:         currentMsg.Digest,
+			RequestMessage: currentMsg.RequestMessage,
+		}
+		WaitingPreprepareMessages[currentMsg.SequenceNumber] = &preprepareMsg
+	}
 
-	// newViewMessage := core.NewViewMessage{
-	// 	Timestamp:  time.Now().Unix(),
-	// 	From:       n.GetAddr(),
-	// 	To:         "",
-	// 	ViewNumber: n.viewChange.currentView,
-	// }
+	newViewMessage := core.NewViewMessage{
+		Timestamp:          time.Now().Unix(),
+		From:               n.GetAddr(),
+		To:                 "",
+		ViewChangeMessages: n.viewChange.viewChangeMessages,
+		ViewNumber:         n.viewChange.currentView,
+		PreprepareMessages: WaitingPreprepareMessages,
+	}
+	for _, othersIp := range config.NodeAddr {
+		if othersIp == n.GetAddr() {
+			continue
+		}
+		n.messageHub.Send(core.MsgNewViewMessage, othersIp, newViewMessage, nil)
+	}
 }
 
 // --------------------------------------------------------
@@ -115,13 +145,22 @@ func (n *Node) HandleViewChangeMessage(data core.ViewChangeMessage) {
 
 	n.log.Info(fmt.Sprintf("Received view change message from %s, sequence number %d", data.From, data.CheckpointSeqNumber))
 
-	n.viewChange.addr2vcMsgLock.Lock()
-	n.viewChange.addr2vcMsg[data.From] = data
-	vcMsgNumber := len(n.viewChange.addr2vcMsg)
-	n.viewChange.addr2vcMsgLock.Unlock()
+	n.viewChange.viewChangeMessagesLock.Lock()
+	n.viewChange.viewChangeMessages = append(n.viewChange.viewChangeMessages, data)
+	vcMsgNumber := len(n.viewChange.viewChangeMessages)
+	n.viewChange.viewChangeMessagesLock.Unlock()
 
 	if vcMsgNumber == 2*int(n.cfg.FaultyNodesNum) {
 		n.log.Info(fmt.Sprintf("Received enough view change messages, start new view %d", intendedViewNumber))
 		n.sendNewViewMessage()
 	}
 }
+
+func (n *Node) HandleNewViewMessage(data core.NewViewMessage) {
+	n.handleMessageLock.Lock()
+	defer n.handleMessageLock.Unlock()
+	n.log.Info(fmt.Sprintf("Received new view message from %s, view number %d", data.From, data.ViewNumber))
+	// n.preprepareMsg = data.PreprepareMessages
+	n.Stop()
+}
+*/

@@ -14,6 +14,9 @@ import (
 // --------------------------------------------------------
 
 func (n *Node) StartGarbageCollection() {
+	n.checkpointLock.Lock()
+	defer n.checkpointLock.Unlock()
+
 	n.lastStableCheckpoint = -1
 	n.checkpointList = make(map[int64]*atomic.Int32)
 	for i := int64(n.cfg.SeqNumberLowerBound); i <= int64(n.cfg.SeqNumberUpperBound); i++ {
@@ -28,7 +31,12 @@ func (n *Node) TriggerGarbageCollection(seqNumber int64, digest string) {
 		return
 	}
 	n.log.Info(fmt.Sprintf("Trigger garbage collection for sequence number %d", seqNumber))
-	n.checkpointList[seqNumber].Add(1)
+
+	n.checkpointLock.RLock()
+	checkpointCounter := n.checkpointList[seqNumber]
+	n.checkpointLock.RUnlock()
+
+	checkpointCounter.Add(1)
 	n.SendCheckpointMessage(seqNumber, digest)
 }
 
@@ -55,13 +63,24 @@ func (n *Node) HandleCheckpointMessage(data core.CheckpointMessage) {
 	defer n.handleMessageLock.Unlock()
 	n.log.Info(fmt.Sprintf("Received checkpoint message from %s, sequence number %d", data.From, data.SequenceNumber))
 
-	n.checkpointList[data.SequenceNumber].Add(1)
+	// Get checkpoint counter with read lock
+	n.checkpointLock.RLock()
+	checkpointCounter := n.checkpointList[data.SequenceNumber]
+	n.checkpointLock.RUnlock()
 
-	if data.Digest != n.seq2digest[data.SequenceNumber] {
+	checkpointCounter.Add(1)
+
+	// Check digest with read lock
+	n.seq2digestLock.RLock()
+	expectedDigest := n.seq2digest[data.SequenceNumber]
+	n.seq2digestLock.RUnlock()
+
+	if data.Digest != expectedDigest {
 		n.log.Error(fmt.Sprintf("Checkpoint message digest mismatch. from %s, sequence number %d", data.From, data.SequenceNumber))
 		return
 	}
-	if n.checkpointList[data.SequenceNumber].Load() == int32(2*n.cfg.FaultyNodesNum+1) {
+
+	if checkpointCounter.Load() == int32(2*n.cfg.FaultyNodesNum+1) {
 		n.lastStableCheckpoint = data.SequenceNumber
 		n.log.Debug(fmt.Sprintf("Node %d last stable checkpoint is %d", n.NodeID, n.lastStableCheckpoint))
 	}

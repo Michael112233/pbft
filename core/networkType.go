@@ -7,6 +7,7 @@ const (
 	MsgCommitMessage     string = "MsgCommitMessage"
 	MsgReplyMessage      string = "MsgReplyMessage"
 	MsgCloseMessage      string = "MsgCloseMessage"
-	MsgViewChangeMessage string = "MsgViewChangeMessage"
+	// MsgViewChangeMessage string = "MsgViewChangeMessage" // COMMENTED OUT: viewchange related code
 	MsgCheckpointMessage string = "MsgCheckpointMessage"
+	// MsgNewViewMessage    string = "MsgNewViewMessage" // COMMENTED OUT: viewchange related code
 )

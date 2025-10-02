@@ -16,23 +16,22 @@ var log = logger.NewLogger(0, "controller")
 
 func runNode(nodeID int64, cfg *config.Config) {
 	Node := node.NewNode(nodeID, cfg)
+	defer Node.Stop()
+
 	Node.Start()
 
 	// Keep the node process alive until a stop signal is received
-	for {
-		select {
-		case <-Node.StopChan:
-			time.Sleep(20 * time.Second)
-			Node.Stop()
-			return
-		default:
-			time.Sleep(1 * time.Second)
-		}
-	}
+	time.Sleep(60 * time.Second)
 }
 
 func runClient(cfg *config.Config) {
-	defer result.PrintResult()
+	defer func() {
+		result.PrintResult()
+		// Export results to CSV
+		if err := result.ExportToCSV("tps_results.csv"); err != nil {
+			log.Error("Failed to export CSV: %v", err)
+		}
+	}()
 
 	// Init a blockchain (no FinishInjecting usage)
 	core.NewBlockchain(cfg)
@@ -45,12 +44,12 @@ func runClient(cfg *config.Config) {
 	client.AddTxs(txs)
 	client.Start()
 
-	// Wait for client's injection goroutine(s) to finish
+	// Wait for 60 seconds to allow transaction processing
+	time.Sleep(60 * time.Second)
+
 	// client.Stop() waits for WaitGroup and then returns; message hub remains available to send close messages
 	client.Stop()
 
-	// Broadcast close to all nodes after injection completes
-	client.BroadcastClose()
 }
 
 func Main(nodeID int64, role, mode, cfgPath string) {

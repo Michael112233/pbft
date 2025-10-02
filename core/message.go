@@ -59,15 +59,27 @@ type CloseMessage struct {
 	To        string
 }
 
-type ViewChangeMessage struct {
-	Timestamp           int64
-	From                string
-	To                  string
-	CheckpointSeqNumber int64
-	ViewNumber          int64
-	CheckpointMsgNumber int32
-	HavePreparedList    map[int64]bool
-}
+// COMMENTED OUT: viewchange related code
+// type ViewChangeMessage struct {
+// 	Timestamp           int64
+// 	From                string
+// 	To                  string
+// 	CheckpointSeqNumber int64
+// 	ViewNumber          int64
+// 	CheckpointMsgNumber int32
+// 	HavePreparedList    map[int64]bool
+// 	PreprepareMessages  map[int64][]*PreprepareMessage
+// }
+
+// COMMENTED OUT: viewchange related code
+// type NewViewMessage struct {
+// 	Timestamp          int64
+// 	From               string
+// 	To                 string
+// 	ViewChangeMessages []ViewChangeMessage
+// 	ViewNumber         int64
+// 	PreprepareMessages map[int64]*PreprepareMessage
+// }
 
 type CheckpointMessage struct {
 	Timestamp      int64
