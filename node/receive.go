@@ -19,7 +19,8 @@ func (n *Node) HandleRequestMessage(data core.RequestMessage) {
 	timerID := fmt.Sprintf("request_%d_%d", n.NodeID, data.Id)
 	n.StartExpireTimer(timerID)
 	n.log.Info(fmt.Sprintf("Received request message from %s to %s with %d transactions", data.From, data.To, len(data.Txs)))
-	go n.SendPreprepareMessage(data)
+	n.Mempool = append(n.Mempool, data.Txs...)
+	go n.SendPreprepareMessage()
 }
 
 func (n *Node) HandlePreprepareMessage(data core.PreprepareMessage) {

@@ -13,6 +13,7 @@ type Config struct {
 	MaxBlockSize int64  `json:"max_block_size"`
 
 	NodeNum int64 `json:"node_num"`
+	RunTime int   `json:"run_time"`
 
 	FaultyNodesNum int64
 

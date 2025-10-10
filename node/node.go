@@ -43,6 +43,8 @@ type Node struct {
 	handleMessageLock sync.Mutex
 
 	StopChan chan struct{}
+
+	Mempool []*core.Transaction
 }
 
 func NewNode(nodeID int64, cfg *config.Config) *Node {
@@ -85,6 +87,7 @@ func NewNode(nodeID int64, cfg *config.Config) *Node {
 		expireTimers:            make(map[string]*time.Timer),
 		// viewChange:              NewViewChanger(cfg), // COMMENTED OUT: viewchange related code
 		StopChan: make(chan struct{}),
+		Mempool:  make([]*core.Transaction, 0),
 	}
 }
 

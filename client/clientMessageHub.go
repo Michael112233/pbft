@@ -170,7 +170,7 @@ func (hub *ClientMessageHub) handleConnection(conn net.Conn, ln net.Listener) {
 		msg := hub.unpackMsg(packedMsg)
 		switch msg.MsgType {
 		case core.MsgReplyMessage:
-			hub.handleReplyMessage(msg.Data)
+			go hub.handleReplyMessage(msg.Data)
 		default:
 			hub.log.Error(fmt.Sprintf("Unknown message type received: msgType=%s", msg.MsgType))
 		}

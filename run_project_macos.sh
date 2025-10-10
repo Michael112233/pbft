@@ -46,6 +46,9 @@ osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && 
 # Start Node 3
 osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 3\""
 
+# Sleep for 5 seconds
+sleep 5
+
 # Start Client
 osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r client -m local\""
 

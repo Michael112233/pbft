@@ -10,13 +10,13 @@ import (
 )
 
 func (c *Client) InjectTxs() {
-	result.SetStartTime(time.Now())
 	c.WaitGroup.Add(1)
 	go func() {
 		defer c.WaitGroup.Done()
+		result.SetStartTime(time.Now())
 		var injectTxs []*core.Transaction
-		for i := int64(0); (i+1)*c.config.MaxBlockSize < int64(len(c.txs)); i++ {
-			injectTxs = c.txs[i*c.config.MaxBlockSize : (i+1)*c.config.MaxBlockSize]
+		for i := int64(0); (i+1)*c.config.InjectSpeed < int64(len(c.txs)); i++ {
+			injectTxs = c.txs[i*c.config.InjectSpeed : (i+1)*c.config.InjectSpeed]
 			leader := c.leaderElection.GetLeader(c.currentView)
 			msg := core.RequestMessage{
 				Timestamp: time.Now().Unix(),
@@ -26,7 +26,7 @@ func (c *Client) InjectTxs() {
 				Id:        int64(i),
 			}
 			c.messageHub.Send(core.MsgRequestMessage, c.addr, msg, nil)
-			if (i+1)%c.injectSpeed == 0 {
+			if ((i+1)*c.config.InjectSpeed)%c.injectSpeed == 0 {
 				time.Sleep(1 * time.Second)
 			}
 			c.log.Info(fmt.Sprintf("Send request message to %s with %d transactions", leader, int64(i)))

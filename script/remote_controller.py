@@ -61,14 +61,14 @@ for port in ports:
         stdin, stdout, stderr = client.exec_command(remote_cmd)
         print("STDOUT:", stdout.read().decode())
         print("STDERR:", stderr.read().decode())
-        remote_cmd = (
-            f"cd pbft && chmod +x remote_run_linux.sh &&"
-            f"chmod +x script/environment_setup.sh &&"
-            f"./script/environment_setup.sh"
-        )
-        stdin, stdout, stderr = client.exec_command(remote_cmd)
-        print("STDOUT:", stdout.read().decode())
-        print("STDERR:", stderr.read().decode())
+        # remote_cmd = (
+        #     f"cd pbft && chmod +x remote_run_linux.sh &&"
+        #     f"chmod +x script/environment_setup.sh &&"
+        #     f"./script/environment_setup.sh"
+        # )
+        # stdin, stdout, stderr = client.exec_command(remote_cmd)
+        # print("STDOUT:", stdout.read().decode())
+        # print("STDERR:", stderr.read().decode())
     finally:
         try:
             client.close()

@@ -11,27 +11,44 @@ import (
 
 var sequenceNumber int64 = -1
 
-func (n *Node) SendPreprepareMessage(data core.RequestMessage) {
-	if sequenceNumber == -1 {
-		sequenceNumber = GenerateRandomSequenceNumber(n.cfg.SeqNumberUpperBound, n.cfg.SeqNumberLowerBound)
-	} else {
-		sequenceNumber++
+func (n *Node) GenerateBlocks() *core.RequestMessage {
+	// Get the first config.MaxBlockSize transactions
+	txs := n.Mempool[:n.cfg.MaxBlockSize]
+	n.Mempool = n.Mempool[n.cfg.MaxBlockSize:]
+	data := &core.RequestMessage{
+		Timestamp: time.Now().Unix(),
+		From:      config.ClientAddr,
+		To:        n.GetAddr(),
+		Txs:       txs,
+		Id:        sequenceNumber,
 	}
-	for _, othersIp := range config.NodeAddr {
-		if othersIp == n.GetAddr() {
-			continue
+	return data
+}
+
+func (n *Node) SendPreprepareMessage() {
+	for len(n.Mempool) > 0 {
+		if sequenceNumber == -1 {
+			sequenceNumber = GenerateRandomSequenceNumber(n.cfg.SeqNumberUpperBound, n.cfg.SeqNumberLowerBound)
+		} else {
+			sequenceNumber++
 		}
-		preprepareMessage := core.PreprepareMessage{
-			Timestamp:      time.Now().Unix(),
-			From:           n.GetAddr(),
-			To:             othersIp,
-			SequenceNumber: sequenceNumber,
-			ViewNumber:     n.viewNumber,
-			Digest:         utils.GetDigest(&data),
-			RequestMessage: &data,
+		data := n.GenerateBlocks()
+		for _, othersIp := range config.NodeAddr {
+			if othersIp == n.GetAddr() {
+				continue
+			}
+			preprepareMessage := core.PreprepareMessage{
+				Timestamp:      time.Now().Unix(),
+				From:           n.GetAddr(),
+				To:             othersIp,
+				SequenceNumber: sequenceNumber,
+				ViewNumber:     n.viewNumber,
+				Digest:         utils.GetDigest(data),
+				RequestMessage: data,
+			}
+			n.log.Info(fmt.Sprintf("Send preprepare message to %s with sequence number %d", othersIp, sequenceNumber))
+			n.messageHub.Send(core.MsgPreprepareMessage, othersIp, preprepareMessage, nil)
 		}
-		n.log.Info(fmt.Sprintf("Send preprepare message to %s with sequence number %d", othersIp, sequenceNumber))
-		n.messageHub.Send(core.MsgPreprepareMessage, othersIp, preprepareMessage, nil)
 	}
 }
 
