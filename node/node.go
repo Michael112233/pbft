@@ -1,7 +1,6 @@
 package node
 
 import (
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -35,10 +34,9 @@ type Node struct {
 	cfg        *config.Config
 	log        *logger.Logger
 	messageHub *NodeMessageHub
-	// viewChange *ViewChanger // COMMENTED OUT: viewchange related code
+	viewChange *ViewChanger
 
 	expireTimers      map[string]*time.Timer
-	expireLock        sync.RWMutex
 	timerLock         sync.RWMutex
 	handleMessageLock sync.Mutex
 
@@ -60,6 +58,13 @@ func NewNode(nodeID int64, cfg *config.Config) *Node {
 		commitMsgNumber[int64(i)].Store(0)
 	}
 
+	// initialize checkpoint counters for each possible sequence number
+	checkpointList := make(map[int64]*atomic.Int32, cfg.SeqNumberUpperBound)
+	for i := cfg.SeqNumberLowerBound; i <= cfg.SeqNumberUpperBound; i++ {
+		checkpointList[int64(i)] = &atomic.Int32{}
+		checkpointList[int64(i)].Store(0)
+	}
+
 	seq2digest := make(map[int64]string, cfg.SeqNumberUpperBound)
 	for i := cfg.SeqNumberLowerBound; i <= cfg.SeqNumberUpperBound; i++ {
 		seq2digest[int64(i)] = ""
@@ -76,6 +81,7 @@ func NewNode(nodeID int64, cfg *config.Config) *Node {
 		preprepareMsg:           preprepareMsg,
 		prepareMsgNumber:        prepareMsgNumber,
 		commitMsgNumber:         commitMsgNumber,
+		checkpointList:          checkpointList,
 		seq2digest:              seq2digest,
 		initCommitSeqNumber:     -1,
 		lastPreprepareSeqNumber: -1,
@@ -85,9 +91,9 @@ func NewNode(nodeID int64, cfg *config.Config) *Node {
 		log:                     logger.NewLogger(nodeID, "node"),
 		messageHub:              NewNodeMessageHub(),
 		expireTimers:            make(map[string]*time.Timer),
-		// viewChange:              NewViewChanger(cfg), // COMMENTED OUT: viewchange related code
-		StopChan: make(chan struct{}),
-		Mempool:  make([]*core.Transaction, 0),
+		viewChange:              NewViewChanger(cfg),
+		StopChan:                make(chan struct{}),
+		Mempool:                 make([]*core.Transaction, 0),
 	}
 }
 
@@ -116,13 +122,34 @@ func (n *Node) SetPreprepareSequenceNumber(seqNumber int64, preprepareMessage *c
 	defer n.preprepareSeqLock.Unlock()
 	n.lastPreprepareSeqNumber = seqNumber
 	n.preprepareMsg[seqNumber] = append(n.preprepareMsg[seqNumber], preprepareMessage)
-	n.log.Info(fmt.Sprintf("Add preprepare message to map, sequence number is %d", seqNumber))
+	// n.log.Info(fmt.Sprintf("Add preprepare message to map, sequence number is %d, preprepare messages are %v", seqNumber, n.preprepareMsg[seqNumber]))
 }
 
 func (n *Node) GetPreprepareSequenceNumber() int64 {
 	n.preprepareSeqLock.Lock()
 	defer n.preprepareSeqLock.Unlock()
 	return n.lastPreprepareSeqNumber
+}
+
+// SnapshotPreprepareMessages returns a deep copy snapshot of preprepareMsg under lock.
+// This avoids concurrent iteration/write when serializing during view change.
+func (n *Node) SnapshotPreprepareMessages() map[int64][]*core.PreprepareMessage {
+	n.preprepareSeqLock.Lock()
+	defer n.preprepareSeqLock.Unlock()
+
+	snapshot := make(map[int64][]*core.PreprepareMessage, len(n.preprepareMsg))
+	for seq, msgs := range n.preprepareMsg {
+		// n.log.Info(fmt.Sprintf("Snapshot preprepare messages, sequence number is %d, preprepare messages: %v", seq, msgs))
+		if len(msgs) == 0 {
+			snapshot[seq] = nil
+			continue
+		}
+		copied := make([]*core.PreprepareMessage, len(msgs))
+		copy(copied, msgs)
+		snapshot[seq] = copied
+	}
+	// n.log.Info(fmt.Sprintf("Snapshot preprepare messages %v", snapshot))
+	return snapshot
 }
 
 func (n *Node) SetPrepareSequenceNumber(seqNumber int64) {
@@ -155,7 +182,11 @@ func (n *Node) GetCommitSequenceNumber() int64 {
 func (n *Node) GetPrepareMessageNumber(seqNumber int64) int32 {
 	n.PrepareMessageLock.Lock()
 	defer n.PrepareMessageLock.Unlock()
-	return n.prepareMsgNumber[seqNumber].Load()
+	counter, exists := n.prepareMsgNumber[seqNumber]
+	if !exists || counter == nil {
+		return 0
+	}
+	return counter.Load()
 }
 
 func (n *Node) GetCommitMessageNumber(seqNumber int64) int32 {
@@ -179,12 +210,6 @@ func (n *Node) AddCommitMessageNumber(seqNumber int64) {
 // StartExpireTimer starts a new expire timer with a unique ID
 // Multiple timers can run concurrently
 func (n *Node) StartExpireTimer(timerID string) {
-	// Reset expire flag when starting new timer
-	// COMMENTED OUT: viewchange related code
-	// n.expireLock.Lock()
-	// n.viewChange.ResetViewChanger()
-	// n.expireLock.Unlock()
-
 	// Stop existing timer with same ID if it exists
 	n.timerLock.Lock()
 	if existingTimer, exists := n.expireTimers[timerID]; exists {
@@ -216,14 +241,14 @@ func (n *Node) StopExpireTimer(timerID string) {
 
 	if timer, exists := n.expireTimers[timerID]; exists {
 		if timer.Stop() {
-			n.log.Debug("expire timer '%s' stopped", timerID)
+			// n.log.Debug("expire timer '%s' stopped", timerID)
 		} else {
 			// Timer already expired, drain the channel
 			select {
 			case <-timer.C:
 			default:
 			}
-			n.log.Debug("expire timer '%s' was already expired, drained channel", timerID)
+			// n.log.Debug("expire timer '%s' was already expired, drained channel", timerID)
 		}
 		delete(n.expireTimers, timerID)
 	}
@@ -243,7 +268,7 @@ func (n *Node) StopAllExpireTimers() {
 			case <-timer.C:
 			default:
 			}
-			n.log.Debug("expire timer '%s' was already expired, drained channel", timerID)
+			// n.log.Debug("expire timer '%s' was already expired, drained channel", timerID)
 		}
 	}
 
@@ -267,9 +292,9 @@ func (n *Node) monitorTimer(timerID string, timer *time.Timer) {
 	n.log.Info("All timers stopped after timer '%s' expiration", timerID)
 
 	// start view changer
-	// COMMENTED OUT: viewchange related code
-	// if !n.viewChange.IsInViewChange() {
-	// 	n.viewChange.StartViewChange(n.viewNumber, n.lastStableCheckpoint)
-	// 	n.SendViewChangeMessage()
-	// }
+	if !n.viewChange.IsInViewChange() {
+		n.log.Info("Start view change!")
+		n.viewChange.StartViewChange(n.viewNumber, n.lastStableCheckpoint)
+		n.SendViewChangeMessage()
+	}
 }

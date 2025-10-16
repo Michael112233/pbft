@@ -13,18 +13,18 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
 
 # CloudLab配置
-HOST = "c220g2-010811.wisc.cloudlab.us"
+HOST = "sm220u-10s10633.wisc.cloudlab.us"
 USERNAME = "wucy"
 KEY_PATH = os.path.expanduser("~/.ssh/id_rsa")
 PASSPHRASE = os.environ.get("SSH_KEY_PASSPHRASE")
 
 # 服务器配置：端口 -> (角色, 节点ID)
 SERVER_CONFIG = {
-    25610: ("client", None),      # 客户端
-    25611: ("node", 0),          # 节点0
-    25612: ("node", 1),          # 节点1  
-    25613: ("node", 2),          # 节点2
-    25614: ("node", 3),          # 节点3
+    25410: ("client", None),      # 客户端
+    25411: ("node", 0),          # 节点0
+    25412: ("node", 1),          # 节点1  
+    25413: ("node", 2),          # 节点2
+    25414: ("node", 3),          # 节点3
 }
 
 # 如果环境变量中没有密码，尝试检测并提示输入
@@ -117,6 +117,15 @@ class ServerController:
             return False
             
         try:
+            # 首先确保脚本有执行权限
+            chmod_command = "cd pbft && chmod +x remote_run_linux.sh"
+            print(f"[{server_name}] Setting execute permission: {chmod_command}")
+            chmod_success, chmod_result = self.execute_command(chmod_command)
+            
+            if not chmod_success:
+                print(f"[{server_name}] Failed to set execute permission: {chmod_result}")
+                return False
+            
             # 构建命令
             if self.role == "client":
                 command = "cd pbft && ./remote_run_linux.sh --role client"

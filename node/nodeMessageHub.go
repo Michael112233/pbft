@@ -67,7 +67,7 @@ func (hub *NodeMessageHub) Dial(addr string) (net.Conn, error) {
 		conn, err = net.Dial("tcp", addr)
 		if err != nil {
 			hub.log.Debug(fmt.Sprintf("DialTCPError: target_addr=%s, err=%v", addr, err))
-			return nil, nil
+			return nil, err
 		} else {
 			hub.log.Debug(fmt.Sprintf("dial success. target_addr=%s", addr))
 		}
@@ -108,12 +108,14 @@ func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, call
 		hub.sendCommitMessage(msg)
 	case core.MsgReplyMessage:
 		hub.sendReplyMessage(msg)
-	// case core.MsgViewChangeMessage: // COMMENTED OUT: viewchange related code
-	// 	hub.sendViewChangeMessage(msg)
+	case core.MsgViewChangeMessage:
+		hub.sendViewChangeMessage(msg)
 	case core.MsgCheckpointMessage:
 		hub.sendCheckpointMessage(msg)
-	// case core.MsgNewViewMessage: // COMMENTED OUT: viewchange related code
-	// 	hub.sendNewViewMessage(msg)
+	case core.MsgNewViewMessage:
+		hub.sendNewViewMessage(msg)
+	case core.MsgMempoolMessage:
+		hub.sendMempoolMessage(msg)
 	default:
 		hub.log.Error("Unknown message type received. msgType=" + msgType)
 	}
@@ -187,12 +189,14 @@ func (hub *NodeMessageHub) handleConnection(conn net.Conn, ln net.Listener) {
 			hub.handleCommitMessage(msg.Data)
 		case core.MsgCloseMessage:
 			hub.handleCloseMessage(msg.Data)
-		// case core.MsgViewChangeMessage: // COMMENTED OUT: viewchange related code
-		// 	hub.handleViewChangeMessage(msg.Data)
+		case core.MsgViewChangeMessage:
+			hub.handleViewChangeMessage(msg.Data)
 		case core.MsgCheckpointMessage:
 			hub.handleCheckpointMessage(msg.Data)
-		// case core.MsgNewViewMessage: // COMMENTED OUT: viewchange related code
-		// 	hub.handleNewViewMessage(msg.Data)
+		case core.MsgNewViewMessage:
+			hub.handleNewViewMessage(msg.Data)
+		case core.MsgMempoolMessage:
+			hub.handleMempoolMessage(msg.Data)
 		default:
 			hub.log.Error(fmt.Sprintf("Unknown message type received: msgType=%s", msg.MsgType))
 		}
@@ -270,19 +274,18 @@ func (hub *NodeMessageHub) handleCloseMessage(dataBytes []byte) {
 	hub.node_ref.HandleCloseMessage(data)
 }
 
-// COMMENTED OUT: viewchange related code
-// func (hub *NodeMessageHub) handleViewChangeMessage(dataBytes []byte) {
-// 	var buf bytes.Buffer
-// 	buf.Write(dataBytes)
-// 	dataDec := gob.NewDecoder(&buf)
-//
-// 	var data core.ViewChangeMessage
-// 	err := dataDec.Decode(&data)
-// 	if err != nil {
-// 		hub.log.Error(fmt.Sprintf("handleViewChangeMessageErr: err=%v, dataBytes=%v", err, dataBytes))
-// 	}
-// 	hub.node_ref.HandleViewChangeMessage(data)
-// }
+func (hub *NodeMessageHub) handleViewChangeMessage(dataBytes []byte) {
+	var buf bytes.Buffer
+	buf.Write(dataBytes)
+	dataDec := gob.NewDecoder(&buf)
+
+	var data core.ViewChangeMessage
+	err := dataDec.Decode(&data)
+	if err != nil {
+		hub.log.Error(fmt.Sprintf("handleViewChangeMessageErr: err=%v, dataBytes=%v", err, dataBytes))
+	}
+	hub.node_ref.HandleViewChangeMessage(data)
+}
 
 func (hub *NodeMessageHub) handleCheckpointMessage(dataBytes []byte) {
 	var buf bytes.Buffer
@@ -297,19 +300,31 @@ func (hub *NodeMessageHub) handleCheckpointMessage(dataBytes []byte) {
 	hub.node_ref.HandleCheckpointMessage(data)
 }
 
-// COMMENTED OUT: viewchange related code
-// func (hub *NodeMessageHub) handleNewViewMessage(dataBytes []byte) {
-// 	var buf bytes.Buffer
-// 	buf.Write(dataBytes)
-// 	dataDec := gob.NewDecoder(&buf)
-//
-// 	var data core.NewViewMessage
-// 	err := dataDec.Decode(&data)
-// 	if err != nil {
-// 		hub.log.Error(fmt.Sprintf("handleNewViewMessageErr: err=%v, dataBytes=%v", err, dataBytes))
-// 	}
-// 	hub.node_ref.HandleNewViewMessage(data)
-// }
+func (hub *NodeMessageHub) handleNewViewMessage(dataBytes []byte) {
+	var buf bytes.Buffer
+	buf.Write(dataBytes)
+	dataDec := gob.NewDecoder(&buf)
+
+	var data core.NewViewMessage
+	err := dataDec.Decode(&data)
+	if err != nil {
+		hub.log.Error(fmt.Sprintf("handleNewViewMessageErr: err=%v, dataBytes=%v", err, dataBytes))
+	}
+	hub.node_ref.HandleNewViewMessage(data)
+}
+
+func (hub *NodeMessageHub) handleMempoolMessage(dataBytes []byte) {
+	var buf bytes.Buffer
+	buf.Write(dataBytes)
+	dataDec := gob.NewDecoder(&buf)
+
+	var data core.MempoolMsg
+	err := dataDec.Decode(&data)
+	if err != nil {
+		hub.log.Error(fmt.Sprintf("handleNewViewMessageErr: err=%v, dataBytes=%v", err, dataBytes))
+	}
+	hub.node_ref.HandleMempoolMessage(data)
+}
 
 // --------------------------------------------------------
 // Communication for Marshalling Messages to Send
@@ -327,16 +342,23 @@ func (hub *NodeMessageHub) sendPreprepareMessage(msg interface{}) {
 
 	addr := data.To
 	conn, ok := conns2Node.Get(addr)
-	if !ok {
+	if !ok || conn == nil {
 		conn, err = hub.Dial(addr)
-		if err != nil {
+		if err != nil || conn == nil {
 			hub.log.Error(fmt.Sprintf("Dial Error. Send Preprepare Message. caller: %s targetAddr: %s", data.From, addr))
+			return
 		}
 		conns2Node.Add(addr, conn)
 	}
 	writer := bufio.NewWriter(conn)
-	writer.Write(msg_bytes)
-	writer.Flush()
+	if _, err := writer.Write(msg_bytes); err != nil {
+		hub.log.Error(fmt.Sprintf("Write Error. Send Preprepare Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		return
+	}
+	if err := writer.Flush(); err != nil {
+		hub.log.Error(fmt.Sprintf("Flush Error. Send Preprepare Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		return
+	}
 }
 
 func (hub *NodeMessageHub) sendPrepareMessage(msg interface{}) {
@@ -352,16 +374,23 @@ func (hub *NodeMessageHub) sendPrepareMessage(msg interface{}) {
 
 	addr := data.To
 	conn, ok := conns2Node.Get(addr)
-	if !ok {
+	if !ok || conn == nil {
 		conn, err = hub.Dial(addr)
-		if err != nil {
+		if err != nil || conn == nil {
 			hub.log.Error(fmt.Sprintf("Dial Error. Send Prepare Message. caller: %s targetAddr: %s", data.From, addr))
+			return
 		}
 		conns2Node.Add(addr, conn)
 	}
 	writer := bufio.NewWriter(conn)
-	writer.Write(msg_bytes)
-	writer.Flush()
+	if _, err := writer.Write(msg_bytes); err != nil {
+		hub.log.Error(fmt.Sprintf("Write Error. Send Prepare Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		return
+	}
+	if err := writer.Flush(); err != nil {
+		hub.log.Error(fmt.Sprintf("Flush Error. Send Prepare Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		return
+	}
 }
 
 func (hub *NodeMessageHub) sendCommitMessage(msg interface{}) {
@@ -377,16 +406,23 @@ func (hub *NodeMessageHub) sendCommitMessage(msg interface{}) {
 
 	addr := data.To
 	conn, ok := conns2Node.Get(addr)
-	if !ok {
+	if !ok || conn == nil {
 		conn, err = hub.Dial(addr)
-		if err != nil {
+		if err != nil || conn == nil {
 			hub.log.Error(fmt.Sprintf("Dial Error. Send Commit Message. caller: %s targetAddr: %s", data.From, addr))
+			return
 		}
 		conns2Node.Add(addr, conn)
 	}
 	writer := bufio.NewWriter(conn)
-	writer.Write(msg_bytes)
-	writer.Flush()
+	if _, err := writer.Write(msg_bytes); err != nil {
+		hub.log.Error(fmt.Sprintf("Write Error. Send Commit Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		return
+	}
+	if err := writer.Flush(); err != nil {
+		hub.log.Error(fmt.Sprintf("Flush Error. Send Commit Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		return
+	}
 }
 
 func (hub *NodeMessageHub) sendReplyMessage(msg interface{}) {
@@ -402,16 +438,23 @@ func (hub *NodeMessageHub) sendReplyMessage(msg interface{}) {
 
 	addr := data.To
 	conn, ok := conns2Node.Get(addr)
-	if !ok {
+	if !ok || conn == nil {
 		conn, err = hub.Dial(addr)
-		if err != nil {
+		if err != nil || conn == nil {
 			hub.log.Error(fmt.Sprintf("Dial Error. Send Reply Message. caller: %s targetAddr: %s", data.From, addr))
+			return
 		}
 		conns2Node.Add(addr, conn)
 	}
 	writer := bufio.NewWriter(conn)
-	writer.Write(msg_bytes)
-	writer.Flush()
+	if _, err := writer.Write(msg_bytes); err != nil {
+		hub.log.Error(fmt.Sprintf("Write Error. Send Reply Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		return
+	}
+	if err := writer.Flush(); err != nil {
+		hub.log.Error(fmt.Sprintf("Flush Error. Send Reply Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		return
+	}
 }
 
 func (hub *NodeMessageHub) sendCheckpointMessage(msg interface{}) {
@@ -427,66 +470,117 @@ func (hub *NodeMessageHub) sendCheckpointMessage(msg interface{}) {
 
 	addr := data.To
 	conn, ok := conns2Node.Get(addr)
-	if !ok {
+	if !ok || conn == nil {
 		conn, err = hub.Dial(addr)
-		if err != nil {
+		if err != nil || conn == nil {
 			hub.log.Error(fmt.Sprintf("Dial Error. Send Checkpoint Message. caller: %s targetAddr: %s", data.From, addr))
+			return
 		}
 		conns2Node.Add(addr, conn)
 	}
 	writer := bufio.NewWriter(conn)
-	writer.Write(msg_bytes)
-	writer.Flush()
+	if _, err := writer.Write(msg_bytes); err != nil {
+		hub.log.Error(fmt.Sprintf("Write Error. Send Checkpoint Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		return
+	}
+	if err := writer.Flush(); err != nil {
+		hub.log.Error(fmt.Sprintf("Flush Error. Send Checkpoint Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		return
+	}
 }
 
-// COMMENTED OUT: viewchange related code
-// func (hub *NodeMessageHub) sendViewChangeMessage(msg interface{}) {
-// 	data := msg.(core.ViewChangeMessage)
-// 	var buf bytes.Buffer
-// 	enc := gob.NewEncoder(&buf)
-// 	err := enc.Encode(&data)
-// 	if err != nil {
-// 		hub.log.Error(fmt.Sprintf("gobEncodeErr. Send View Change Message. caller: %s targetAddr: %s", data.From, data.To))
-// 	}
-//
-// 	msg_bytes := hub.packMsg("MsgViewChangeMessage", buf.Bytes())
-//
-// 	addr := data.To
-// 	conn, ok := conns2Node.Get(addr)
-// 	if !ok {
-// 		conn, err = hub.Dial(addr)
-// 		if err != nil {
-// 			hub.log.Error(fmt.Sprintf("Dial Error. Send View Change Message. caller: %s targetAddr: %s", data.From, addr))
-// 		}
-// 		conns2Node.Add(addr, conn)
-// 	}
-// 	writer := bufio.NewWriter(conn)
-// 	writer.Write(msg_bytes)
-// 	writer.Flush()
-// }
+func (hub *NodeMessageHub) sendViewChangeMessage(msg interface{}) {
+	data := msg.(core.ViewChangeMessage)
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	err := enc.Encode(&data)
+	if err != nil {
+		hub.log.Error(fmt.Sprintf("gobEncodeErr. Send View Change Message. caller: %s targetAddr: %s", data.From, data.To))
+	}
 
-// COMMENTED OUT: viewchange related code
-// func (hub *NodeMessageHub) sendNewViewMessage(msg interface{}) {
-// 	data := msg.(core.NewViewMessage)
-// 	var buf bytes.Buffer
-// 	enc := gob.NewEncoder(&buf)
-// 	err := enc.Encode(&data)
-// 	if err != nil {
-// 		hub.log.Error(fmt.Sprintf("gobEncodeErr. Send New View Message. caller: %s targetAddr: %s", data.From, data.To))
-// 	}
-//
-// 	msg_bytes := hub.packMsg("MsgNewViewMessage", buf.Bytes())
-//
-// 	addr := data.To
-// 	conn, ok := conns2Node.Get(addr)
-// 	if !ok {
-// 		conn, err = hub.Dial(addr)
-// 		if err != nil {
-// 			hub.log.Error(fmt.Sprintf("Dial Error. Send New View Message. caller: %s targetAddr: %s", data.From, addr))
-// 		}
-// 		conns2Node.Add(addr, conn)
-// 	}
-// 	writer := bufio.NewWriter(conn)
-// 	writer.Write(msg_bytes)
-// 	writer.Flush()
-// }
+	msg_bytes := hub.packMsg("MsgViewChangeMessage", buf.Bytes())
+
+	addr := data.To
+	conn, ok := conns2Node.Get(addr)
+	if !ok || conn == nil {
+		conn, err = hub.Dial(addr)
+		if err != nil || conn == nil {
+			hub.log.Error(fmt.Sprintf("Dial Error. Send View Change Message. caller: %s targetAddr: %s", data.From, addr))
+			return
+		}
+		conns2Node.Add(addr, conn)
+	}
+	writer := bufio.NewWriter(conn)
+	if _, err := writer.Write(msg_bytes); err != nil {
+		hub.log.Error(fmt.Sprintf("Write Error. Send View Change Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		return
+	}
+	if err := writer.Flush(); err != nil {
+		hub.log.Error(fmt.Sprintf("Flush Error. Send View Change Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		return
+	}
+}
+
+func (hub *NodeMessageHub) sendNewViewMessage(msg interface{}) {
+	data := msg.(core.NewViewMessage)
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	err := enc.Encode(&data)
+	if err != nil {
+		hub.log.Error(fmt.Sprintf("gobEncodeErr. Send New View Message. caller: %s targetAddr: %s", data.From, data.To))
+	}
+
+	msg_bytes := hub.packMsg("MsgNewViewMessage", buf.Bytes())
+
+	addr := data.To
+	conn, ok := conns2Node.Get(addr)
+	if !ok || conn == nil {
+		conn, err = hub.Dial(addr)
+		if err != nil || conn == nil {
+			hub.log.Error(fmt.Sprintf("Dial Error. Send New View Message. caller: %s targetAddr: %s", data.From, addr))
+			return
+		}
+		conns2Node.Add(addr, conn)
+	}
+	writer := bufio.NewWriter(conn)
+	if _, err := writer.Write(msg_bytes); err != nil {
+		hub.log.Error(fmt.Sprintf("Write Error. Send New View Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		return
+	}
+	if err := writer.Flush(); err != nil {
+		hub.log.Error(fmt.Sprintf("Flush Error. Send New View Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		return
+	}
+}
+
+func (hub *NodeMessageHub) sendMempoolMessage(msg interface{}) {
+	data := msg.(core.MempoolMsg)
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	err := enc.Encode(&data)
+	if err != nil {
+		hub.log.Error(fmt.Sprintf("gobEncodeErr. Send Mempool Message. caller: %s targetAddr: %s", data.From, data.To))
+	}
+
+	msg_bytes := hub.packMsg("MsgMempoolMessage", buf.Bytes())
+
+	addr := data.To
+	conn, ok := conns2Node.Get(addr)
+	if !ok || conn == nil {
+		conn, err = hub.Dial(addr)
+		if err != nil || conn == nil {
+			hub.log.Error(fmt.Sprintf("Dial Error. Send Mempool Message. caller: %s targetAddr: %s", data.From, addr))
+			return
+		}
+		conns2Node.Add(addr, conn)
+	}
+	writer := bufio.NewWriter(conn)
+	if _, err := writer.Write(msg_bytes); err != nil {
+		hub.log.Error(fmt.Sprintf("Write Error. Send Mempool Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		return
+	}
+	if err := writer.Flush(); err != nil {
+		hub.log.Error(fmt.Sprintf("Flush Error. Send Mempool Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		return
+	}
+}

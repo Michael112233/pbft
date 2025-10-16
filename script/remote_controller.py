@@ -2,9 +2,8 @@ import paramiko
 import os
 import getpass
 
-# ssh -p 25611 wucy@c220g2-010811.wisc.cloudlab.us
-host = "c220g2-010811.wisc.cloudlab.us"
-ports = [25610, 25611, 25612, 25613, 25614]
+host = "sm220u-10s10633.wisc.cloudlab.us"
+ports = [25410, 25411, 25412, 25413, 25414]
 username = "wucy"
 key_path = os.path.expanduser("~/.ssh/id_rsa")
 passphrase = os.environ.get("SSH_KEY_PASSPHRASE")

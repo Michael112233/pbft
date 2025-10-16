@@ -47,7 +47,11 @@ func (n *Node) SendPreprepareMessage() {
 				RequestMessage: data,
 			}
 			n.log.Info(fmt.Sprintf("Send preprepare message to %s with sequence number %d", othersIp, sequenceNumber))
+			n.SetPreprepareSequenceNumber(sequenceNumber, &preprepareMessage)
 			n.messageHub.Send(core.MsgPreprepareMessage, othersIp, preprepareMessage, nil)
+		}
+		if n.viewChange.IsInViewChange() {
+			break
 		}
 	}
 }
