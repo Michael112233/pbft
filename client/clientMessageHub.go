@@ -116,6 +116,7 @@ func (hub *ClientMessageHub) listen(addr string, wg *sync.WaitGroup) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		hub.log.Error(fmt.Sprintf("Error setting up listener. err: %v", err))
+		return
 	}
 	hub.log.Info(fmt.Sprintf("start listening on %s", addr))
 	listenConn = ln
