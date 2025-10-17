@@ -77,12 +77,12 @@ func (n *Node) HandlePrepareMessage(data core.PrepareMessage) {
 		// 	return
 	} else {
 		n.AddPrepareMessageNumber(data.SequenceNumber)
-		n.log.Info(fmt.Sprintf("SeqNumber %d: Prepare message count for sequence %d is now %d", data.SequenceNumber, data.SequenceNumber, n.prepareMsgNumber[data.SequenceNumber].Load()))
+		n.log.Info(fmt.Sprintf("SeqNumber %d: Prepare message count for sequence %d is now %d", data.SequenceNumber, data.SequenceNumber, n.GetPrepareMessageNumber(data.SequenceNumber)))
 	}
-	n.log.Info(fmt.Sprintf("SeqNumber %d: After receiving from %s, current prepare messages number is %d", data.SequenceNumber, data.From, n.prepareMsgNumber[data.SequenceNumber].Load()))
+	n.log.Info(fmt.Sprintf("SeqNumber %d: After receiving from %s, current prepare messages number is %d", data.SequenceNumber, data.From, n.GetPrepareMessageNumber(data.SequenceNumber)))
 
 	if n.GetPrepareMessageNumber(data.SequenceNumber) == 2*int32(n.cfg.FaultyNodesNum) {
-		n.log.Info(fmt.Sprintf("SeqNumber %d: Received %d prepare messages, enough to commit the block.", data.SequenceNumber, n.prepareMsgNumber[data.SequenceNumber].Load()))
+		n.log.Info(fmt.Sprintf("SeqNumber %d: Received %d prepare messages, enough to commit the block.", data.SequenceNumber, n.GetPrepareMessageNumber(data.SequenceNumber)))
 		n.SetPrepareSequenceNumber(data.SequenceNumber)
 		go n.SendCommitMessage(data)
 	}
@@ -111,17 +111,15 @@ func (n *Node) HandleCommitMessage(data core.CommitMessage) {
 		// 	return
 	} else {
 		n.AddCommitMessageNumber(data.SequenceNumber)
-		n.log.Info(fmt.Sprintf("SeqNumber %d: Commit message count for sequence %d is now %d", data.SequenceNumber, data.SequenceNumber, n.commitMsgNumber[data.SequenceNumber].Load()))
+		n.log.Info(fmt.Sprintf("SeqNumber %d: Commit message count for sequence %d is now %d", data.SequenceNumber, data.SequenceNumber, n.GetCommitMessageNumber(data.SequenceNumber)))
 	}
-	n.log.Info(fmt.Sprintf("SeqNumber %d: After receiving from %s, current commit messages number is %d", data.SequenceNumber, data.From, n.commitMsgNumber[data.SequenceNumber].Load()))
+	n.log.Info(fmt.Sprintf("SeqNumber %d: After receiving from %s, current commit messages number is %d", data.SequenceNumber, data.From, n.GetCommitMessageNumber(data.SequenceNumber)))
 
 	if n.GetCommitMessageNumber(data.SequenceNumber) == 2*int32(n.cfg.FaultyNodesNum) {
-		n.log.Info(fmt.Sprintf("SeqNumber %d: Received %d commit messages, enough to reply to client.", data.SequenceNumber, n.commitMsgNumber[data.SequenceNumber].Load()))
+		n.log.Info(fmt.Sprintf("SeqNumber %d: Received %d commit messages, enough to reply to client.", data.SequenceNumber, n.GetCommitMessageNumber(data.SequenceNumber)))
 		n.SetCommitSequenceNumber(data.SequenceNumber)
 
-		n.seq2digestLock.Lock()
-		n.seq2digest[data.SequenceNumber] = data.Digest
-		n.seq2digestLock.Unlock()
+		n.AddSeq2Digest(data.SequenceNumber, data.Digest)
 
 		go n.TriggerGarbageCollection(data.SequenceNumber, data.Digest)
 		go n.SendReplyMessage(data)

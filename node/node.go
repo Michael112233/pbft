@@ -47,16 +47,16 @@ type Node struct {
 
 func NewNode(nodeID int64, cfg *config.Config) *Node {
 	prepareMsgNumber := make(map[int64]*atomic.Int32, cfg.SeqNumberUpperBound)
-	for i := cfg.SeqNumberLowerBound; i <= cfg.SeqNumberUpperBound; i++ {
-		prepareMsgNumber[int64(i)] = &atomic.Int32{}
-		prepareMsgNumber[int64(i)].Store(0)
-	}
+	// for i := cfg.SeqNumberLowerBound; i <= cfg.SeqNumberUpperBound; i++ {
+	// 	prepareMsgNumber[int64(i)] = &atomic.Int32{}
+	// 	prepareMsgNumber[int64(i)].Store(0)
+	// }
 
 	commitMsgNumber := make(map[int64]*atomic.Int32, cfg.SeqNumberUpperBound)
-	for i := cfg.SeqNumberLowerBound; i <= cfg.SeqNumberUpperBound; i++ {
-		commitMsgNumber[int64(i)] = &atomic.Int32{}
-		commitMsgNumber[int64(i)].Store(0)
-	}
+	// for i := cfg.SeqNumberLowerBound; i <= cfg.SeqNumberUpperBound; i++ {
+	// 	commitMsgNumber[int64(i)] = &atomic.Int32{}
+	// 	commitMsgNumber[int64(i)].Store(0)
+	// }
 
 	// initialize checkpoint counters for each possible sequence number
 	checkpointList := make(map[int64]*atomic.Int32, cfg.SeqNumberUpperBound)
@@ -66,14 +66,14 @@ func NewNode(nodeID int64, cfg *config.Config) *Node {
 	}
 
 	seq2digest := make(map[int64]string, cfg.SeqNumberUpperBound)
-	for i := cfg.SeqNumberLowerBound; i <= cfg.SeqNumberUpperBound; i++ {
-		seq2digest[int64(i)] = ""
-	}
+	// for i := cfg.SeqNumberLowerBound; i <= cfg.SeqNumberUpperBound; i++ {
+	// 	seq2digest[int64(i)] = ""
+	// }
 
 	preprepareMsg := make(map[int64][]*core.PreprepareMessage, cfg.SeqNumberUpperBound)
-	for i := cfg.SeqNumberLowerBound; i <= cfg.SeqNumberUpperBound; i++ {
-		preprepareMsg[int64(i)] = make([]*core.PreprepareMessage, 0)
-	}
+	// for i := cfg.SeqNumberLowerBound; i <= cfg.SeqNumberUpperBound; i++ {
+	// 	preprepareMsg[int64(i)] = make([]*core.PreprepareMessage, 0)
+	// }
 
 	return &Node{
 		NodeID:                  nodeID,
@@ -121,6 +121,9 @@ func (n *Node) SetPreprepareSequenceNumber(seqNumber int64, preprepareMessage *c
 	n.preprepareSeqLock.Lock()
 	defer n.preprepareSeqLock.Unlock()
 	n.lastPreprepareSeqNumber = seqNumber
+	if _, exists := n.preprepareMsg[seqNumber]; !exists {
+		n.preprepareMsg[seqNumber] = make([]*core.PreprepareMessage, 0)
+	}
 	n.preprepareMsg[seqNumber] = append(n.preprepareMsg[seqNumber], preprepareMessage)
 	// n.log.Info(fmt.Sprintf("Add preprepare message to map, sequence number is %d, preprepare messages are %v", seqNumber, n.preprepareMsg[seqNumber]))
 }
@@ -192,19 +195,38 @@ func (n *Node) GetPrepareMessageNumber(seqNumber int64) int32 {
 func (n *Node) GetCommitMessageNumber(seqNumber int64) int32 {
 	n.CommitMessageLock.Lock()
 	defer n.CommitMessageLock.Unlock()
-	return n.commitMsgNumber[seqNumber].Load()
+	counter, exists := n.commitMsgNumber[seqNumber]
+	if !exists || counter == nil {
+		return 0
+	}
+	return counter.Load()
 }
 
 func (n *Node) AddPrepareMessageNumber(seqNumber int64) {
 	n.PrepareMessageLock.Lock()
 	defer n.PrepareMessageLock.Unlock()
+	if _, exists := n.prepareMsgNumber[seqNumber]; !exists {
+		n.prepareMsgNumber[seqNumber] = &atomic.Int32{}
+	}
 	n.prepareMsgNumber[seqNumber].Add(1)
 }
 
 func (n *Node) AddCommitMessageNumber(seqNumber int64) {
 	n.CommitMessageLock.Lock()
 	defer n.CommitMessageLock.Unlock()
+	if _, exists := n.commitMsgNumber[seqNumber]; !exists {
+		n.commitMsgNumber[seqNumber] = &atomic.Int32{}
+	}
 	n.commitMsgNumber[seqNumber].Add(1)
+}
+
+func (n *Node) AddSeq2Digest(seqNumber int64, digest string) {
+	n.seq2digestLock.Lock()
+	defer n.seq2digestLock.Unlock()
+	if _, exists := n.seq2digest[seqNumber]; !exists {
+		n.seq2digest[seqNumber] = ""
+	}
+	n.seq2digest[seqNumber] = digest
 }
 
 // StartExpireTimer starts a new expire timer with a unique ID

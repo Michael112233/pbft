@@ -58,7 +58,7 @@ func (n *Node) SendPreprepareMessage() {
 
 func (n *Node) SendPrepareMessage(data core.PreprepareMessage) {
 	n.AddPrepareMessageNumber(data.SequenceNumber)
-	n.log.Info(fmt.Sprintf("SeqNumber %d: After receiving from %s to itself, current prepare messages number is %d", data.SequenceNumber, data.From, n.prepareMsgNumber[data.SequenceNumber].Load()))
+	n.log.Info(fmt.Sprintf("SeqNumber %d: After receiving from %s to itself, current prepare messages number is %d", data.SequenceNumber, data.From, n.GetPrepareMessageNumber(data.SequenceNumber)))
 	// Send Prepare Message to Others.
 	for _, othersIp := range config.NodeAddr {
 		if othersIp == n.GetAddr() {
@@ -80,7 +80,7 @@ func (n *Node) SendPrepareMessage(data core.PreprepareMessage) {
 
 func (n *Node) SendCommitMessage(data core.PrepareMessage) {
 	n.AddCommitMessageNumber(data.SequenceNumber)
-	n.log.Info(fmt.Sprintf("SeqNumber %d: After receiving from %s to itself, current commit messages number is %d", data.SequenceNumber, data.From, n.commitMsgNumber[data.SequenceNumber].Load()))
+	n.log.Info(fmt.Sprintf("SeqNumber %d: After receiving from %s to itself, current commit messages number is %d", data.SequenceNumber, data.From, n.GetCommitMessageNumber(data.SequenceNumber)))
 
 	// Send Prepare Message to Others.
 	for _, othersIp := range config.NodeAddr {
