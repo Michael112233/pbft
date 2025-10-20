@@ -109,7 +109,7 @@ func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, call
 	case core.MsgReplyMessage:
 		hub.sendReplyMessage(msg)
 	case core.MsgViewChangeMessage:
-		// hub.sendViewChangeMessage(msg)
+		hub.sendViewChangeMessage(msg)
 	case core.MsgCheckpointMessage:
 		hub.sendCheckpointMessage(msg)
 	case core.MsgNewViewMessage:

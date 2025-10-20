@@ -120,7 +120,7 @@ func (n *Node) SendNewViewMessage() {
 	viewChangeMessages := n.viewChange.viewChangeMessages
 	minSequenceNumber := int64(math.MaxInt64)
 	maxSequenceNumber := int64(math.MinInt64)
-	preprepareMessages := make(map[int64][]*core.PreprepareMessage)
+	// preprepareMessages := make(map[int64][]*core.PreprepareMessage)
 	for _, viewChangeMessage := range viewChangeMessages {
 		currentSequenceNumber := viewChangeMessage.CheckpointSeqNumber
 		if currentSequenceNumber < minSequenceNumber {
@@ -128,7 +128,7 @@ func (n *Node) SendNewViewMessage() {
 		}
 		if currentSequenceNumber > maxSequenceNumber {
 			maxSequenceNumber = currentSequenceNumber
-			preprepareMessages = viewChangeMessage.PreprepareMessages
+			// preprepareMessages = viewChangeMessage.PreprepareMessages
 		}
 		n.log.Info("Current Sequence Number: %d", currentSequenceNumber)
 	}
@@ -156,8 +156,8 @@ func (n *Node) SendNewViewMessage() {
 			From:      n.GetAddr(),
 			To:        targetIp,
 			// ViewChangeMessages: n.viewChange.viewChangeMessages,
-			ViewNumber:         n.viewChange.currentView,
-			PreprepareMessages: preprepareMessages,
+			ViewNumber: n.viewChange.currentView,
+			// PreprepareMessages: preprepareMessages,
 		}
 		n.log.Info(fmt.Sprintf("Send new view message to %s", targetIp))
 		n.messageHub.Send(core.MsgNewViewMessage, targetIp, newViewMessage, nil)
@@ -170,13 +170,20 @@ func (n *Node) SendMempoolSnapshot(toIp string) {
 	copy(mempoolSnapshot, n.Mempool)
 	n.Mempool = make([]*core.Transaction, 0)
 
-	memMsg := core.MempoolMsg{
-		Mempool: mempoolSnapshot,
-		From:    n.GetAddr(),
-		To:      toIp,
+	for i := int64(0); (i+1)*n.cfg.InjectSpeed < int64(len(mempoolSnapshot)); i++ {
+		injectTxs := mempoolSnapshot[i*n.cfg.InjectSpeed : (i+1)*n.cfg.InjectSpeed]
+
+		memMsg := core.MempoolMsg{
+			Mempool: injectTxs,
+			From:    n.GetAddr(),
+			To:      toIp,
+		}
+		n.log.Info(fmt.Sprintf("Send mempool message to %s with %d transactions", toIp, len(injectTxs)))
+		n.messageHub.Send(core.MsgMempoolMessage, toIp, memMsg, nil)
+		if ((i+1)*n.cfg.InjectSpeed)%n.cfg.InjectSpeed == 0 {
+			time.Sleep(1 * time.Second)
+		}
 	}
-	n.log.Info(fmt.Sprintf("Send mempool message to %s", toIp))
-	n.messageHub.Send(core.MsgMempoolMessage, toIp, memMsg, nil)
 }
 
 // --------------------------------------------------------
@@ -216,33 +223,39 @@ func (n *Node) HandleNewViewMessage(data core.NewViewMessage) {
 	n.log.Info(fmt.Sprintf("Received new view message from %s, view number %d", data.From, data.ViewNumber))
 	n.viewNumber = data.ViewNumber
 
+	fmt.Printf("Current Leader: %s, New Leader: %s\n", n.viewChange.leaderElection.GetLeader(n.viewNumber-1), n.viewChange.leaderElection.GetLeader(n.viewNumber))
 	if n.viewChange.leaderElection.GetLeader(n.viewNumber-1) == n.GetAddr() {
 		n.SendMempoolSnapshot(n.viewChange.leaderElection.GetLeader(n.viewNumber))
 	}
 
 	n.viewChange.viewChangeMessagesLock.Lock()
 	n.viewChange.ResetViewChanger()
+	n.log.Info("have reset view changer successfully")
 	n.viewChange.viewChangeMessagesLock.Unlock()
 
-	for seqNumber := n.lastStableCheckpoint + 1; seqNumber <= n.lastPrepareSeqNumber; seqNumber++ {
-		preprepareMessages := data.PreprepareMessages[seqNumber]
-		// Check if preprepareMessages slice is not empty before accessing elements
-		if len(preprepareMessages) == 0 {
-			n.log.Warn(fmt.Sprintf("No preprepare messages found for sequence number %d", seqNumber))
-			continue
-		}
-		for _, othersIp := range config.NodeAddr {
-			if othersIp == n.GetAddr() {
-				continue
-			}
-			n.log.Info(fmt.Sprintf("Send preprepare message to %s with sequence number %d", othersIp, seqNumber))
-			n.SetPreprepareSequenceNumber(seqNumber, preprepareMessages[0])
-			n.messageHub.Send(core.MsgPreprepareMessage, othersIp, *preprepareMessages[0], nil)
-		}
-	}
+	// for seqNumber := n.lastStableCheckpoint + 1; seqNumber <= n.lastPrepareSeqNumber; seqNumber++ {
+	// 	preprepareMessages := data.PreprepareMessages[seqNumber]
+	// 	// Check if preprepareMessages slice is not empty before accessing elements
+	// 	if len(preprepareMessages) == 0 {
+	// 		n.log.Warn(fmt.Sprintf("No preprepare messages found for sequence number %d", seqNumber))
+	// 		continue
+	// 	}
+	// 	for _, othersIp := range config.NodeAddr {
+	// 		if othersIp == n.GetAddr() {
+	// 			continue
+	// 		}
+	// 		n.log.Info(fmt.Sprintf("Send preprepare message to %s with sequence number %d", othersIp, seqNumber))
+	// 		n.SetPreprepareSequenceNumber(seqNumber, preprepareMessages[0])
+	// 		n.messageHub.Send(core.MsgPreprepareMessage, othersIp, *preprepareMessages[0], nil)
+	// 	}
+	// }
 }
 
 func (n *Node) HandleMempoolMessage(data core.MempoolMsg) {
+	n.log.Info(fmt.Sprintf("Received mempool message from %s", data.From))
+	n.log.Info(fmt.Sprintf("Mempool size: %d", len(data.Mempool)))
+	n.log.Info(fmt.Sprintf("Mempool: %v", data.Mempool))
+
 	n.Mempool = data.Mempool
 	go n.SendPreprepareMessage()
 }
