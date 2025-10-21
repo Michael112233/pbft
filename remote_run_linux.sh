@@ -115,7 +115,6 @@ if [[ "$need_build" == "true" ]]; then
     armv7l|armv6l) goarch=arm ;;
     *) goarch=amd64 ;;
   esac
-  GOOS=linux GOARCH="$goarch" CGO_ENABLED=0 go mod tidy
   GOOS=linux GOARCH="$goarch" CGO_ENABLED=0 go build -o pbft_main main.go
 fi
 
