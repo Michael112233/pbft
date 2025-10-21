@@ -8,18 +8,20 @@ type Block struct {
 	Timestamp         int64
 	ProposedTimestamp int64
 
-	proposedLeader string
-	committedNode  []string
+	proposedLeader      string
+	committedNode       []string
+	isLatencyCalculated bool
 }
 
 func NewBlock(sequenceNumber int64, txs []*Transaction, leader string, proposedTimestamp int64) *Block {
 	block := &Block{
-		Timestamp:         time.Now().Unix(),
-		ProposedTimestamp: proposedTimestamp,
-		SequenceNumber:    sequenceNumber,
-		Transactions:      txs,
-		proposedLeader:    leader,
-		committedNode:     make([]string, 0),
+		Timestamp:            time.Now().UnixNano(),
+		ProposedTimestamp:    proposedTimestamp,
+		SequenceNumber:       sequenceNumber,
+		Transactions:         txs,
+		proposedLeader:       leader,
+		committedNode:        make([]string, 0),
+		isLatencyCalculated:  false,
 	}
 
 	return block

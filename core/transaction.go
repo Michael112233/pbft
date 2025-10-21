@@ -17,6 +17,6 @@ func NewTransaction(sender, receiver string, amount *big.Int) *Transaction {
 		Sender:    sender,
 		Receiver:  receiver,
 		Amount:    amount,
-		Timestamp: time.Now().Unix(),
+		Timestamp: time.Now().UnixNano(),
 	}
 }

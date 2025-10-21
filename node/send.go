@@ -16,7 +16,7 @@ func (n *Node) GenerateBlocks() *core.RequestMessage {
 	txs := n.Mempool[:n.cfg.MaxBlockSize]
 	n.Mempool = n.Mempool[n.cfg.MaxBlockSize:]
 	data := &core.RequestMessage{
-		Timestamp: time.Now().Unix(),
+		Timestamp: time.Now().UnixNano(),
 		From:      config.ClientAddr,
 		To:        n.GetAddr(),
 		Txs:       txs,
@@ -38,7 +38,7 @@ func (n *Node) SendPreprepareMessage() {
 				continue
 			}
 			preprepareMessage := core.PreprepareMessage{
-				Timestamp:      time.Now().Unix(),
+				Timestamp:      time.Now().UnixNano(),
 				From:           n.GetAddr(),
 				To:             othersIp,
 				SequenceNumber: sequenceNumber,
@@ -65,7 +65,7 @@ func (n *Node) SendPrepareMessage(data core.PreprepareMessage) {
 			continue
 		}
 		prepareMessage := core.PrepareMessage{
-			Timestamp:      time.Now().Unix(),
+			Timestamp:      time.Now().UnixNano(),
 			From:           n.GetAddr(),
 			To:             othersIp,
 			SequenceNumber: data.SequenceNumber,
@@ -88,7 +88,7 @@ func (n *Node) SendCommitMessage(data core.PrepareMessage) {
 			continue
 		}
 		commitMessage := core.CommitMessage{
-			Timestamp:      time.Now().Unix(),
+			Timestamp:      time.Now().UnixNano(),
 			From:           n.GetAddr(),
 			To:             othersIp,
 			SequenceNumber: data.SequenceNumber,
@@ -103,7 +103,7 @@ func (n *Node) SendCommitMessage(data core.PrepareMessage) {
 
 func (n *Node) SendReplyMessage(data core.CommitMessage) {
 	replyMessage := core.ReplyMessage{
-		Timestamp:      time.Now().Unix(),
+		Timestamp:      time.Now().UnixNano(),
 		From:           n.GetAddr(),
 		To:             config.ClientAddr,
 		SequenceNumber: data.SequenceNumber,

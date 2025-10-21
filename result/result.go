@@ -13,7 +13,6 @@ import (
 
 var (
 	startTime time.Time
-	endTime   time.Time
 
 	committedTransactionNum atomic.Int64
 	log                     *logger.Logger
@@ -28,15 +27,12 @@ func init() {
 }
 
 func CalculateTPS() float64 {
-	return float64(committedTransactionNum.Load()) / (endTime.Sub(startTime).Seconds())
+	currentTime := time.Now()
+	return float64(committedTransactionNum.Load()) / (currentTime.Sub(startTime).Seconds())
 }
 
 func SetStartTime(t time.Time) {
 	startTime = t
-}
-
-func SetEndTime(t time.Time) {
-	endTime = t
 }
 
 func AddCommittedTransactionNum(n int64) {
@@ -48,14 +44,17 @@ func GetCommittedTransactionNum() int64 {
 }
 
 func PrintResult() {
-	SetEndTime(time.Now())
-	current_tps := CalculateTPS()
-	current_time := endTime.Sub(startTime).Seconds()
+	// 计算平均TPS
+	average_tps := CalculateTPS()
+	current_time := time.Since(startTime).Seconds()
+
 	log.Info("Result:")
-	log.Info("TPS: %f\n", current_tps)
-	log.Info("Time: %f\n", current_time)
+	log.Info("TPS: %.2f\n", average_tps)
+	log.Info("Time: %.3f\n", current_time)
 	log.Info("Committed Transaction Num: %d\n", committedTransactionNum.Load())
-	Tps_list = append(Tps_list, current_tps)
+
+	// 使用平均TPS
+	Tps_list = append(Tps_list, average_tps)
 	Time_list = append(Time_list, current_time)
 }
 

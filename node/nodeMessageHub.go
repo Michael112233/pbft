@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/logger"
@@ -59,12 +60,14 @@ func (hub *NodeMessageHub) Close() {
 // Basic Communication Principles Implementation (like Dial & Listen)
 // --------------------------------------------------------
 func (hub *NodeMessageHub) Dial(addr string) (net.Conn, error) {
-	conn, err := net.Dial("tcp", addr)
+	// 设置连接超时
+	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
 	if err != nil {
 		hub.log.Debug(fmt.Sprintf("DialTCPError: target_addr=%s, err=%v", addr, err))
-		// 再dial一次
+		// 再dial一次，但增加延迟
+		time.Sleep(100 * time.Millisecond)
 		hub.log.Debug(fmt.Sprintf("Try dial again... target_addr=%s", addr))
-		conn, err = net.Dial("tcp", addr)
+		conn, err = net.DialTimeout("tcp", addr, 5*time.Second)
 		if err != nil {
 			hub.log.Debug(fmt.Sprintf("DialTCPError: target_addr=%s, err=%v", addr, err))
 			return nil, err

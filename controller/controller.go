@@ -21,7 +21,7 @@ func runNode(nodeID int64, cfg *config.Config) {
 	Node.Start()
 
 	// Keep the node process alive until a stop signal is received
-	time.Sleep(time.Duration(cfg.RunTime+10) * time.Second)
+	time.Sleep(time.Duration(cfg.RunTime+20) * time.Second)
 }
 
 func runClient(cfg *config.Config) {

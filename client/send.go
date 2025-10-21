@@ -19,7 +19,7 @@ func (c *Client) InjectTxs() {
 			injectTxs = c.txs[i*c.config.InjectSpeed : (i+1)*c.config.InjectSpeed]
 			leader := c.leaderElection.GetLeader(c.currentView)
 			msg := core.RequestMessage{
-				Timestamp: time.Now().Unix(),
+				Timestamp: time.Now().UnixNano(),
 				From:      c.addr,
 				To:        leader,
 				Txs:       injectTxs,
@@ -37,7 +37,7 @@ func (c *Client) InjectTxs() {
 func (c *Client) BroadcastClose() {
 	for _, addr := range config.NodeAddr {
 		closeMsg := core.CloseMessage{
-			Timestamp: time.Now().Unix(),
+			Timestamp: time.Now().UnixNano(),
 			From:      c.addr,
 			To:        addr,
 		}

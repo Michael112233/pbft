@@ -79,7 +79,7 @@ func (n *Node) SendViewChangeMessage() {
 	preprepareSnapshot := n.SnapshotPreprepareMessages()
 
 	// Precompute shared fields
-	baseTimestamp := time.Now().Unix()
+	baseTimestamp := time.Now().UnixNano()
 	baseFrom := n.GetAddr()
 	baseCheckpointMsgNumber := func() int32 {
 		n.checkpointLock.RLock()
@@ -133,7 +133,7 @@ func (n *Node) SendNewViewMessage() {
 		n.log.Info("Current Sequence Number: %d", currentSequenceNumber)
 	}
 	// Pre-serialize the common data to avoid repeated serialization
-	baseTimestamp := time.Now().Unix()
+	baseTimestamp := time.Now().UnixNano()
 
 	// Filter preprepare messages to include only active non-empty window
 	// filteredPreprepare := make(map[int64][]*core.PreprepareMessage)

@@ -13,18 +13,18 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
 
 # CloudLab配置
-HOST = "sm220u-10s10633.wisc.cloudlab.us"
+HOST = "c220g2-010602.wisc.cloudlab.us"
 USERNAME = "wucy"
 KEY_PATH = os.path.expanduser("~/.ssh/id_rsa")
 PASSPHRASE = os.environ.get("SSH_KEY_PASSPHRASE")
 
 # 服务器配置：端口 -> (角色, 节点ID)
 SERVER_CONFIG = {
-    25410: ("client", None),      # 客户端
-    25411: ("node", 0),          # 节点0
-    25412: ("node", 1),          # 节点1  
-    25413: ("node", 2),          # 节点2
-    25414: ("node", 3),          # 节点3
+    26410: ("client", None),      # 客户端
+    26411: ("node", 0),           # 节点0
+    26412: ("node", 1),           # 节点1  
+    26413: ("node", 2),           # 节点2
+    26414: ("node", 3),           # 节点3
 }
 
 # 如果环境变量中没有密码，尝试检测并提示输入
@@ -34,7 +34,7 @@ if PASSPHRASE is None and os.path.exists(KEY_PATH):
         paramiko.RSAKey.from_private_key_file(KEY_PATH)
     except paramiko.ssh_exception.PasswordRequiredException:
         if sys.stdin.isatty():  # 只在交互式终端中提示
-            PASSPHRASE = getpass.getpass("Enter SSH key passphrase: ")
+            PASSPHRASE = "michael"
         else:
             print("ERROR: SSH key is encrypted but no passphrase provided.")
             print("Please set SSH_KEY_PASSPHRASE environment variable or use ssh-agent.")
@@ -90,21 +90,34 @@ class ServerController:
     def execute_command(self, command):
         """执行远程命令"""
         if not self.client:
-            return False, "No connection established"
+            return False, {
+                'stdout': '',
+                'stderr': 'No connection established',
+                'exit_status': 255
+            }
             
         try:
-            stdin, stdout, stderr = self.client.exec_command(command, timeout=30)
+            # 适当增加超时时间，避免远程初次构建耗时导致超时
+            stdin, stdout, stderr = self.client.exec_command(command, timeout=120)
             stdout_data = stdout.read().decode('utf-8', errors='ignore')
             stderr_data = stderr.read().decode('utf-8', errors='ignore')
             exit_status = stdout.channel.recv_exit_status()
-            
-            return exit_status == 0, {
+
+            # 某些环境下，远程命令成功但未返回明确的退出码，paramiko 会给 -1。
+            # 当 stderr 为空时，将 -1 视为成功以避免误报失败（例如 client 角色）。
+            is_success = (exit_status == 0) or (exit_status == -1 and not stderr_data.strip())
+
+            return is_success, {
                 'stdout': stdout_data,
                 'stderr': stderr_data,
                 'exit_status': exit_status
             }
         except Exception as e:
-            return False, f"Command execution failed: {e}"
+            return False, {
+                'stdout': '',
+                'stderr': f"Command execution failed: {e}",
+                'exit_status': 255
+            }
     
     def run_pbft_node(self):
         """运行PBFT节点"""
@@ -191,8 +204,8 @@ def run_parallel_pbft():
         
         # 延迟5秒后启动客户端
         def delayed_client_start():
-            time.sleep(5)
-            print("5 seconds elapsed, starting client...")
+            time.sleep(0)
+            print("0 seconds elapsed, starting client...")
             return client_controllers[0].run_pbft_node() if client_controllers else True
         
         client_future = None

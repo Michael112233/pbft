@@ -47,7 +47,7 @@ func (n *Node) SendCheckpointMessage(sequenceNumber int64, digest string) {
 		}
 		// TODO: the sequence number should be the last sequence number of the block committed on the blockchain
 		checkpointMessage := core.CheckpointMessage{
-			Timestamp:      time.Now().Unix(),
+			Timestamp:      time.Now().UnixNano(),
 			From:           n.GetAddr(),
 			To:             othersIp,
 			SequenceNumber: sequenceNumber,
