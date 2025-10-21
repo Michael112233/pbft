@@ -8,6 +8,9 @@ import (
 )
 
 func GetDigest(data *core.RequestMessage) string {
+	if data == nil {
+		return ""
+	}
 	var tmp_data = *data
 	var buf bytes.Buffer
 	encrypt := gob.NewEncoder(&buf)
