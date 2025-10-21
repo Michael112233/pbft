@@ -50,7 +50,7 @@ func PrintResult() {
 
 	log.Info("Result:")
 	log.Info("TPS: %.2f\n", average_tps)
-	log.Info("Time: %.3f\n", current_time)
+	log.Info("Time: %.6f\n", current_time)
 	log.Info("Committed Transaction Num: %d\n", committedTransactionNum.Load())
 
 	// 使用平均TPS
