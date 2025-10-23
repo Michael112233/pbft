@@ -28,10 +28,10 @@ func (n *Node) HandlePreprepareMessage(data core.PreprepareMessage) {
 	timerID := fmt.Sprintf("request_%d_%d", n.NodeID, data.RequestMessage.Id)
 	n.StartExpireTimer(timerID)
 	// COMMENTED OUT: viewchange related code
-	// if n.viewChange.IsInViewChange() {
-	// 	n.log.Error("Node %d is expired and Start to trigger view change", n.NodeID)
-	// 	return
-	// }
+	if n.viewChange.IsInViewChange() {
+		n.log.Error("Node %d is expired and Start to trigger view change", n.NodeID)
+		return
+	}
 	n.log.Info(fmt.Sprintf("SeqNumber %d: Received preprepare message from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
 
 	if data.Digest != utils.GetDigest(data.RequestMessage) {
@@ -57,10 +57,10 @@ func (n *Node) HandlePreprepareMessage(data core.PreprepareMessage) {
 func (n *Node) HandlePrepareMessage(data core.PrepareMessage) {
 	// n.handleMessageLock.Lock()
 	// defer n.handleMessageLock.Unlock()
-	// if n.viewChange.IsInViewChange() {
-	// 	n.log.Error("Node %d is expired and Start to trigger view change", n.NodeID)
-	// 	return
-	// }
+	if n.viewChange.IsInViewChange() {
+		n.log.Error("Node %d is expired and Start to trigger view change", n.NodeID)
+		return
+	}
 
 	n.log.Info(fmt.Sprintf("SeqNumber %d: Received prepare message from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
 	if data.Digest != utils.GetDigest(data.RequestMessage) {
@@ -91,10 +91,10 @@ func (n *Node) HandlePrepareMessage(data core.PrepareMessage) {
 func (n *Node) HandleCommitMessage(data core.CommitMessage) {
 	// n.handleMessageLock.Lock()
 	// defer n.handleMessageLock.Unlock()
-	// if n.viewChange.IsInViewChange() {
-	// 	n.log.Error("Node %d is expired and Start to trigger view change", n.NodeID)
-	// 	return
-	// }
+	if n.viewChange.IsInViewChange() {
+		n.log.Error("Node %d is expired and Start to trigger view change", n.NodeID)
+		return
+	}
 
 	n.log.Info(fmt.Sprintf("SeqNumber %d: Received commit message from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
 	if data.ViewNumber != n.viewNumber {
