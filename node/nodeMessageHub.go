@@ -52,7 +52,9 @@ func (hub *NodeMessageHub) Close() {
 	for _, conn := range conns2Node.Connections {
 		conn.Close()
 	}
-	listenConn.Close()
+	// if listenConn != nil {
+	// 	listenConn.Close()
+	// }
 	hub.log.Debug("messageHub is close.")
 }
 
