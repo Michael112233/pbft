@@ -118,7 +118,7 @@ func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, call
 	case core.MsgCheckpointMessage:
 		hub.sendCheckpointMessage(msg)
 	case core.MsgNewViewMessage:
-		// hub.sendNewViewMessage(msg)
+		hub.sendNewViewMessage(msg)
 	case core.MsgMempoolMessage:
 		hub.sendMempoolMessage(msg)
 	default:

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/michael112233/pbft/config"
@@ -16,11 +17,12 @@ import (
 // --------------------------------------------------------
 
 type ViewChanger struct {
-	isInViewChange        bool
-	currentView           int64
-	currentSequenceNumber int64
-	leaderElection        *leader_election.LeaderElection
-	viewChangeMessages    []core.ViewChangeMessage
+	isInViewChange           bool
+	currentView              int64
+	currentSequenceNumber    int64
+	leaderElection           *leader_election.LeaderElection
+	viewChangeMessages       []core.ViewChangeMessage
+	receiveViewChangeMessage *atomic.Int32
 
 	isInViewChangeLock     sync.Mutex
 	viewChangeMessagesLock sync.Mutex
@@ -28,20 +30,25 @@ type ViewChanger struct {
 
 func NewViewChanger(cfg *config.Config) *ViewChanger {
 	return &ViewChanger{
-		isInViewChange:         false,
-		currentView:            0,
-		leaderElection:         leader_election.NewLeaderElection(cfg),
-		viewChangeMessages:     make([]core.ViewChangeMessage, 0),
-		isInViewChangeLock:     sync.Mutex{},
-		viewChangeMessagesLock: sync.Mutex{},
+		isInViewChange:           false,
+		currentView:              0,
+		leaderElection:           leader_election.NewLeaderElection(cfg),
+		viewChangeMessages:       make([]core.ViewChangeMessage, 0),
+		isInViewChangeLock:       sync.Mutex{},
+		viewChangeMessagesLock:   sync.Mutex{},
+		receiveViewChangeMessage: &atomic.Int32{},
 	}
 }
 
 func (vc *ViewChanger) StartViewChange(currentView int64, currentSequenceNumber int64) {
+	vc.isInViewChangeLock.Lock()
 	vc.isInViewChange = true
+	vc.isInViewChangeLock.Unlock()
+
 	vc.currentView = currentView
 	vc.currentSequenceNumber = currentSequenceNumber
 	vc.viewChangeMessages = make([]core.ViewChangeMessage, 0)
+	vc.receiveViewChangeMessage.Store(0)
 }
 
 func (vc *ViewChanger) ResetViewChanger() {
@@ -49,6 +56,7 @@ func (vc *ViewChanger) ResetViewChanger() {
 	defer vc.isInViewChangeLock.Unlock()
 	vc.isInViewChange = false
 	vc.viewChangeMessages = make([]core.ViewChangeMessage, 0)
+	vc.receiveViewChangeMessage.Store(0)
 }
 
 func (vc *ViewChanger) ActivateViewChange() {
@@ -95,21 +103,19 @@ func (n *Node) SendViewChangeMessage() {
 		if othersIp == n.GetAddr() {
 			continue
 		}
-		target := othersIp
-		n.log.Info(fmt.Sprintf("Send view change message to %s", target))
-		go func(targetIP string) {
-			msg := core.ViewChangeMessage{
-				Timestamp:           baseTimestamp,
-				CheckpointSeqNumber: n.lastStableCheckpoint,
-				ViewNumber:          n.viewChange.currentView + 1,
-				CheckpointMsgNumber: baseCheckpointMsgNumber,
-				From:                baseFrom,
-				HavePreparedList:    havePreparedList,
-				PreprepareMessages:  preprepareSnapshot,
-				To:                  targetIP,
-			}
-			n.messageHub.Send(core.MsgViewChangeMessage, targetIP, msg, nil)
-		}(target)
+		targetIP := othersIp
+		n.log.Info(fmt.Sprintf("Send view change message to %s with sequence number %d", targetIP, n.lastStableCheckpoint))
+		msg := core.ViewChangeMessage{
+			Timestamp:           baseTimestamp,
+			CheckpointSeqNumber: n.lastStableCheckpoint,
+			ViewNumber:          n.viewChange.currentView + 1,
+			CheckpointMsgNumber: baseCheckpointMsgNumber,
+			From:                baseFrom,
+			HavePreparedList:    havePreparedList,
+			PreprepareMessages:  preprepareSnapshot,
+			To:                  targetIP,
+		}
+		n.messageHub.Send(core.MsgViewChangeMessage, targetIP, msg, nil)
 	}
 }
 
@@ -194,14 +200,10 @@ func (n *Node) HandleViewChangeMessage(data core.ViewChangeMessage) {
 	defer n.handleMessageLock.Unlock()
 	intendedViewNumber := data.ViewNumber
 	expectedLeader := n.viewChange.leaderElection.GetLeader(intendedViewNumber)
-	if n.GetAddr() != expectedLeader {
-		return
-	}
 	if intendedViewNumber != n.viewChange.currentView+1 {
 		n.log.Error(fmt.Sprintf("View number mismatch. from %s, intended view number %d, current view number %d", data.From, intendedViewNumber, n.viewChange.currentView))
 		return
 	}
-
 	n.log.Info(fmt.Sprintf("Received view change message from %s, intended view number %d, current view number %d", data.From, intendedViewNumber, n.viewChange.currentView))
 
 	n.viewChange.viewChangeMessagesLock.Lock()
@@ -213,6 +215,16 @@ func (n *Node) HandleViewChangeMessage(data core.ViewChangeMessage) {
 		n.log.Info(fmt.Sprintf("Received enough view change messages, start new view %d", intendedViewNumber))
 		if n.viewChange.leaderElection.GetLeader(intendedViewNumber) == n.GetAddr() {
 			n.SendNewViewMessage()
+			return
+		}
+	}
+
+	if expectedLeader != n.GetAddr() {
+		n.viewChange.receiveViewChangeMessage.Add(1)
+		if !n.viewChange.IsInViewChange() && n.viewChange.receiveViewChangeMessage.Load() == int32(n.cfg.FaultyNodesNum)+1 {
+			n.log.Info(fmt.Sprintf("Received enough view change messages, start new view %d", intendedViewNumber))
+			n.SendViewChangeMessage()
+			return
 		}
 	}
 }
@@ -257,5 +269,5 @@ func (n *Node) HandleMempoolMessage(data core.MempoolMsg) {
 	n.log.Info(fmt.Sprintf("Mempool: %v", data.Mempool))
 
 	n.Mempool = data.Mempool
-	go n.SendPreprepareMessage()
+	go n.SendPreprepareMessage(n.lastStableCheckpoint)
 }

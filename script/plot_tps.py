@@ -9,7 +9,7 @@ import numpy as np
 import os
 import sys
 
-def plot_tps_data(csv_file='tps_results.csv', tps_output='tps_plot.png', latency_output='latency_plot.png'):
+def plot_tps_data(csv_file='parallel_logs/port_25610_client/tps_results.csv', tps_output='tps_plot.png', latency_output='latency_plot.png'):
     """
     Read CSV data and create line plots of TPS and Latency vs Time.
     
@@ -125,6 +125,7 @@ def main():
     """Main function to handle command line arguments and run the plotting."""
     
     # Default values
+    # csv_file = 'parallel_logs/port_26010_client/tps_results.csv'
     csv_file = 'tps_results.csv'
     tps_output = 'tps_plot.png'
     latency_output = 'latency_plot.png'

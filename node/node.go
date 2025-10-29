@@ -40,6 +40,12 @@ type Node struct {
 	timerLock         sync.RWMutex
 	handleMessageLock sync.Mutex
 
+	// 全局 timer 管理
+	globalTimers     []*time.Timer
+	globalTimerLock  sync.RWMutex
+	timerAllowed     bool
+	timerAllowedLock sync.RWMutex
+
 	StopChan chan struct{}
 
 	Mempool []*core.Transaction
@@ -91,6 +97,8 @@ func NewNode(nodeID int64, cfg *config.Config) *Node {
 		log:                     logger.NewLogger(nodeID, "node"),
 		messageHub:              NewNodeMessageHub(),
 		expireTimers:            make(map[string]*time.Timer),
+		globalTimers:            make([]*time.Timer, 0),
+		timerAllowed:            true,
 		viewChange:              NewViewChanger(cfg),
 		StopChan:                make(chan struct{}),
 		Mempool:                 make([]*core.Transaction, 0),
@@ -232,6 +240,12 @@ func (n *Node) AddSeq2Digest(seqNumber int64, digest string) {
 // StartExpireTimer starts a new expire timer with a unique ID
 // Multiple timers can run concurrently
 func (n *Node) StartExpireTimer(timerID string) {
+	// 检查是否允许创建新的 timer
+	if !n.isTimerAllowed() {
+		n.log.Debug("Timer creation not allowed, skipping timer '%s'", timerID)
+		return
+	}
+
 	// Stop existing timer with same ID if it exists
 	n.timerLock.Lock()
 	if existingTimer, exists := n.expireTimers[timerID]; exists {
@@ -249,6 +263,9 @@ func (n *Node) StartExpireTimer(timerID string) {
 	newTimer := time.NewTimer(time.Duration(n.cfg.ExpireTime) * time.Second)
 	n.expireTimers[timerID] = newTimer
 	n.timerLock.Unlock()
+
+	// 将新 timer 添加到全局数组中
+	n.addToGlobalTimers(newTimer)
 
 	n.log.Debug("expire timer '%s' started with duration: %d seconds", timerID, n.cfg.ExpireTime)
 
@@ -299,6 +316,44 @@ func (n *Node) StopAllExpireTimers() {
 	n.log.Debug("all expire timers stopped")
 }
 
+// isTimerAllowed 检查是否允许创建新的 timer
+func (n *Node) isTimerAllowed() bool {
+	n.timerAllowedLock.RLock()
+	defer n.timerAllowedLock.RUnlock()
+	return n.timerAllowed
+}
+
+// setTimerAllowed 设置是否允许创建新的 timer
+func (n *Node) setTimerAllowed(allowed bool) {
+	n.timerAllowedLock.Lock()
+	defer n.timerAllowedLock.Unlock()
+	n.timerAllowed = allowed
+}
+
+// addToGlobalTimers 将 timer 添加到全局数组中
+func (n *Node) addToGlobalTimers(timer *time.Timer) {
+	n.globalTimerLock.Lock()
+	defer n.globalTimerLock.Unlock()
+	n.globalTimers = append(n.globalTimers, timer)
+}
+
+// clearAllGlobalTimers 清除所有全局 timer
+func (n *Node) clearAllGlobalTimers() {
+	n.globalTimerLock.Lock()
+	defer n.globalTimerLock.Unlock()
+
+	// 停止所有全局 timer
+	for _, timer := range n.globalTimers {
+		if timer != nil {
+			timer.Stop()
+		}
+	}
+
+	// 清空数组
+	n.globalTimers = make([]*time.Timer, 0)
+	n.log.Info("All global timers cleared and stopped")
+}
+
 // monitorTimer monitors a specific timer and sets expire flag when timeout occurs
 func (n *Node) monitorTimer(timerID string, timer *time.Timer) {
 	if timer == nil {
@@ -308,6 +363,13 @@ func (n *Node) monitorTimer(timerID string, timer *time.Timer) {
 	// Wait for timer to expire
 	<-timer.C
 	n.log.Info("Timer '%s' expired! Setting inViewChange flag to true", timerID)
+
+	// 禁止创建新的 timer
+	n.setTimerAllowed(false)
+	n.log.Info("Timer creation disabled after timer '%s' expiration", timerID)
+
+	// 清除所有全局 timer
+	n.clearAllGlobalTimers()
 
 	// Stop all other timers when this one expires
 	n.StopAllExpireTimers()

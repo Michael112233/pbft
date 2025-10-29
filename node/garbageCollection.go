@@ -27,7 +27,7 @@ func (n *Node) StartGarbageCollection() {
 
 func (n *Node) TriggerGarbageCollection(seqNumber int64, digest string) {
 	n.log.Info(fmt.Sprintf("Check whether it is time to trigger garbage collection for sequence number %d", seqNumber))
-	if (seqNumber-n.initCommitSeqNumber)%n.cfg.CheckpointInterval != 0 {
+	if (seqNumber-n.cfg.SeqNumberLowerBound)%n.cfg.CheckpointInterval != 0 {
 		return
 	}
 	n.log.Info(fmt.Sprintf("Trigger garbage collection for sequence number %d", seqNumber))
@@ -83,7 +83,7 @@ func (n *Node) HandleCheckpointMessage(data core.CheckpointMessage) {
 	n.checkpointList[data.SequenceNumber].Add(1)
 	n.checkpointLock.RUnlock()
 
-	if n.checkpointList[data.SequenceNumber].Load() == int32(2*n.cfg.FaultyNodesNum+1) {
+	if n.checkpointList[data.SequenceNumber].Load() == int32(2*n.cfg.FaultyNodesNum) {
 		n.lastStableCheckpoint = data.SequenceNumber
 		n.log.Debug(fmt.Sprintf("Node %d last stable checkpoint is %d", n.NodeID, n.lastStableCheckpoint))
 

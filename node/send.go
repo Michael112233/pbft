@@ -25,13 +25,14 @@ func (n *Node) GenerateBlocks() *core.RequestMessage {
 	return data
 }
 
-func (n *Node) SendPreprepareMessage() {
+func (n *Node) SendPreprepareMessage(newSequenceNumber int64) {
+	if newSequenceNumber == -1 {
+		sequenceNumber = GenerateRandomSequenceNumber(n.cfg.SeqNumberUpperBound, n.cfg.SeqNumberLowerBound)
+	} else {
+		sequenceNumber = newSequenceNumber
+	}
 	for len(n.Mempool) > 0 {
-		if sequenceNumber == -1 {
-			sequenceNumber = GenerateRandomSequenceNumber(n.cfg.SeqNumberUpperBound, n.cfg.SeqNumberLowerBound)
-		} else {
-			sequenceNumber++
-		}
+		sequenceNumber++
 		data := n.GenerateBlocks()
 		for _, othersIp := range config.NodeAddr {
 			if othersIp == n.GetAddr() {
@@ -46,7 +47,7 @@ func (n *Node) SendPreprepareMessage() {
 				Digest:         utils.GetDigest(data),
 				RequestMessage: data,
 			}
-			n.log.Info(fmt.Sprintf("Send preprepare message to %s with sequence number %d", othersIp, sequenceNumber))
+			n.log.Info(fmt.Sprintf("Send preprepare message to %s with sequence number %d, current mempool size is %d", othersIp, sequenceNumber, len(n.Mempool)))
 			n.SetPreprepareSequenceNumber(sequenceNumber, &preprepareMessage)
 			n.messageHub.Send(core.MsgPreprepareMessage, othersIp, preprepareMessage, nil)
 		}
@@ -57,6 +58,9 @@ func (n *Node) SendPreprepareMessage() {
 }
 
 func (n *Node) SendPrepareMessage(data core.PreprepareMessage) {
+	if n.viewChange.IsInViewChange() {
+		return
+	}
 	n.AddPrepareMessageNumber(data.SequenceNumber)
 	n.log.Info(fmt.Sprintf("SeqNumber %d: After receiving from %s to itself, current prepare messages number is %d", data.SequenceNumber, data.From, n.GetPrepareMessageNumber(data.SequenceNumber)))
 	// Send Prepare Message to Others.
@@ -79,6 +83,9 @@ func (n *Node) SendPrepareMessage(data core.PreprepareMessage) {
 }
 
 func (n *Node) SendCommitMessage(data core.PrepareMessage) {
+	if n.viewChange.IsInViewChange() {
+		return
+	}
 	n.AddCommitMessageNumber(data.SequenceNumber)
 	n.log.Info(fmt.Sprintf("SeqNumber %d: After receiving from %s to itself, current commit messages number is %d", data.SequenceNumber, data.From, n.GetCommitMessageNumber(data.SequenceNumber)))
 
@@ -102,6 +109,9 @@ func (n *Node) SendCommitMessage(data core.PrepareMessage) {
 }
 
 func (n *Node) SendReplyMessage(data core.CommitMessage) {
+	if n.viewChange.IsInViewChange() {
+		return
+	}
 	replyMessage := core.ReplyMessage{
 		Timestamp:      time.Now().UnixNano(),
 		From:           n.GetAddr(),
