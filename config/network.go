@@ -19,9 +19,9 @@ func GenerateLocalNetwork(nodeNum int) {
 }
 
 func GenerateRemoteNetwork(nodeNum int) {
-	ClientAddr = "172.17.169.1:20000"
+	ClientAddr = "172.18.4.1:20000"
 	NodeAddr = make(map[int]string)
 	for i := 0; i < nodeNum; i++ {
-		NodeAddr[i] = fmt.Sprintf("172.17.169.%d:28000", i+2)
+		NodeAddr[i] = fmt.Sprintf("172.18.4.%d:28000", i+2)
 	}
 }
