@@ -39,6 +39,7 @@ type Node struct {
 	expireTimers      map[string]*time.Timer
 	timerLock         sync.RWMutex
 	handleMessageLock sync.Mutex
+	preprepareStarted bool
 
 	// 全局 timer 管理
 	globalTimers     []*time.Timer
@@ -102,6 +103,7 @@ func NewNode(nodeID int64, cfg *config.Config) *Node {
 		viewChange:              NewViewChanger(cfg),
 		StopChan:                make(chan struct{}),
 		Mempool:                 make([]*core.Transaction, 0),
+		preprepareStarted:       false,
 	}
 }
 
@@ -215,6 +217,7 @@ func (n *Node) AddPrepareMessageNumber(seqNumber int64) {
 	defer n.PrepareMessageLock.Unlock()
 	if _, exists := n.prepareMsgNumber[seqNumber]; !exists {
 		n.prepareMsgNumber[seqNumber] = &atomic.Int32{}
+		n.prepareMsgNumber[seqNumber].Store(0)
 	}
 	n.prepareMsgNumber[seqNumber].Add(1)
 }
@@ -224,6 +227,7 @@ func (n *Node) AddCommitMessageNumber(seqNumber int64) {
 	defer n.CommitMessageLock.Unlock()
 	if _, exists := n.commitMsgNumber[seqNumber]; !exists {
 		n.commitMsgNumber[seqNumber] = &atomic.Int32{}
+		n.commitMsgNumber[seqNumber].Store(0)
 	}
 	n.commitMsgNumber[seqNumber].Add(1)
 }
@@ -368,12 +372,12 @@ func (n *Node) monitorTimer(timerID string, timer *time.Timer) {
 	n.setTimerAllowed(false)
 	n.log.Info("Timer creation disabled after timer '%s' expiration", timerID)
 
-	// 清除所有全局 timer
-	n.clearAllGlobalTimers()
-
 	// Stop all other timers when this one expires
 	n.StopAllExpireTimers()
 	n.log.Info("All timers stopped after timer '%s' expiration", timerID)
+
+	// 清除所有全局 timer
+	n.clearAllGlobalTimers()
 
 	// start view changer
 	if !n.viewChange.IsInViewChange() {

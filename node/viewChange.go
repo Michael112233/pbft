@@ -111,7 +111,6 @@ func (n *Node) SendViewChangeMessage() {
 			ViewNumber:          n.viewChange.currentView + 1,
 			CheckpointMsgNumber: baseCheckpointMsgNumber,
 			From:                baseFrom,
-			HavePreparedList:    havePreparedList,
 			PreprepareMessages:  preprepareSnapshot,
 			To:                  targetIP,
 		}
@@ -124,46 +123,46 @@ func (n *Node) SendNewViewMessage() {
 	n.viewNumber = n.viewChange.currentView
 
 	viewChangeMessages := n.viewChange.viewChangeMessages
-	minSequenceNumber := int64(math.MaxInt64)
-	maxSequenceNumber := int64(math.MinInt64)
-	// preprepareMessages := make(map[int64][]*core.PreprepareMessage)
-	for _, viewChangeMessage := range viewChangeMessages {
-		currentSequenceNumber := viewChangeMessage.CheckpointSeqNumber
-		if currentSequenceNumber < minSequenceNumber {
-			minSequenceNumber = currentSequenceNumber
-		}
-		if currentSequenceNumber > maxSequenceNumber {
-			maxSequenceNumber = currentSequenceNumber
-			// preprepareMessages = viewChangeMessage.PreprepareMessages
-		}
-		n.log.Info("Current Sequence Number: %d", currentSequenceNumber)
-	}
-	// Pre-serialize the common data to avoid repeated serialization
-	baseTimestamp := time.Now().UnixNano()
 
-	// Filter preprepare messages to include only active non-empty window
-	// filteredPreprepare := make(map[int64][]*core.PreprepareMessage)
-	// startSeq := n.lastStableCheckpoint + 1
-	// endSeq := n.lastPrepareSeqNumber
-	// if endSeq < startSeq {
-	// 	endSeq = startSeq
-	// }
-	// for seq := startSeq; seq <= endSeq; seq++ {
-	// 	msgs := preprepareMessages[seq]
-	// 	if len(msgs) > 0 {
-	// 		filteredPreprepare[seq] = msgs
-	// 	}
-	// }
+	minSeq := int64(math.MaxInt64)
+	maxSeq := int64(math.MinInt64)
+
+	for _, viewChangeMessage := range viewChangeMessages {
+		if viewChangeMessage.CheckpointSeqNumber < minSeq {
+			minSeq = viewChangeMessage.CheckpointSeqNumber
+		}
+		if viewChangeMessage.PreprepareMessages != nil {
+			for seqNumber := range viewChangeMessage.PreprepareMessages {
+				if seqNumber > maxSeq {
+					maxSeq = seqNumber
+				}
+			}
+		}
+	}
+
+	OngoingTxs := make([]*core.Transaction, 0)
+	for _, viewChangeMessage := range viewChangeMessages {
+		if viewChangeMessage.PreprepareMessages != nil {
+			for seqNumber := minSeq; seqNumber <= maxSeq; seqNumber++ {
+				if preprepareMsgs, exists := viewChangeMessage.PreprepareMessages[seqNumber]; exists && len(preprepareMsgs) > 0 {
+					if preprepareMsgs[0].RequestMessage != nil {
+						OngoingTxs = append(OngoingTxs, preprepareMsgs[0].RequestMessage.Txs...)
+					}
+				}
+			}
+		}
+	}
+	n.log.Debug(fmt.Sprintf("Ongoing txs length is %d", len(OngoingTxs)))
 
 	// Send messages asynchronously to avoid blocking
 	for _, targetIp := range config.NodeAddr {
 		newViewMessage := core.NewViewMessage{
-			Timestamp: baseTimestamp,
-			From:      n.GetAddr(),
-			To:        targetIp,
-			// ViewChangeMessages: n.viewChange.viewChangeMessages,
-			ViewNumber: n.viewChange.currentView,
-			// PreprepareMessages: preprepareMessages,
+			Timestamp:           time.Now().UnixNano(),
+			From:                n.GetAddr(),
+			To:                  targetIp,
+			OngoingTxs:          OngoingTxs,
+			ViewNumber:          n.viewChange.currentView,
+			CheckpointSeqNumber: minSeq,
 		}
 		n.log.Info(fmt.Sprintf("Send new view message to %s", targetIp))
 		n.messageHub.Send(core.MsgNewViewMessage, targetIp, newViewMessage, nil)
@@ -180,9 +179,10 @@ func (n *Node) SendMempoolSnapshot(toIp string) {
 		injectTxs := mempoolSnapshot[i*n.cfg.InjectSpeed : (i+1)*n.cfg.InjectSpeed]
 
 		memMsg := core.MempoolMsg{
-			Mempool: injectTxs,
-			From:    n.GetAddr(),
-			To:      toIp,
+			Mempool:    injectTxs,
+			From:       n.GetAddr(),
+			To:         toIp,
+			ViewNumber: n.viewNumber,
 		}
 		n.log.Info(fmt.Sprintf("Send mempool message to %s with %d transactions", toIp, len(injectTxs)))
 		n.messageHub.Send(core.MsgMempoolMessage, toIp, memMsg, nil)
@@ -235,39 +235,39 @@ func (n *Node) HandleNewViewMessage(data core.NewViewMessage) {
 	n.log.Info(fmt.Sprintf("Received new view message from %s, view number %d", data.From, data.ViewNumber))
 	n.viewNumber = data.ViewNumber
 
-	fmt.Printf("Current Leader: %s, New Leader: %s\n", n.viewChange.leaderElection.GetLeader(n.viewNumber-1), n.viewChange.leaderElection.GetLeader(n.viewNumber))
 	if n.viewChange.leaderElection.GetLeader(n.viewNumber-1) == n.GetAddr() {
 		n.SendMempoolSnapshot(n.viewChange.leaderElection.GetLeader(n.viewNumber))
 	}
+	n.RecoverToCheckpoint(data.CheckpointSeqNumber)
 
 	n.viewChange.viewChangeMessagesLock.Lock()
 	n.viewChange.ResetViewChanger()
+	n.setTimerAllowed(true)
 	n.log.Info("have reset view changer successfully")
 	n.viewChange.viewChangeMessagesLock.Unlock()
 
-	// for seqNumber := n.lastStableCheckpoint + 1; seqNumber <= n.lastPrepareSeqNumber; seqNumber++ {
-	// 	preprepareMessages := data.PreprepareMessages[seqNumber]
-	// 	// Check if preprepareMessages slice is not empty before accessing elements
-	// 	if len(preprepareMessages) == 0 {
-	// 		n.log.Warn(fmt.Sprintf("No preprepare messages found for sequence number %d", seqNumber))
-	// 		continue
-	// 	}
-	// 	for _, othersIp := range config.NodeAddr {
-	// 		if othersIp == n.GetAddr() {
-	// 			continue
-	// 		}
-	// 		n.log.Info(fmt.Sprintf("Send preprepare message to %s with sequence number %d", othersIp, seqNumber))
-	// 		n.SetPreprepareSequenceNumber(seqNumber, preprepareMessages[0])
-	// 		n.messageHub.Send(core.MsgPreprepareMessage, othersIp, *preprepareMessages[0], nil)
-	// 	}
-	// }
+	// if the node is the leader, add the preprepare messages of the ongoing txs to the front of the mempool
+	if n.GetAddr() == n.viewChange.leaderElection.GetLeader(n.viewNumber) {
+		n.Mempool = append(data.OngoingTxs, n.Mempool...)
+	}
+	n.log.Test(fmt.Sprintf(("Preprepare started in HandleNewViewMessage: %t"), n.preprepareStarted))
+	if n.preprepareStarted {
+		return
+	}
+	n.preprepareStarted = true
+	go n.SendPreprepareMessage(n.lastStableCheckpoint)
 }
 
 func (n *Node) HandleMempoolMessage(data core.MempoolMsg) {
-	n.log.Info(fmt.Sprintf("Received mempool message from %s", data.From))
-	n.log.Info(fmt.Sprintf("Mempool size: %d", len(data.Mempool)))
-	n.log.Info(fmt.Sprintf("Mempool: %v", data.Mempool))
-
-	n.Mempool = data.Mempool
+	if data.ViewNumber != n.viewNumber {
+		return
+	}
+	fmt.Printf("HandleMempoolMessage: view number %d, mempool size %d\n", data.ViewNumber, len(data.Mempool))
+	n.Mempool = append(n.Mempool, data.Mempool...)
+	n.log.Test(fmt.Sprintf(("Preprepare started in HandleMempoolMessage: %t"), n.preprepareStarted))
+	if n.preprepareStarted {
+		return
+	}
+	n.preprepareStarted = true
 	go n.SendPreprepareMessage(n.lastStableCheckpoint)
 }

@@ -72,12 +72,12 @@ type ViewChangeMessage struct {
 }
 
 type NewViewMessage struct {
-	Timestamp          int64
-	From               string
-	To                 string
-	ViewChangeMessages []ViewChangeMessage
-	ViewNumber         int64
-	PreprepareMessages map[int64][]*PreprepareMessage
+	Timestamp           int64
+	From                string
+	To                  string
+	OngoingTxs          []*Transaction
+	ViewNumber          int64
+	CheckpointSeqNumber int64
 }
 
 type CheckpointMessage struct {
@@ -85,11 +85,13 @@ type CheckpointMessage struct {
 	From           string
 	To             string
 	SequenceNumber int64
+	ViewNumber     int64
 	Digest         string
 }
 
 type MempoolMsg struct {
-	Mempool []*Transaction
-	From    string
-	To      string
+	Mempool    []*Transaction
+	From       string
+	To         string
+	ViewNumber int64
 }

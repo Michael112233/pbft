@@ -7,7 +7,7 @@
     "experiment_mode": "local",
 
     "node_num": 4,
-    "run_time": 120,
+    "run_time": 90,
 
     "election_method": "round_robin",
 

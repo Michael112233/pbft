@@ -47,7 +47,7 @@ func (n *Node) SendPreprepareMessage(newSequenceNumber int64) {
 				Digest:         utils.GetDigest(data),
 				RequestMessage: data,
 			}
-			n.log.Info(fmt.Sprintf("Send preprepare message to %s with sequence number %d, current mempool size is %d", othersIp, sequenceNumber, len(n.Mempool)))
+			// n.log.Info(fmt.Sprintf("Send preprepare message to %s with sequence number %d, current mempool size is %d", othersIp, sequenceNumber, len(n.Mempool)))
 			n.SetPreprepareSequenceNumber(sequenceNumber, &preprepareMessage)
 			n.messageHub.Send(core.MsgPreprepareMessage, othersIp, preprepareMessage, nil)
 		}
@@ -55,6 +55,7 @@ func (n *Node) SendPreprepareMessage(newSequenceNumber int64) {
 			break
 		}
 	}
+	n.preprepareStarted = false
 }
 
 func (n *Node) SendPrepareMessage(data core.PreprepareMessage) {
@@ -62,7 +63,7 @@ func (n *Node) SendPrepareMessage(data core.PreprepareMessage) {
 		return
 	}
 	n.AddPrepareMessageNumber(data.SequenceNumber)
-	n.log.Info(fmt.Sprintf("SeqNumber %d: After receiving from %s to itself, current prepare messages number is %d", data.SequenceNumber, data.From, n.GetPrepareMessageNumber(data.SequenceNumber)))
+	// n.log.Info(fmt.Sprintf("SeqNumber %d: After receiving from %s to itself, current prepare messages number is %d", data.SequenceNumber, data.From, n.GetPrepareMessageNumber(data.SequenceNumber)))
 	// Send Prepare Message to Others.
 	for _, othersIp := range config.NodeAddr {
 		if othersIp == n.GetAddr() {
@@ -77,7 +78,7 @@ func (n *Node) SendPrepareMessage(data core.PreprepareMessage) {
 			Digest:         data.Digest,
 			RequestMessage: data.RequestMessage,
 		}
-		n.log.Info(fmt.Sprintf("Send prepare message to %s with sequence number %d", othersIp, data.SequenceNumber))
+		// n.log.Info(fmt.Sprintf("Send prepare message to %s with sequence number %d", othersIp, data.SequenceNumber))
 		n.messageHub.Send(core.MsgPrepareMessage, othersIp, prepareMessage, nil)
 	}
 }
@@ -87,7 +88,7 @@ func (n *Node) SendCommitMessage(data core.PrepareMessage) {
 		return
 	}
 	n.AddCommitMessageNumber(data.SequenceNumber)
-	n.log.Info(fmt.Sprintf("SeqNumber %d: After receiving from %s to itself, current commit messages number is %d", data.SequenceNumber, data.From, n.GetCommitMessageNumber(data.SequenceNumber)))
+	// n.log.Info(fmt.Sprintf("SeqNumber %d: After receiving from %s to itself, current commit messages number is %d", data.SequenceNumber, data.From, n.GetCommitMessageNumber(data.SequenceNumber)))
 
 	// Send Prepare Message to Others.
 	for _, othersIp := range config.NodeAddr {
@@ -103,7 +104,7 @@ func (n *Node) SendCommitMessage(data core.PrepareMessage) {
 			Digest:         data.Digest,
 			RequestMessage: data.RequestMessage,
 		}
-		n.log.Info(fmt.Sprintf("Send commit message to %s with sequence number %d", othersIp, data.SequenceNumber))
+		// n.log.Info(fmt.Sprintf("Send commit message to %s with sequence number %d", othersIp, data.SequenceNumber))
 		n.messageHub.Send(core.MsgCommitMessage, othersIp, commitMessage, nil)
 	}
 }
@@ -120,7 +121,7 @@ func (n *Node) SendReplyMessage(data core.CommitMessage) {
 		ViewNumber:     n.viewNumber,
 		RequestMessage: data.RequestMessage,
 	}
-	n.log.Info(fmt.Sprintf("Send reply message to %s with sequence number %d", config.ClientAddr, data.SequenceNumber))
+	// n.log.Info(fmt.Sprintf("Send reply message to %s with sequence number %d", config.ClientAddr, data.SequenceNumber))
 	timerID := fmt.Sprintf("request_%d_%d", n.NodeID, data.RequestMessage.Id)
 	n.StopExpireTimer(timerID)
 	n.messageHub.Send(core.MsgReplyMessage, config.ClientAddr, replyMessage, nil)
