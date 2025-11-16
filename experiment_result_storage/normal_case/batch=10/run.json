@@ -1,0 +1,17 @@
+{
+    "data_dir": "data/len3_data.csv",
+    "max_tx_num": 1000000,
+    "inject_speed": 500000,
+    "max_block_size": 10,
+
+    "experiment_mode": "local",
+
+    "node_num": 4,
+
+    "election_method": "round_robin",
+
+    "expire_time": 20,
+    "seq_number_upper_bound": 300000,
+    "seq_number_lower_bound": 1000,
+    "checkpoint_interval": 4
+}
