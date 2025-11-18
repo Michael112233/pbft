@@ -50,6 +50,9 @@ type Node struct {
 	StopChan chan struct{}
 
 	Mempool []*core.Transaction
+
+	raftElection *RaftElection
+	mempoolLock  sync.Mutex
 }
 
 func NewNode(nodeID int64, cfg *config.Config) *Node {
@@ -104,6 +107,7 @@ func NewNode(nodeID int64, cfg *config.Config) *Node {
 		StopChan:                make(chan struct{}),
 		Mempool:                 make([]*core.Transaction, 0),
 		preprepareStarted:       false,
+		raftElection:            nil,
 	}
 }
 

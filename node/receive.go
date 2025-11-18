@@ -15,23 +15,23 @@ func (n *Node) HandleRequestMessage(data core.RequestMessage) {
 		// n.log.Error("Node %d is in view change and Ignore request message", n.NodeID)
 		return
 	}
-	timerID := fmt.Sprintf("request_%d_%d", n.NodeID, data.Id)
-	n.StartExpireTimer(timerID)
 	n.log.Info(fmt.Sprintf("Received request message from %s to %s with %d transactions", data.From, data.To, len(data.Txs)))
+
+	n.mempoolLock.Lock()
 	n.Mempool = append(n.Mempool, data.Txs...)
+	n.mempoolLock.Unlock()
+
 	if n.preprepareStarted {
-		// n.log.Info("Preprepare already started, ignore request message from %s to %s with %d transactions", data.From, data.To, len(data.Txs))
 		return
 	}
 	n.preprepareStarted = true
+	n.log.Info(fmt.Sprintf("Preprepare started, send preprepare message to %s", data.To))
 	go n.SendPreprepareMessage(-1)
 }
 
 func (n *Node) HandlePreprepareMessage(data core.PreprepareMessage) {
 	n.handleMessageLock.Lock()
 	defer n.handleMessageLock.Unlock()
-	timerID := fmt.Sprintf("request_%d_%d", n.NodeID, data.RequestMessage.Id)
-	n.StartExpireTimer(timerID)
 	if n.viewChange.IsInViewChange() {
 		// n.log.Error("Node %d is expired and Start to trigger view change", n.NodeID)
 		return
@@ -52,6 +52,8 @@ func (n *Node) HandlePreprepareMessage(data core.PreprepareMessage) {
 		// 	return
 	} else {
 		// n.log.Info(fmt.Sprintf("SeqNumber %d: Preprepare message sequence number succeeds. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
+		timerID := fmt.Sprintf("request_%d_%d", n.NodeID, data.SequenceNumber)
+		n.StartExpireTimer(timerID)
 		n.SetPreprepareSequenceNumber(data.SequenceNumber, &data)
 		go n.SendPrepareMessage(data)
 	}
@@ -85,7 +87,7 @@ func (n *Node) HandlePrepareMessage(data core.PrepareMessage) {
 	}
 	// n.log.Info(fmt.Sprintf("SeqNumber %d: After receiving from %s, current prepare messages number is %d", data.SequenceNumber, data.From, n.GetPrepareMessageNumber(data.SequenceNumber)))
 
-	if n.GetPrepareMessageNumber(data.SequenceNumber) == 2*int32(n.cfg.FaultyNodesNum) {
+	if n.GetPrepareMessageNumber(data.SequenceNumber) >= 2*int32(n.cfg.FaultyNodesNum) {
 		n.log.Info(fmt.Sprintf("SeqNumber %d: Received %d prepare messages, enough to commit the block.", data.SequenceNumber, n.GetPrepareMessageNumber(data.SequenceNumber)))
 		n.SetPrepareSequenceNumber(data.SequenceNumber)
 		go n.SendCommitMessage(data)
@@ -115,11 +117,11 @@ func (n *Node) HandleCommitMessage(data core.CommitMessage) {
 		// 	return
 	} else {
 		n.AddCommitMessageNumber(data.SequenceNumber)
-		// n.log.Info(fmt.Sprintf("SeqNumber %d: Commit message count for sequence %d is now %d", data.SequenceNumber, data.SequenceNumber, n.GetCommitMessageNumber(data.SequenceNumber)))
+		n.log.Info(fmt.Sprintf("SeqNumber %d: Commit message count for sequence %d is now %d", data.SequenceNumber, data.SequenceNumber, n.GetCommitMessageNumber(data.SequenceNumber)))
 	}
 	// n.log.Info(fmt.Sprintf("SeqNumber %d: After receiving from %s, current commit messages number is %d", data.SequenceNumber, data.From, n.GetCommitMessageNumber(data.SequenceNumber)))
 
-	if n.GetCommitMessageNumber(data.SequenceNumber) == 2*int32(n.cfg.FaultyNodesNum) {
+	if n.GetCommitMessageNumber(data.SequenceNumber) >= 2*int32(n.cfg.FaultyNodesNum) {
 		n.log.Info(fmt.Sprintf("SeqNumber %d: Received %d commit messages, enough to reply to client.", data.SequenceNumber, n.GetCommitMessageNumber(data.SequenceNumber)))
 		n.SetCommitSequenceNumber(data.SequenceNumber)
 

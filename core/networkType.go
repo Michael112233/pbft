@@ -11,4 +11,8 @@ const (
 	MsgCheckpointMessage string = "MsgCheckpointMessage"
 	MsgNewViewMessage    string = "MsgNewViewMessage"
 	MsgMempoolMessage    string = "MsgMempoolMessage"
+
+	MsgRequestVote         string = "MsgRequestVote"
+	MsgRequestVoteResponse string = "MsgRequestVoteResponse"
+	MsgAppendEntries       string = "MsgAppendEntries"
 )

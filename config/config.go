@@ -23,6 +23,10 @@ type Config struct {
 	SeqNumberUpperBound int64 `json:"seq_number_upper_bound"`
 	SeqNumberLowerBound int64 `json:"seq_number_lower_bound"`
 	CheckpointInterval  int64 `json:"checkpoint_interval"`
+
+	// TCP buffer sizes (in bytes)
+	TCPReadBufferSize  int `json:"tcp_read_buffer_size"`  // 接收缓冲区大小，默认256KB
+	TCPWriteBufferSize int `json:"tcp_write_buffer_size"` // 发送缓冲区大小，默认256KB
 }
 
 func ReadCfg(filename string) *Config {
@@ -41,5 +45,14 @@ func ReadCfg(filename string) *Config {
 	}
 
 	config.FaultyNodesNum = (config.NodeNum - 1) / 3
+	
+	// 设置TCP缓冲区默认值（256KB = 256 * 1024 bytes）
+	if config.TCPReadBufferSize == 0 {
+		config.TCPReadBufferSize = 256 * 1024
+	}
+	if config.TCPWriteBufferSize == 0 {
+		config.TCPWriteBufferSize = 256 * 1024
+	}
+	
 	return config
 }

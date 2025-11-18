@@ -31,9 +31,20 @@ func (l *LeaderElection) GetLeader(viewId int64) string {
 		return l.GetFromRoundRobin(viewId)
 	case "carousel":
 		return l.GetFromCarousel(viewId)
+	case "raft":
+		return l.GetFromRaft(viewId)
 	default:
 		log.Error("invalid election method: %s", l.method)
 		os.Exit(1)
 		return ""
 	}
+}
+
+func (l *LeaderElection) SetLeader(viewId int64, leader_id int64) {
+	l.leaderList[viewId] = leader_id
+}
+
+func (l *LeaderElection) HasLeader(viewId int64) bool {
+	leader_id, exists := l.leaderList[viewId]
+	return exists && leader_id != -1
 }

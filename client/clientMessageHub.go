@@ -77,6 +77,25 @@ func (hub *ClientMessageHub) Dial(addr string) (net.Conn, error) {
 			hub.log.Debug(fmt.Sprintf("dial success. target_addr=%s", addr))
 		}
 	}
+	
+	// 设置TCP缓冲区大小
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		if hub.client_ref != nil && hub.client_ref.config != nil {
+			// 设置接收缓冲区
+			if err := tcpConn.SetReadBuffer(hub.client_ref.config.TCPReadBufferSize); err != nil {
+				hub.log.Debug(fmt.Sprintf("Failed to set TCP read buffer: %v", err))
+			} else {
+				hub.log.Debug(fmt.Sprintf("Set TCP read buffer to %d bytes", hub.client_ref.config.TCPReadBufferSize))
+			}
+			// 设置发送缓冲区
+			if err := tcpConn.SetWriteBuffer(hub.client_ref.config.TCPWriteBufferSize); err != nil {
+				hub.log.Debug(fmt.Sprintf("Failed to set TCP write buffer: %v", err))
+			} else {
+				hub.log.Debug(fmt.Sprintf("Set TCP write buffer to %d bytes", hub.client_ref.config.TCPWriteBufferSize))
+			}
+		}
+	}
+	
 	return conn, nil
 }
 
@@ -133,6 +152,25 @@ func (hub *ClientMessageHub) listen(addr string, wg *sync.WaitGroup) {
 			hub.log.Debug("Error accepting connection. Err: " + err.Error())
 			return
 		}
+		
+		// 设置TCP缓冲区大小（对于接收到的连接）
+		if tcpConn, ok := conn.(*net.TCPConn); ok {
+			if hub.client_ref != nil && hub.client_ref.config != nil {
+				// 设置接收缓冲区
+				if err := tcpConn.SetReadBuffer(hub.client_ref.config.TCPReadBufferSize); err != nil {
+					hub.log.Debug(fmt.Sprintf("Failed to set TCP read buffer: %v", err))
+				} else {
+					hub.log.Debug(fmt.Sprintf("Set TCP read buffer to %d bytes for incoming connection", hub.client_ref.config.TCPReadBufferSize))
+				}
+				// 设置发送缓冲区
+				if err := tcpConn.SetWriteBuffer(hub.client_ref.config.TCPWriteBufferSize); err != nil {
+					hub.log.Debug(fmt.Sprintf("Failed to set TCP write buffer: %v", err))
+				} else {
+					hub.log.Debug(fmt.Sprintf("Set TCP write buffer to %d bytes for incoming connection", hub.client_ref.config.TCPWriteBufferSize))
+				}
+			}
+		}
+		
 		go hub.handleConnection(conn, ln)
 	}
 }

@@ -95,3 +95,31 @@ type MempoolMsg struct {
 	To         string
 	ViewNumber int64
 }
+
+type HeartbeatMessage struct {
+	Timestamp  int64
+	From       string
+	To         string
+	ViewNumber int64
+	LeaderAddr string
+}
+
+type RequestVoteData struct {
+	ViewNumber int64
+	From       string
+	To         string
+}
+
+type RequestVoteResponseData struct {
+	ViewNumber  int64
+	From        string
+	To          string
+	VoteGranted bool
+}
+
+type AppendEntriesData struct {
+	ViewNumber    int64
+	VoteNumber    int64
+	CurrentLeader int64
+	To            string
+}

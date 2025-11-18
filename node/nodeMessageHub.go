@@ -77,6 +77,25 @@ func (hub *NodeMessageHub) Dial(addr string) (net.Conn, error) {
 			hub.log.Debug(fmt.Sprintf("dial success. target_addr=%s", addr))
 		}
 	}
+
+	// 设置TCP缓冲区大小
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		if hub.node_ref != nil && hub.node_ref.cfg != nil {
+			// 设置接收缓冲区
+			if err := tcpConn.SetReadBuffer(hub.node_ref.cfg.TCPReadBufferSize); err != nil {
+				hub.log.Debug(fmt.Sprintf("Failed to set TCP read buffer: %v", err))
+			} else {
+				hub.log.Debug(fmt.Sprintf("Set TCP read buffer to %d bytes", hub.node_ref.cfg.TCPReadBufferSize))
+			}
+			// 设置发送缓冲区
+			if err := tcpConn.SetWriteBuffer(hub.node_ref.cfg.TCPWriteBufferSize); err != nil {
+				hub.log.Debug(fmt.Sprintf("Failed to set TCP write buffer: %v", err))
+			} else {
+				hub.log.Debug(fmt.Sprintf("Set TCP write buffer to %d bytes", hub.node_ref.cfg.TCPWriteBufferSize))
+			}
+		}
+	}
+
 	return conn, nil
 }
 
@@ -121,6 +140,12 @@ func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, call
 		hub.sendNewViewMessage(msg)
 	case core.MsgMempoolMessage:
 		hub.sendMempoolMessage(msg)
+	// case core.MsgRequestVote:
+	// 	hub.sendRequestVoteMessage(msg)
+	// case core.MsgRequestVoteResponse:
+	// 	hub.sendRequestVoteResponseMessage(msg)
+	// case core.MsgAppendEntries:
+	// 	hub.sendAppendEntriesMessage(msg)
 	default:
 		hub.log.Error("Unknown message type received. msgType=" + msgType)
 	}
@@ -145,6 +170,25 @@ func (hub *NodeMessageHub) listen(addr string, wg *sync.WaitGroup) {
 			hub.log.Debug(fmt.Sprintf("Error accepting connection: err=%v", err))
 			return
 		}
+
+		// 设置TCP缓冲区大小（对于接收到的连接）
+		if tcpConn, ok := conn.(*net.TCPConn); ok {
+			if hub.node_ref != nil && hub.node_ref.cfg != nil {
+				// 设置接收缓冲区
+				if err := tcpConn.SetReadBuffer(hub.node_ref.cfg.TCPReadBufferSize); err != nil {
+					hub.log.Debug(fmt.Sprintf("Failed to set TCP read buffer: %v", err))
+				} else {
+					hub.log.Debug(fmt.Sprintf("Set TCP read buffer to %d bytes for incoming connection", hub.node_ref.cfg.TCPReadBufferSize))
+				}
+				// 设置发送缓冲区
+				if err := tcpConn.SetWriteBuffer(hub.node_ref.cfg.TCPWriteBufferSize); err != nil {
+					hub.log.Debug(fmt.Sprintf("Failed to set TCP write buffer: %v", err))
+				} else {
+					hub.log.Debug(fmt.Sprintf("Set TCP write buffer to %d bytes for incoming connection", hub.node_ref.cfg.TCPWriteBufferSize))
+				}
+			}
+		}
+
 		go hub.handleConnection(conn, ln)
 	}
 }
@@ -203,6 +247,12 @@ func (hub *NodeMessageHub) handleConnection(conn net.Conn, ln net.Listener) {
 			hub.handleNewViewMessage(msg.Data)
 		case core.MsgMempoolMessage:
 			hub.handleMempoolMessage(msg.Data)
+		// case core.MsgRequestVote:
+		// 	hub.handleRequestVoteMessage(msg.Data)
+		// case core.MsgRequestVoteResponse:
+		// 	hub.handleRequestVoteResponseMessage(msg.Data)
+		// case core.MsgAppendEntries:
+		// 	hub.handleAppendEntriesMessage(msg.Data)
 		default:
 			hub.log.Error(fmt.Sprintf("Unknown message type received: msgType=%s", msg.MsgType))
 		}
@@ -345,6 +395,13 @@ func (hub *NodeMessageHub) sendPreprepareMessage(msg interface{}) {
 	}
 
 	msg_bytes := hub.packMsg("MsgPreprepareMessage", buf.Bytes())
+	msg_size := len(msg_bytes)
+	tx_count := 0
+	if data.RequestMessage != nil && data.RequestMessage.Txs != nil {
+		tx_count = len(data.RequestMessage.Txs)
+	}
+	hub.log.Debug(fmt.Sprintf("Preprepare Message size: %d bytes, SeqNum: %d, TxCount: %d, From: %s, To: %s", 
+		msg_size, data.SequenceNumber, tx_count, data.From, data.To))
 
 	addr := data.To
 	conn, ok := conns2Node.Get(addr)
@@ -358,11 +415,11 @@ func (hub *NodeMessageHub) sendPreprepareMessage(msg interface{}) {
 	}
 	writer := bufio.NewWriter(conn)
 	if _, err := writer.Write(msg_bytes); err != nil {
-		hub.log.Error(fmt.Sprintf("Write Error. Send Preprepare Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		hub.log.Error(fmt.Sprintf("Write Error. Send Preprepare Message. caller: %s targetAddr: %s, msg_size=%d bytes, err=%v", data.From, addr, msg_size, err))
 		return
 	}
 	if err := writer.Flush(); err != nil {
-		hub.log.Error(fmt.Sprintf("Flush Error. Send Preprepare Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		hub.log.Error(fmt.Sprintf("Flush Error. Send Preprepare Message. caller: %s targetAddr: %s, msg_size=%d bytes, err=%v", data.From, addr, msg_size, err))
 		return
 	}
 }
@@ -409,6 +466,13 @@ func (hub *NodeMessageHub) sendCommitMessage(msg interface{}) {
 	}
 
 	msg_bytes := hub.packMsg("MsgCommitMessage", buf.Bytes())
+	msg_size := len(msg_bytes)
+	tx_count := 0
+	if data.RequestMessage != nil && data.RequestMessage.Txs != nil {
+		tx_count = len(data.RequestMessage.Txs)
+	}
+	hub.log.Debug(fmt.Sprintf("Commit Message size: %d bytes, SeqNum: %d, TxCount: %d, From: %s, To: %s", 
+		msg_size, data.SequenceNumber, tx_count, data.From, data.To))
 
 	addr := data.To
 	conn, ok := conns2Node.Get(addr)
@@ -422,11 +486,11 @@ func (hub *NodeMessageHub) sendCommitMessage(msg interface{}) {
 	}
 	writer := bufio.NewWriter(conn)
 	if _, err := writer.Write(msg_bytes); err != nil {
-		hub.log.Error(fmt.Sprintf("Write Error. Send Commit Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		hub.log.Error(fmt.Sprintf("Write Error. Send Commit Message. caller: %s targetAddr: %s, msg_size=%d bytes, err=%v", data.From, addr, msg_size, err))
 		return
 	}
 	if err := writer.Flush(); err != nil {
-		hub.log.Error(fmt.Sprintf("Flush Error. Send Commit Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		hub.log.Error(fmt.Sprintf("Flush Error. Send Commit Message. caller: %s targetAddr: %s, msg_size=%d bytes, err=%v", data.From, addr, msg_size, err))
 		return
 	}
 }

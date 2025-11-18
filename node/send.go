@@ -12,9 +12,12 @@ import (
 var sequenceNumber int64 = -1
 
 func (n *Node) GenerateBlocks() *core.RequestMessage {
+	n.mempoolLock.Lock()
+	defer n.mempoolLock.Unlock()
 	// Get the first config.MaxBlockSize transactions
 	txs := n.Mempool[:n.cfg.MaxBlockSize]
 	n.Mempool = n.Mempool[n.cfg.MaxBlockSize:]
+	n.log.Info(fmt.Sprintf("Current mempool size is %d", len(n.Mempool)))
 	data := &core.RequestMessage{
 		Timestamp: time.Now().UnixNano(),
 		From:      config.ClientAddr,
@@ -33,6 +36,8 @@ func (n *Node) SendPreprepareMessage(newSequenceNumber int64) {
 	}
 	for len(n.Mempool) > 0 {
 		sequenceNumber++
+		timerID := fmt.Sprintf("request_%d_%d", n.NodeID, sequenceNumber)
+		n.StartExpireTimer(timerID)
 		data := n.GenerateBlocks()
 		for _, othersIp := range config.NodeAddr {
 			if othersIp == n.GetAddr() {
@@ -55,7 +60,7 @@ func (n *Node) SendPreprepareMessage(newSequenceNumber int64) {
 			break
 		}
 	}
-	n.preprepareStarted = false
+	// n.preprepareStarted = false
 }
 
 func (n *Node) SendPrepareMessage(data core.PreprepareMessage) {
@@ -88,7 +93,7 @@ func (n *Node) SendCommitMessage(data core.PrepareMessage) {
 		return
 	}
 	n.AddCommitMessageNumber(data.SequenceNumber)
-	// n.log.Info(fmt.Sprintf("SeqNumber %d: After receiving from %s to itself, current commit messages number is %d", data.SequenceNumber, data.From, n.GetCommitMessageNumber(data.SequenceNumber)))
+	n.log.Info(fmt.Sprintf("SeqNumber %d: After receiving from %s to itself, current commit messages number is %d", data.SequenceNumber, data.From, n.GetCommitMessageNumber(data.SequenceNumber)))
 
 	// Send Prepare Message to Others.
 	for _, othersIp := range config.NodeAddr {
