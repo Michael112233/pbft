@@ -27,6 +27,9 @@ type Config struct {
 	// TCP buffer sizes (in bytes)
 	TCPReadBufferSize  int `json:"tcp_read_buffer_size"`  // 接收缓冲区大小，默认256KB
 	TCPWriteBufferSize int `json:"tcp_write_buffer_size"` // 发送缓冲区大小，默认256KB
+
+	RaftTimeout   int64 `json:"raft_timeout"`
+	RaftInterval  int64 `json:"raft_interval"` // Heartbeat interval in milliseconds
 }
 
 func ReadCfg(filename string) *Config {
@@ -45,7 +48,7 @@ func ReadCfg(filename string) *Config {
 	}
 
 	config.FaultyNodesNum = (config.NodeNum - 1) / 3
-	
+
 	// 设置TCP缓冲区默认值（256KB = 256 * 1024 bytes）
 	if config.TCPReadBufferSize == 0 {
 		config.TCPReadBufferSize = 256 * 1024
@@ -53,6 +56,6 @@ func ReadCfg(filename string) *Config {
 	if config.TCPWriteBufferSize == 0 {
 		config.TCPWriteBufferSize = 256 * 1024
 	}
-	
+
 	return config
 }

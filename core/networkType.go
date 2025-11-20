@@ -15,4 +15,5 @@ const (
 	MsgRequestVote         string = "MsgRequestVote"
 	MsgRequestVoteResponse string = "MsgRequestVoteResponse"
 	MsgAppendEntries       string = "MsgAppendEntries"
+	MsgHeartbeatMessage    string = "MsgHeartbeatMessage"
 )

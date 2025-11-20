@@ -49,7 +49,6 @@ func (hub *ClientMessageHub) Start(client *Client, wg *sync.WaitGroup) {
 }
 
 func (hub *ClientMessageHub) Close() {
-	// 关闭所有tcp连接，防止资源泄露
 	hub.log.Debug("nodeMessageHub closing...")
 	for _, conn := range conns2Node.Connections {
 		conn.Close()
@@ -78,16 +77,13 @@ func (hub *ClientMessageHub) Dial(addr string) (net.Conn, error) {
 		}
 	}
 	
-	// 设置TCP缓冲区大小
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
 		if hub.client_ref != nil && hub.client_ref.config != nil {
-			// 设置接收缓冲区
 			if err := tcpConn.SetReadBuffer(hub.client_ref.config.TCPReadBufferSize); err != nil {
 				hub.log.Debug(fmt.Sprintf("Failed to set TCP read buffer: %v", err))
 			} else {
 				hub.log.Debug(fmt.Sprintf("Set TCP read buffer to %d bytes", hub.client_ref.config.TCPReadBufferSize))
 			}
-			// 设置发送缓冲区
 			if err := tcpConn.SetWriteBuffer(hub.client_ref.config.TCPWriteBufferSize); err != nil {
 				hub.log.Debug(fmt.Sprintf("Failed to set TCP write buffer: %v", err))
 			} else {
@@ -114,7 +110,6 @@ func (hub *ClientMessageHub) packMsg(msgType string, data []byte) []byte {
 
 	msgBytes := buf.Bytes()
 
-	// 前缀加上长度，防止粘包
 	networkBuf := make([]byte, 4+len(msgBytes))
 	binary.BigEndian.PutUint32(networkBuf[:4], uint32(len(msgBytes)))
 	copy(networkBuf[4:], msgBytes)
@@ -145,24 +140,19 @@ func (hub *ClientMessageHub) listen(addr string, wg *sync.WaitGroup) {
 	defer ln.Close()
 
 	for {
-		// // 超过时间限制没有收到新的连接则退出
-		// ln.(*net.TCPListener).SetDeadline(time.Now().Add(10 * time.Second))
 		conn, err := ln.Accept()
 		if err != nil {
 			hub.log.Debug("Error accepting connection. Err: " + err.Error())
 			return
 		}
 		
-		// 设置TCP缓冲区大小（对于接收到的连接）
 		if tcpConn, ok := conn.(*net.TCPConn); ok {
 			if hub.client_ref != nil && hub.client_ref.config != nil {
-				// 设置接收缓冲区
 				if err := tcpConn.SetReadBuffer(hub.client_ref.config.TCPReadBufferSize); err != nil {
 					hub.log.Debug(fmt.Sprintf("Failed to set TCP read buffer: %v", err))
 				} else {
 					hub.log.Debug(fmt.Sprintf("Set TCP read buffer to %d bytes for incoming connection", hub.client_ref.config.TCPReadBufferSize))
 				}
-				// 设置发送缓冲区
 				if err := tcpConn.SetWriteBuffer(hub.client_ref.config.TCPWriteBufferSize); err != nil {
 					hub.log.Debug(fmt.Sprintf("Failed to set TCP write buffer: %v", err))
 				} else {
@@ -196,7 +186,6 @@ func (hub *ClientMessageHub) handleConnection(conn net.Conn, ln net.Listener) {
 		_, err := io.ReadFull(conn, lenBuf)
 		if err != nil {
 			if err.Error() == "EOF" {
-				// 发送端主动关闭连接
 				return
 			}
 			hub.log.Test("Error reading from connection. Err: " + err.Error())
