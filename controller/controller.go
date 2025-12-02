@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"github.com/michael112233/pbft/attacks"
 	"time"
 
 	"github.com/michael112233/pbft/client"
@@ -15,6 +16,15 @@ import (
 var log = logger.NewLogger(0, "controller")
 
 func runNode(nodeID int64, cfg *config.Config) {
+	const attacksPath = "config/attacks.json"
+	scenario, err := attacks.LoadScenario(attacksPath)
+	if err != nil {
+		log.Error("Failed to load attacks config: %v", err)
+	}
+	engine := attacks.NewEngine(nodeID, scenario)
+	engine.Start()
+	defer engine.Stop()
+
 	Node := node.NewNode(nodeID, cfg)
 	defer Node.Stop()
 

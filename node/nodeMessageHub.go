@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/gob"
 	"fmt"
+	"github.com/michael112233/pbft/attacks"
 	"io"
 	"net"
 	"sync"
@@ -123,6 +124,13 @@ func (hub *NodeMessageHub) packMsg(msgType string, data []byte) []byte {
 }
 
 func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, callback func(...interface{})) {
+	if delay, drop := attacks.EvaluateSend(msgType, hub.node_ref.NodeID); drop {
+		hub.log.Info("Attack drop applied for msgType: %s", msgType)
+		return
+	} else if delay > 0 {
+		hub.log.Info("Attack delay applied for msgType: %s, delay=%s", msgType, delay.String())
+		time.Sleep(delay)
+	}
 	switch msgType {
 	case core.MsgPreprepareMessage:
 		hub.sendPreprepareMessage(msg)
@@ -400,7 +408,7 @@ func (hub *NodeMessageHub) sendPreprepareMessage(msg interface{}) {
 	if data.RequestMessage != nil && data.RequestMessage.Txs != nil {
 		tx_count = len(data.RequestMessage.Txs)
 	}
-	hub.log.Debug(fmt.Sprintf("Preprepare Message size: %d bytes, SeqNum: %d, TxCount: %d, From: %s, To: %s", 
+	hub.log.Debug(fmt.Sprintf("Preprepare Message size: %d bytes, SeqNum: %d, TxCount: %d, From: %s, To: %s",
 		msg_size, data.SequenceNumber, tx_count, data.From, data.To))
 
 	addr := data.To
@@ -471,7 +479,7 @@ func (hub *NodeMessageHub) sendCommitMessage(msg interface{}) {
 	if data.RequestMessage != nil && data.RequestMessage.Txs != nil {
 		tx_count = len(data.RequestMessage.Txs)
 	}
-	hub.log.Debug(fmt.Sprintf("Commit Message size: %d bytes, SeqNum: %d, TxCount: %d, From: %s, To: %s", 
+	hub.log.Debug(fmt.Sprintf("Commit Message size: %d bytes, SeqNum: %d, TxCount: %d, From: %s, To: %s",
 		msg_size, data.SequenceNumber, tx_count, data.From, data.To))
 
 	addr := data.To
