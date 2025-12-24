@@ -52,8 +52,9 @@ func (n *Node) HandlePreprepareMessage(data core.PreprepareMessage) {
 		// 	return
 	} else {
 		// n.log.Info(fmt.Sprintf("SeqNumber %d: Preprepare message sequence number succeeds. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
-		timerID := fmt.Sprintf("request_%d_%d", n.NodeID, data.SequenceNumber)
-		n.StartExpireTimer(timerID)
+		if n.cfg.ElectionMethod != "raft" {
+			n.StartTimerForRequest(data.SequenceNumber)
+		}
 		n.SetPreprepareSequenceNumber(data.SequenceNumber, &data)
 		go n.SendPrepareMessage(data)
 	}

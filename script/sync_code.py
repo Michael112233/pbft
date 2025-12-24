@@ -12,18 +12,18 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # CloudLab配置
-HOST = "amd258.utah.cloudlab.us"
+HOST = "amd025.utah.cloudlab.us"
 USERNAME = "wucy"
 KEY_PATH = os.path.expanduser("~/.ssh/id_rsa")
 PASSPHRASE = "michael"
 
 # 服务器配置：端口 -> (角色, 节点ID)
 SERVER_CONFIG = {
-    26010: ("client", None),      # 客户端
-    26011: ("node", 0),           # 节点0
-    26012: ("node", 1),           # 节点1
-    26013: ("node", 2),           # 节点2
-    26014: ("node", 3),           # 节点3
+    27010: ("client", None),      # 客户端
+    27011: ("node", 0),           # 节点0
+    27012: ("node", 1),           # 节点1
+    27013: ("node", 2),           # 节点2
+    27014: ("node", 3),           # 节点3
 }
 
 def sync_code_to_server(port, role, node_id=None, max_retries=3):
@@ -89,12 +89,12 @@ def sync_code_to_server(port, role, node_id=None, max_retries=3):
                 echo "Repository exists, updating..."
                 cd pbft
                 git fetch origin
-                git reset --hard origin/main
+                git reset --hard origin/feature/carousel_implementation
                 git clean -fd
                 echo "Code updated successfully"
             else
                 echo "Repository not found, cloning..."
-                git clone -b main https://github.com/Michael112233/pbft.git
+                git clone -b feature/carousel_implementation https://github.com/Michael112233/pbft.git
                 echo "Repository cloned successfully"
             fi
             
@@ -159,12 +159,12 @@ def sync_code_with_expect(port, role, node_id=None):
             echo "Repository exists, updating..."
             cd pbft
             git fetch origin
-            git reset --hard origin/main
+            git reset --hard origin/feature/carousel_implementation
             git clean -fd
             echo "Code updated successfully"
         else
             echo "Repository not found, cloning..."
-            git clone -b main https://github.com/Michael112233/pbft.git
+            git clone -b feature/carousel_implementation https://github.com/Michael112233/pbft.git
             echo "Repository cloned successfully"
         fi
         

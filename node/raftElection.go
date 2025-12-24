@@ -13,14 +13,14 @@ import (
 
 type RaftElection struct {
 	voteMutex sync.Mutex
-	haveVoted bool
+	HasVoted bool
 
 	addvoteMutex       sync.Mutex
 	receivedVoteNumber atomic.Int32
 }
 
 func (r *RaftElection) ResetRaftElection() {
-	r.haveVoted = false
+	r.HasVoted = false
 	r.receivedVoteNumber.Store(0)
 	r.addvoteMutex = sync.Mutex{}
 	r.voteMutex = sync.Mutex{}
@@ -29,8 +29,8 @@ func (r *RaftElection) ResetRaftElection() {
 func (n *Node) StartRaftElection(viewId int64) {
 	sleepDuration := time.Duration(rand.Intn(1000)) * time.Millisecond
 	time.Sleep(sleepDuration)
-	n.SendRequestVote()
 	n.raftElection.ResetRaftElection()
+	n.SendRequestVote()
 }
 
 func (n *Node) HasLeader(viewId int64) bool {
@@ -40,13 +40,13 @@ func (n *Node) HasLeader(viewId int64) bool {
 func (r *RaftElection) HaveVoted() bool {
 	r.voteMutex.Lock()
 	defer r.voteMutex.Unlock()
-	return r.haveVoted
+	return r.HasVoted
 }
 
 func (r *RaftElection) SetHaveVoted(haveVoted bool) {
 	r.voteMutex.Lock()
 	defer r.voteMutex.Unlock()
-	r.haveVoted = haveVoted
+	r.HasVoted = haveVoted
 }
 
 func (r *RaftElection) AddReceivedVoteNumber() {
@@ -161,4 +161,32 @@ func (n *Node) HandleAppendEntriesMessage(data core.AppendEntriesData) {
 	n.viewChange.leaderElection.SetLeader(data.ViewNumber, data.CurrentLeader)
 	n.log.Info(fmt.Sprintf("current leader: %d -> %s", data.CurrentLeader, config.NodeAddr[int(data.CurrentLeader)]))
 	n.log.Info("Raft ended!")
+}
+
+func (n *Node) SendHeartbeatMessage(viewNumber int64) {
+	if n.viewChange.IsInViewChange() {
+		return
+	}
+	// Send heartbeat to all other nodes
+	for _, othersIp := range config.NodeAddr {
+		if othersIp == n.GetAddr() {
+			continue
+		}
+		heartbeatMessage := core.HeartbeatMessage{
+			Timestamp:  time.Now().UnixNano(),
+			From:       n.GetAddr(),
+			To:         othersIp,
+			ViewNumber: viewNumber,
+			LeaderAddr: n.GetAddr(),
+		}
+		n.log.Info(fmt.Sprintf("Send heartbeat message to %s with view number %d and leader address %s", othersIp, viewNumber, n.GetAddr()))
+		n.messageHub.Send(core.MsgHeartbeatMessage, othersIp, heartbeatMessage, nil)
+	}
+}
+
+func (n *Node) HandleHeartbeatMessage(data core.HeartbeatMessage) {
+	n.log.Debug(fmt.Sprintf("Received heartbeat message from %s (leader: %s), view: %d", data.From, data.LeaderAddr, data.ViewNumber))
+	if data.ViewNumber == n.viewNumber && data.LeaderAddr == n.viewChange.leaderElection.GetLeader(n.viewNumber) {
+		n.StartRaftTimer(n.viewNumber)
+	}
 }

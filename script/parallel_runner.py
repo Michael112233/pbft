@@ -13,18 +13,18 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
 
 # CloudLab配置
-HOST = "amd258.utah.cloudlab.us"
+HOST = "amd025.utah.cloudlab.us"
 USERNAME = "wucy"
 KEY_PATH = os.path.expanduser("~/.ssh/id_rsa")
 PASSPHRASE = "michael"
 
 # 服务器配置：端口 -> (角色, 节点ID)
 SERVER_CONFIG = {
-    26010: ("client", None),      # 客户端
-    26011: ("node", 0),          # 节点0
-    26012: ("node", 1),          # 节点1  
-    26013: ("node", 2),          # 节点2
-    26014: ("node", 3),          # 节点3
+    27010: ("client", None),      # 客户端
+    27011: ("node", 0),          # 节点0
+    27012: ("node", 1),          # 节点1  
+    27013: ("node", 2),          # 节点2
+    27014: ("node", 3),          # 节点3
 }
 
 # 如果环境变量中没有密码，尝试检测并提示输入

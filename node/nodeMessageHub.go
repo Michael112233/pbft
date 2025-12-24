@@ -140,12 +140,14 @@ func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, call
 		hub.sendNewViewMessage(msg)
 	case core.MsgMempoolMessage:
 		hub.sendMempoolMessage(msg)
-	// case core.MsgRequestVote:
-	// 	hub.sendRequestVoteMessage(msg)
-	// case core.MsgRequestVoteResponse:
-	// 	hub.sendRequestVoteResponseMessage(msg)
-	// case core.MsgAppendEntries:
-	// 	hub.sendAppendEntriesMessage(msg)
+	case core.MsgRequestVote:
+		hub.sendRequestVoteMessage(msg)
+	case core.MsgRequestVoteResponse:
+		hub.sendRequestVoteResponseMessage(msg)
+	case core.MsgAppendEntries:
+		hub.sendAppendEntriesMessage(msg)
+	case core.MsgHeartbeatMessage:
+		hub.sendHeartbeatMessage(msg)
 	default:
 		hub.log.Error("Unknown message type received. msgType=" + msgType)
 	}
@@ -247,12 +249,14 @@ func (hub *NodeMessageHub) handleConnection(conn net.Conn, ln net.Listener) {
 			hub.handleNewViewMessage(msg.Data)
 		case core.MsgMempoolMessage:
 			hub.handleMempoolMessage(msg.Data)
-		// case core.MsgRequestVote:
-		// 	hub.handleRequestVoteMessage(msg.Data)
-		// case core.MsgRequestVoteResponse:
-		// 	hub.handleRequestVoteResponseMessage(msg.Data)
-		// case core.MsgAppendEntries:
-		// 	hub.handleAppendEntriesMessage(msg.Data)
+		case core.MsgRequestVote:
+			hub.handleRequestVoteMessage(msg.Data)
+		case core.MsgRequestVoteResponse:
+			hub.handleRequestVoteResponseMessage(msg.Data)
+		case core.MsgAppendEntries:
+			hub.handleAppendEntriesMessage(msg.Data)
+		case core.MsgHeartbeatMessage:
+			hub.handleHeartbeatMessage(msg.Data)
 		default:
 			hub.log.Error(fmt.Sprintf("Unknown message type received: msgType=%s", msg.MsgType))
 		}
@@ -382,6 +386,59 @@ func (hub *NodeMessageHub) handleMempoolMessage(dataBytes []byte) {
 	hub.node_ref.HandleMempoolMessage(data)
 }
 
+func (hub *NodeMessageHub) handleHeartbeatMessage(dataBytes []byte) {
+	var buf bytes.Buffer
+	buf.Write(dataBytes)
+	dataDec := gob.NewDecoder(&buf)
+
+	var data core.HeartbeatMessage
+	err := dataDec.Decode(&data)
+	if err != nil {
+		hub.log.Error(fmt.Sprintf("handleHeartbeatMessageErr: err=%v, dataBytes=%v", err, dataBytes))
+		return
+	}
+	hub.node_ref.HandleHeartbeatMessage(data)
+}
+
+func (hub *NodeMessageHub) handleRequestVoteMessage(dataBytes []byte) {
+	var buf bytes.Buffer
+	buf.Write(dataBytes)
+	dataDec := gob.NewDecoder(&buf)
+
+	var data core.RequestVoteData
+	err := dataDec.Decode(&data)
+	if err != nil {
+		hub.log.Error(fmt.Sprintf("handleRequestVoteMessageErr: err=%v, dataBytes=%v", err, dataBytes))
+	}
+	hub.node_ref.HandleRequestVoteMessage(data)
+}
+
+func (hub *NodeMessageHub) handleRequestVoteResponseMessage(dataBytes []byte) {
+	var buf bytes.Buffer
+	buf.Write(dataBytes)
+	dataDec := gob.NewDecoder(&buf)
+
+	var data core.RequestVoteResponseData
+	err := dataDec.Decode(&data)
+	if err != nil {
+		hub.log.Error(fmt.Sprintf("handleRequestVoteResponseMessageErr: err=%v, dataBytes=%v", err, dataBytes))
+	}
+	hub.node_ref.HandleRequestVoteResponseMessage(data)
+}
+
+func (hub *NodeMessageHub) handleAppendEntriesMessage(dataBytes []byte) {
+	var buf bytes.Buffer
+	buf.Write(dataBytes)
+	dataDec := gob.NewDecoder(&buf)
+
+	var data core.AppendEntriesData
+	err := dataDec.Decode(&data)
+	if err != nil {
+		hub.log.Error(fmt.Sprintf("handleAppendEntriesMessageErr: err=%v, dataBytes=%v", err, dataBytes))
+	}
+	hub.node_ref.HandleAppendEntriesMessage(data)
+}
+
 // --------------------------------------------------------
 // Communication for Marshalling Messages to Send
 // --------------------------------------------------------
@@ -400,7 +457,7 @@ func (hub *NodeMessageHub) sendPreprepareMessage(msg interface{}) {
 	if data.RequestMessage != nil && data.RequestMessage.Txs != nil {
 		tx_count = len(data.RequestMessage.Txs)
 	}
-	hub.log.Debug(fmt.Sprintf("Preprepare Message size: %d bytes, SeqNum: %d, TxCount: %d, From: %s, To: %s", 
+	hub.log.Debug(fmt.Sprintf("Preprepare Message size: %d bytes, SeqNum: %d, TxCount: %d, From: %s, To: %s",
 		msg_size, data.SequenceNumber, tx_count, data.From, data.To))
 
 	addr := data.To
@@ -471,7 +528,7 @@ func (hub *NodeMessageHub) sendCommitMessage(msg interface{}) {
 	if data.RequestMessage != nil && data.RequestMessage.Txs != nil {
 		tx_count = len(data.RequestMessage.Txs)
 	}
-	hub.log.Debug(fmt.Sprintf("Commit Message size: %d bytes, SeqNum: %d, TxCount: %d, From: %s, To: %s", 
+	hub.log.Debug(fmt.Sprintf("Commit Message size: %d bytes, SeqNum: %d, TxCount: %d, From: %s, To: %s",
 		msg_size, data.SequenceNumber, tx_count, data.From, data.To))
 
 	addr := data.To
@@ -651,6 +708,134 @@ func (hub *NodeMessageHub) sendMempoolMessage(msg interface{}) {
 	}
 	if err := writer.Flush(); err != nil {
 		hub.log.Error(fmt.Sprintf("Flush Error. Send Mempool Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		return
+	}
+}
+
+func (hub *NodeMessageHub) sendRequestVoteMessage(msg interface{}) {
+	data := msg.(core.RequestVoteData)
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	err := enc.Encode(&data)
+	if err != nil {
+		hub.log.Error(fmt.Sprintf("gobEncodeErr. Send Request Vote Message. caller: %s targetAddr: %s", data.From, data.To))
+	}
+
+	msg_bytes := hub.packMsg("MsgRequestVote", buf.Bytes())
+
+	addr := data.To
+	conn, ok := conns2Node.Get(addr)
+	if !ok || conn == nil {
+		conn, err = hub.Dial(addr)
+		if err != nil || conn == nil {
+			hub.log.Error(fmt.Sprintf("Dial Error. Send Request Vote Message. caller: %s targetAddr: %s", data.From, addr))
+			return
+		}
+		conns2Node.Add(addr, conn)
+	}
+	writer := bufio.NewWriter(conn)
+	if _, err := writer.Write(msg_bytes); err != nil {
+		hub.log.Error(fmt.Sprintf("Write Error. Send Request Vote Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		return
+	}
+	if err := writer.Flush(); err != nil {
+		hub.log.Error(fmt.Sprintf("Flush Error. Send Request Vote Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		return
+	}
+}
+
+func (hub *NodeMessageHub) sendRequestVoteResponseMessage(msg interface{}) {
+	data := msg.(core.RequestVoteResponseData)
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	err := enc.Encode(&data)
+	if err != nil {
+		hub.log.Error(fmt.Sprintf("gobEncodeErr. Send Request Vote Response Message. caller: %s targetAddr: %s", data.From, data.To))
+	}
+
+	msg_bytes := hub.packMsg("MsgRequestVoteResponse", buf.Bytes())
+
+	addr := data.To
+	conn, ok := conns2Node.Get(addr)
+	if !ok || conn == nil {
+		conn, err = hub.Dial(addr)
+		if err != nil || conn == nil {
+			hub.log.Error(fmt.Sprintf("Dial Error. Send Request Vote Response Message. caller: %s targetAddr: %s", data.From, addr))
+			return
+		}
+		conns2Node.Add(addr, conn)
+	}
+	writer := bufio.NewWriter(conn)
+	if _, err := writer.Write(msg_bytes); err != nil {
+		hub.log.Error(fmt.Sprintf("Write Error. Send Request Vote Response Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		return
+	}
+	if err := writer.Flush(); err != nil {
+		hub.log.Error(fmt.Sprintf("Flush Error. Send Request Vote Response Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		return
+	}
+}
+
+func (hub *NodeMessageHub) sendAppendEntriesMessage(msg interface{}) {
+	data := msg.(core.AppendEntriesData)
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	err := enc.Encode(&data)
+	if err != nil {
+		hub.log.Error(fmt.Sprintf("gobEncodeErr. Send Append Entries Message. caller: %s targetAddr: %s", data.To, data.To))
+	}
+
+	msg_bytes := hub.packMsg("MsgAppendEntries", buf.Bytes())
+
+	addr := data.To
+	conn, ok := conns2Node.Get(addr)
+	if !ok || conn == nil {
+		conn, err = hub.Dial(addr)
+		if err != nil || conn == nil {
+			hub.log.Error(fmt.Sprintf("Dial Error. Send Append Entries Message. caller: %s targetAddr: %s", data.To, addr))
+			return
+		}
+		conns2Node.Add(addr, conn)
+	}
+	writer := bufio.NewWriter(conn)
+	if _, err := writer.Write(msg_bytes); err != nil {
+		hub.log.Error(fmt.Sprintf("Write Error. Send Append Entries Message. caller: %s targetAddr: %s, err=%v", data.To, addr, err))
+		return
+	}
+	if err := writer.Flush(); err != nil {
+		hub.log.Error(fmt.Sprintf("Flush Error. Send Append Entries Message. caller: %s targetAddr: %s, err=%v", data.To, addr, err))
+		return
+	}
+}
+
+func (hub *NodeMessageHub) sendHeartbeatMessage(msg interface{}) {
+	data := msg.(core.HeartbeatMessage)
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	err := enc.Encode(&data)
+	if err != nil {
+		hub.log.Error(fmt.Sprintf("gobEncodeErr. Send Heartbeat Message. targetAddr: %s", data.To))
+	}
+
+	msg_bytes := hub.packMsg("MsgHeartbeatMessage", buf.Bytes())
+
+	addr := data.To
+	conn, ok := conns2Node.Get(addr)
+	if !ok || conn == nil {
+		conn, err = hub.Dial(addr)
+		if err != nil || conn == nil {
+			hub.log.Error(fmt.Sprintf("Dial Error. Send Heartbeat Message. targetAddr: %s", addr))
+			return
+		}
+		conns2Node.Add(addr, conn)
+	}
+	writer := bufio.NewWriter(conn)
+	if _, err := writer.Write(msg_bytes); err != nil {
+		hub.log.Error(fmt.Sprintf("Write Error. Send Heartbeat Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		return
+	}
+	if err := writer.Flush(); err != nil {
+		hub.log.Error(fmt.Sprintf("Flush Error. Send Heartbeat Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
 		return
 	}
 }

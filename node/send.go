@@ -36,8 +36,9 @@ func (n *Node) SendPreprepareMessage(newSequenceNumber int64) {
 	}
 	for len(n.Mempool) > 0 {
 		sequenceNumber++
-		timerID := fmt.Sprintf("request_%d_%d", n.NodeID, sequenceNumber)
-		n.StartExpireTimer(timerID)
+		if n.cfg.ElectionMethod != "raft" {
+			n.StartTimerForRequest(sequenceNumber)
+		}
 		data := n.GenerateBlocks()
 		for _, othersIp := range config.NodeAddr {
 			if othersIp == n.GetAddr() {

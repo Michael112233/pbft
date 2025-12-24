@@ -1,6 +1,7 @@
 package node
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -51,8 +52,11 @@ type Node struct {
 
 	Mempool []*core.Transaction
 
-	raftElection *RaftElection
-	mempoolLock  sync.Mutex
+	raftElection        *RaftElection
+	mempoolLock         sync.Mutex
+	heartbeatTicker     *time.Ticker
+	heartbeatTickerLock sync.Mutex
+	heartbeatTickerDone chan struct{} // 用于通知 goroutine 停止
 }
 
 func NewNode(nodeID int64, cfg *config.Config) *Node {
@@ -107,12 +111,13 @@ func NewNode(nodeID int64, cfg *config.Config) *Node {
 		StopChan:                make(chan struct{}),
 		Mempool:                 make([]*core.Transaction, 0),
 		preprepareStarted:       false,
-		raftElection:            nil,
+		raftElection:            &RaftElection{},
 	}
 }
 
 func (n *Node) Start() {
 	n.messageHub.Start(n, &sync.WaitGroup{})
+	n.startHeartbeatTicker(n.viewNumber)
 	n.StartGarbageCollection()
 	n.log.Info("node started")
 }
@@ -120,6 +125,8 @@ func (n *Node) Start() {
 func (n *Node) Stop() {
 	// Stop all expire timers to prevent resource leaks
 	n.StopAllExpireTimers()
+	// Stop heartbeat ticker
+	n.stopHeartbeatTicker()
 	// Close network resources to stop listeners and connections
 	if n.messageHub != nil {
 		n.messageHub.Close()
@@ -243,6 +250,104 @@ func (n *Node) AddSeq2Digest(seqNumber int64, digest string) {
 		n.seq2digest[seqNumber] = ""
 	}
 	n.seq2digest[seqNumber] = digest
+}
+
+func (n *Node) StartTimerForRequest(sequenceNumber int64) {
+	timerID := fmt.Sprintf("request_%d_%d", n.NodeID, sequenceNumber)
+	n.StartExpireTimer(timerID)
+}
+
+func (n *Node) StartRaftTimer(viewNumber int64) {
+	timerID := fmt.Sprintf("raft_%d", viewNumber)
+	n.StartExpireTimer(timerID)
+
+	// 启动定期发送 heartbeat 的机制（只有 leader 才需要发送）
+	n.startHeartbeatTicker(viewNumber)
+}
+
+// startHeartbeatTicker 启动定期发送 heartbeat 的 ticker
+func (n *Node) startHeartbeatTicker(viewNumber int64) {
+	// 停止现有的 ticker（如果存在）
+	n.stopHeartbeatTicker()
+
+	// 检查当前节点是否是 leader
+	currentLeader := n.viewChange.leaderElection.GetLeader(viewNumber)
+	if currentLeader != n.GetAddr() {
+		// 不是 leader，不需要发送 heartbeat
+		return
+	}
+
+	// 设置默认的 raft_interval（如果配置中没有设置，使用 1000ms）
+	interval := n.cfg.RaftInterval
+	if interval <= 0 {
+		interval = 1000 // 默认 1 秒
+	}
+
+	// 创建 ticker 和 done channel
+	n.heartbeatTickerLock.Lock()
+	n.heartbeatTicker = time.NewTicker(time.Duration(interval) * time.Millisecond)
+	// 关闭旧的 done channel（如果存在）
+	if n.heartbeatTickerDone != nil {
+		close(n.heartbeatTickerDone)
+	}
+	// 创建新的 done channel
+	n.heartbeatTickerDone = make(chan struct{})
+	done := n.heartbeatTickerDone
+	ticker := n.heartbeatTicker
+	n.heartbeatTickerLock.Unlock()
+
+	n.log.Info(fmt.Sprintf("Started heartbeat ticker for view %d with interval %d ms", viewNumber, interval))
+
+	// 启动 goroutine 定期发送 heartbeat
+	go func() {
+		defer func() {
+			// 如果 goroutine 因为 panic 退出，确保 ticker 被停止
+			if r := recover(); r != nil {
+				n.log.Error(fmt.Sprintf("Heartbeat ticker goroutine panicked: %v", r))
+				n.stopHeartbeatTicker()
+			}
+		}()
+		
+		for {
+			select {
+			case <-ticker.C:
+				// 再次检查是否是 leader
+				currentLeader := n.viewChange.leaderElection.GetLeader(viewNumber)
+				if currentLeader == n.GetAddr() && !n.viewChange.IsInViewChange() {
+					n.SendHeartbeatMessage(viewNumber)
+				} else {
+					// 不再是 leader 或正在 view change，停止 ticker
+					n.stopHeartbeatTicker()
+					return
+				}
+			case <-done:
+				// done channel 被关闭，表示需要停止
+				return
+			case <-n.StopChan:
+				// 节点停止，停止 ticker
+				n.stopHeartbeatTicker()
+				return
+			}
+		}
+	}()
+}
+
+// stopHeartbeatTicker 停止 heartbeat ticker
+func (n *Node) stopHeartbeatTicker() {
+	n.heartbeatTickerLock.Lock()
+	defer n.heartbeatTickerLock.Unlock()
+
+	if n.heartbeatTicker != nil {
+		n.heartbeatTicker.Stop()
+		n.heartbeatTicker = nil
+		n.log.Debug("Stopped heartbeat ticker")
+	}
+	
+	// 关闭 done channel 以通知 goroutine 停止
+	if n.heartbeatTickerDone != nil {
+		close(n.heartbeatTickerDone)
+		n.heartbeatTickerDone = nil
+	}
 }
 
 // StartExpireTimer starts a new expire timer with a unique ID
@@ -370,7 +475,17 @@ func (n *Node) monitorTimer(timerID string, timer *time.Timer) {
 
 	// Wait for timer to expire
 	<-timer.C
-	n.log.Info("Timer '%s' expired! Setting inViewChange flag to true", timerID)
+
+	// 检查是否是 Raft timer
+	isRaftTimer := len(timerID) > 5 && timerID[:5] == "raft_"
+
+	if isRaftTimer {
+		n.log.Info("Raft timer '%s' expired! Leader heartbeat timeout, triggering view change", timerID)
+		// 停止 heartbeat ticker（如果正在运行）
+		n.stopHeartbeatTicker()
+	} else {
+		n.log.Info("Timer '%s' expired! Setting inViewChange flag to true", timerID)
+	}
 
 	// 禁止创建新的 timer
 	n.setTimerAllowed(false)
@@ -385,7 +500,14 @@ func (n *Node) monitorTimer(timerID string, timer *time.Timer) {
 
 	// start view changer
 	if !n.viewChange.IsInViewChange() {
-		n.log.Info("Start view change!")
+		if isRaftTimer {
+			n.log.Info("Raft timer expired, starting view change due to leader heartbeat timeout!")
+			if !n.viewChange.leaderElection.HasLeader(n.viewNumber + 1) {
+				n.StartRaftElection(n.viewNumber + 1)
+			}
+		} else {
+			n.log.Info("Start view change!")
+		}
 		n.viewChange.StartViewChange(n.viewNumber, n.lastStableCheckpoint)
 		n.SendViewChangeMessage()
 	}

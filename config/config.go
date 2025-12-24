@@ -24,12 +24,11 @@ type Config struct {
 	SeqNumberLowerBound int64 `json:"seq_number_lower_bound"`
 	CheckpointInterval  int64 `json:"checkpoint_interval"`
 
-	// TCP buffer sizes (in bytes)
-	TCPReadBufferSize  int `json:"tcp_read_buffer_size"`  // 接收缓冲区大小，默认256KB
-	TCPWriteBufferSize int `json:"tcp_write_buffer_size"` // 发送缓冲区大小，默认256KB
+	TCPReadBufferSize  int `json:"tcp_read_buffer_size"`
+	TCPWriteBufferSize int `json:"tcp_write_buffer_size"`
 
 	RaftTimeout   int64 `json:"raft_timeout"`
-	RaftInterval  int64 `json:"raft_interval"` // Heartbeat interval in milliseconds
+	RaftInterval  int64 `json:"raft_interval"`
 }
 
 func ReadCfg(filename string) *Config {
@@ -39,7 +38,6 @@ func ReadCfg(filename string) *Config {
 		os.Exit(1)
 	}
 
-	// 创建新的Config实例
 	config := &Config{}
 	err = json.Unmarshal(jsonData, config)
 	if err != nil {
@@ -49,7 +47,6 @@ func ReadCfg(filename string) *Config {
 
 	config.FaultyNodesNum = (config.NodeNum - 1) / 3
 
-	// 设置TCP缓冲区默认值（256KB = 256 * 1024 bytes）
 	if config.TCPReadBufferSize == 0 {
 		config.TCPReadBufferSize = 256 * 1024
 	}
