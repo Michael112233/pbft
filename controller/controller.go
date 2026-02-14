@@ -31,7 +31,7 @@ func runClient(cfg *config.Config) {
 	}()
 
 	core.NewBlockchain(cfg)
-	client := client.NewClient(config.ClientAddr, cfg)
+	client := client.NewClient(config.ClientAddr, "client", cfg)
 	txs := data.ReadData(cfg.MaxTxNum)
 	client.AddTxs(txs)
 	client.Start()

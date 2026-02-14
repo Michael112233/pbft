@@ -1,16 +1,30 @@
 package core
 
 type Message struct {
-	MsgType string
-	Data    []byte
+	MsgType   string
+	Data      []byte
+	Signature []byte
+	From      int
 }
 
 type RequestMessage struct {
-	Timestamp int64
-	From      string
-	To        string
-	Txs       []*Transaction
-	Id        int64
+	// Timestamp int64
+	// From string
+	// To   string
+	Txs []ClientMsgSignature
+	// Id        int64
+}
+
+type ClientMsg struct {
+	Id         int64
+	Timestamp  int64
+	Txn        *Transaction
+	ClientName string
+}
+
+type ClientMsgSignature struct {
+	Data      ClientMsg
+	Signature []byte
 }
 
 type PreprepareMessage struct {
@@ -122,4 +136,11 @@ type AppendEntriesData struct {
 	VoteNumber    int64
 	CurrentLeader int64
 	To            string
+}
+
+type PreprepareMsg struct {
+	View   int64
+	SeqNum int64
+	// DigestClientMsg [32]byte
+	ClientMsg []ClientMsgSignature
 }

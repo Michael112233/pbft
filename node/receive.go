@@ -9,29 +9,39 @@ import (
 
 // handle request message
 func (n *Node) HandleRequestMessage(data core.RequestMessage) {
-	n.handleMessageLock.Lock()
-	defer n.handleMessageLock.Unlock()
-	if n.viewChange.IsInViewChange() {
-		// n.log.Error("Node %d is in view change and Ignore request message", n.NodeID)
-		return
-	}
-	n.log.Info(fmt.Sprintf("Received request message from %s to %s with %d transactions", data.From, data.To, len(data.Txs)))
+	// n.handleMessageLock.Lock()
+	// defer n.handleMessageLock.Unlock()
+	// if n.viewChange.IsInViewChange() {
+	// 	// n.log.Error("Node %d is in view change and Ignore request message", n.NodeID)
+	// 	return
+	// }
+	// n.log.Info(fmt.Sprintf("Received request message from %s to %s with %d transactions", data.From, data.To, len(data.Txs)))
 
-	n.mempoolLock.Lock()
-	n.Mempool = append(n.Mempool, data.Txs...)
-	n.mempoolLock.Unlock()
+	// n.mempoolLock.Lock()
+	// n.Mempool = append(n.Mempool, data.Txs...)
+	// n.mempoolLock.Unlock()
+	// n.handleMessageLock.Lock()
+	// if n.preprepareStarted {
+	// 	n.handleMessageLock.Unlock()
+	// 	return
+	// }
+	// n.preprepareStarted = true
+	// n.handleMessageLock.Unlock()
+	// n.log.Info(fmt.Sprintf("Preprepare started, send preprepare message to %s", data.To))
+	// go n.SendPreprepareMessage(-1)
+	go n.VerifiedClientMessageHandler()
+	go n.ClientSignatureVerifier()
+	select {
+	case n.unverifiedClientMsgsChan <- data.Txs:
 
-	if n.preprepareStarted {
-		return
+	default:
+		n.log.Error(fmt.Sprintf("Dropped the batch"))
 	}
-	n.preprepareStarted = true
-	n.log.Info(fmt.Sprintf("Preprepare started, send preprepare message to %s", data.To))
-	go n.SendPreprepareMessage(-1)
 }
 
 func (n *Node) HandlePreprepareMessage(data core.PreprepareMessage) {
-	n.handleMessageLock.Lock()
-	defer n.handleMessageLock.Unlock()
+	// n.handleMessageLock.Lock()
+	// defer n.handleMessageLock.Unlock()
 	if n.viewChange.IsInViewChange() {
 		// n.log.Error("Node %d is expired and Start to trigger view change", n.NodeID)
 		return
@@ -41,7 +51,7 @@ func (n *Node) HandlePreprepareMessage(data core.PreprepareMessage) {
 	if data.Digest != utils.GetDigest(data.RequestMessage) {
 		n.log.Error(fmt.Sprintf("SeqNumber %d: Preprepare message digest mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
 		return
-	} else if data.ViewNumber != n.viewNumber {
+	} else if data.ViewNumber != n.viewChange.currentView.Load() {
 		n.log.Error(fmt.Sprintf("SeqNumber %d: Preprepare message view number mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
 		return
 	} else if data.SequenceNumber < n.cfg.SeqNumberLowerBound || data.SequenceNumber > n.cfg.SeqNumberUpperBound {
@@ -72,7 +82,7 @@ func (n *Node) HandlePrepareMessage(data core.PrepareMessage) {
 	if data.Digest != utils.GetDigest(data.RequestMessage) {
 		n.log.Error(fmt.Sprintf("SeqNumber %d: Prepare message digest mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
 		return
-	} else if data.ViewNumber != n.viewNumber {
+	} else if data.ViewNumber != n.viewChange.currentView.Load() {
 		n.log.Error(fmt.Sprintf("SeqNumber %d: Prepare message view number mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
 		return
 	} else if data.SequenceNumber < n.cfg.SeqNumberLowerBound || data.SequenceNumber > n.cfg.SeqNumberUpperBound {
@@ -95,15 +105,15 @@ func (n *Node) HandlePrepareMessage(data core.PrepareMessage) {
 }
 
 func (n *Node) HandleCommitMessage(data core.CommitMessage) {
-	n.handleMessageLock.Lock()
-	defer n.handleMessageLock.Unlock()
+	// n.handleMessageLock.Lock()
+	// defer n.handleMessageLock.Unlock()
 	if n.viewChange.IsInViewChange() {
 		// n.log.Error("Node %d is expired and Start to trigger view change", n.NodeID)
 		return
 	}
 
 	n.log.Info(fmt.Sprintf("SeqNumber %d: Received commit message from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
-	if data.ViewNumber != n.viewNumber {
+	if data.ViewNumber != n.viewChange.currentView.Load() {
 		n.log.Error(fmt.Sprintf("SeqNumber %d: Commit message view number mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
 		return
 	} else if data.Digest != utils.GetDigest(data.RequestMessage) {
@@ -133,8 +143,8 @@ func (n *Node) HandleCommitMessage(data core.CommitMessage) {
 }
 
 func (n *Node) HandleCloseMessage(data core.CloseMessage) {
-	n.handleMessageLock.Lock()
-	defer n.handleMessageLock.Unlock()
+	// n.handleMessageLock.Lock()
+	// defer n.handleMessageLock.Unlock()
 	n.log.Info(fmt.Sprintf("Received close message from %s", data.From))
 	n.StopChan <- struct{}{}
 }

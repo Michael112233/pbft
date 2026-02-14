@@ -18,7 +18,7 @@ import (
 
 type ViewChanger struct {
 	isInViewChange           bool
-	currentView              int64
+	currentView              atomic.Int64
 	currentSequenceNumber    int64
 	leaderElection           *leader_election.LeaderElection
 	viewChangeMessages       []core.ViewChangeMessage
@@ -31,7 +31,7 @@ type ViewChanger struct {
 func NewViewChanger(cfg *config.Config) *ViewChanger {
 	return &ViewChanger{
 		isInViewChange:           false,
-		currentView:              0,
+		currentView:              atomic.Int64{},
 		leaderElection:           leader_election.NewLeaderElection(cfg),
 		viewChangeMessages:       make([]core.ViewChangeMessage, 0),
 		isInViewChangeLock:       sync.RWMutex{},
@@ -45,7 +45,7 @@ func (vc *ViewChanger) StartViewChange(currentView int64, currentSequenceNumber 
 	vc.isInViewChange = true
 	vc.isInViewChangeLock.Unlock()
 
-	vc.currentView = currentView
+	vc.currentView.Store(currentView)
 	vc.currentSequenceNumber = currentSequenceNumber
 	vc.viewChangeMessages = make([]core.ViewChangeMessage, 0)
 	vc.receiveViewChangeMessage.Store(0)
@@ -108,7 +108,7 @@ func (n *Node) SendViewChangeMessage() {
 		msg := core.ViewChangeMessage{
 			Timestamp:           baseTimestamp,
 			CheckpointSeqNumber: n.lastStableCheckpoint,
-			ViewNumber:          n.viewChange.currentView + 1,
+			ViewNumber:          n.viewChange.currentView.Load() + 1,
 			CheckpointMsgNumber: baseCheckpointMsgNumber,
 			From:                baseFrom,
 			PreprepareMessages:  preprepareSnapshot,
@@ -119,8 +119,10 @@ func (n *Node) SendViewChangeMessage() {
 }
 
 func (n *Node) SendNewViewMessage() {
-	n.viewChange.currentView++
-	n.viewNumber = n.viewChange.currentView
+	// n.viewChange.currentView++
+
+	n.viewChange.currentView.Add(1)
+	// n.viewNumber = n.viewChange.currentView
 
 	viewChangeMessages := n.viewChange.viewChangeMessages
 
@@ -161,7 +163,7 @@ func (n *Node) SendNewViewMessage() {
 			From:                n.GetAddr(),
 			To:                  targetIp,
 			OngoingTxs:          OngoingTxs,
-			ViewNumber:          n.viewChange.currentView,
+			ViewNumber:          n.viewChange.currentView.Load(),
 			CheckpointSeqNumber: minSeq,
 		}
 		n.log.Info(fmt.Sprintf("Send new view message to %s", targetIp))
@@ -182,7 +184,7 @@ func (n *Node) SendMempoolSnapshot(toIp string) {
 			Mempool:    injectTxs,
 			From:       n.GetAddr(),
 			To:         toIp,
-			ViewNumber: n.viewNumber,
+			ViewNumber: n.viewChange.currentView.Load(),
 		}
 		n.log.Info(fmt.Sprintf("Send mempool message to %s with %d transactions", toIp, len(injectTxs)))
 		n.messageHub.Send(core.MsgMempoolMessage, toIp, memMsg, nil)
@@ -200,7 +202,7 @@ func (n *Node) HandleViewChangeMessage(data core.ViewChangeMessage) {
 	defer n.handleMessageLock.Unlock()
 	intendedViewNumber := data.ViewNumber
 	expectedLeader := n.viewChange.leaderElection.GetLeader(intendedViewNumber)
-	if intendedViewNumber != n.viewChange.currentView+1 {
+	if intendedViewNumber != n.viewChange.currentView.Load()+1 {
 		n.log.Error(fmt.Sprintf("View number mismatch. from %s, intended view number %d, current view number %d", data.From, intendedViewNumber, n.viewChange.currentView))
 		return
 	}
@@ -234,11 +236,11 @@ func (n *Node) HandleNewViewMessage(data core.NewViewMessage) {
 	n.handleMessageLock.Lock()
 	defer n.handleMessageLock.Unlock()
 	n.log.Info(fmt.Sprintf("Received new view message from %s, view number %d", data.From, data.ViewNumber))
-	n.viewNumber = data.ViewNumber
-	n.viewChange.currentView = data.ViewNumber
+	// n.viewNumber = data.ViewNumber
+	n.viewChange.currentView.Store(data.ViewNumber)
 
-	if n.viewChange.leaderElection.GetLeader(n.viewNumber-1) == n.GetAddr() {
-		n.SendMempoolSnapshot(n.viewChange.leaderElection.GetLeader(n.viewNumber))
+	if n.viewChange.leaderElection.GetLeader(data.ViewNumber-1) == n.GetAddr() {
+		n.SendMempoolSnapshot(n.viewChange.leaderElection.GetLeader(data.ViewNumber))
 	}
 	n.RecoverToCheckpoint(data.CheckpointSeqNumber)
 
@@ -249,7 +251,7 @@ func (n *Node) HandleNewViewMessage(data core.NewViewMessage) {
 	n.viewChange.viewChangeMessagesLock.Unlock()
 
 	// if the node is the leader, add the preprepare messages of the ongoing txs to the front of the mempool
-	if n.GetAddr() == n.viewChange.leaderElection.GetLeader(n.viewNumber) {
+	if n.GetAddr() == n.viewChange.leaderElection.GetLeader(data.ViewNumber) {
 		n.Mempool = append(data.OngoingTxs, n.Mempool...)
 	}
 	n.log.Test(fmt.Sprintf(("Preprepare started in HandleNewViewMessage: %t"), n.preprepareStarted))
@@ -261,7 +263,7 @@ func (n *Node) HandleNewViewMessage(data core.NewViewMessage) {
 }
 
 func (n *Node) HandleMempoolMessage(data core.MempoolMsg) {
-	if data.ViewNumber != n.viewNumber {
+	if data.ViewNumber != n.viewChange.currentView.Load() {
 		return
 	}
 	fmt.Printf("HandleMempoolMessage: view number %d, mempool size %d\n", data.ViewNumber, len(data.Mempool))

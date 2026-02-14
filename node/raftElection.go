@@ -66,11 +66,11 @@ func (r *RaftElection) GetReceivedVoteNumber() int32 {
 // --------------------------------------------------------
 
 func (n *Node) SendRequestVote() {
-	if n.HasLeader(n.viewNumber + 1) {
+	if n.HasLeader(n.viewChange.currentView.Load() + 1) {
 		return
 	}
 	requestVoteMessage := core.RequestVoteData{
-		ViewNumber: n.viewNumber + 1,
+		ViewNumber: n.viewChange.currentView.Load() + 1,
 		From:       n.GetAddr(),
 	}
 
@@ -80,13 +80,13 @@ func (n *Node) SendRequestVote() {
 		}
 		requestVoteMessage.To = addr
 		n.messageHub.Send(core.MsgRequestVote, addr, requestVoteMessage, nil)
-		n.log.Info(fmt.Sprintf("Send Request Vote Message to %s with view number %d", addr, n.viewNumber+1))
+		n.log.Info(fmt.Sprintf("Send Request Vote Message to %s with view number %d", addr, n.viewChange.currentView.Load()+1))
 	}
 }
 
 func (n *Node) HandleRequestVoteMessage(data core.RequestVoteData) {
 	n.log.Info(fmt.Sprintf("Received Request Vote Message from %s with view number %d", data.From, data.ViewNumber))
-	if data.ViewNumber != n.viewNumber+1 {
+	if data.ViewNumber != n.viewChange.currentView.Load()+1 {
 		return
 	}
 	if n.raftElection.HaveVoted() {
@@ -120,7 +120,7 @@ func (n *Node) HandleRequestVoteResponseMessage(data core.RequestVoteResponseDat
 	if n.HasLeader(data.ViewNumber) {
 		return
 	}
-	if data.ViewNumber != n.viewNumber+1 {
+	if data.ViewNumber != n.viewChange.currentView.Load()+1 {
 		return
 	}
 	n.log.Info(fmt.Sprintf("Received Request Vote Response Message from %s with view number %d", data.From, data.ViewNumber))
@@ -137,24 +137,24 @@ func (n *Node) HandleRequestVoteResponseMessage(data core.RequestVoteResponseDat
 }
 
 func (n *Node) SendAppendEntriesMessage() {
-	if n.HasLeader(n.viewNumber + 1) {
+	if n.HasLeader(n.viewChange.currentView.Load() + 1) {
 		return
 	}
 	currentVoteNumber := n.raftElection.GetReceivedVoteNumber()
 	appendEntriesMessage := core.AppendEntriesData{
-		ViewNumber:    n.viewNumber + 1,
+		ViewNumber:    n.viewChange.currentView.Load() + 1,
 		VoteNumber:    int64(currentVoteNumber),
 		CurrentLeader: n.NodeID,
 	}
 	for _, addr := range config.NodeAddr {
 		appendEntriesMessage.To = addr
 		n.messageHub.Send(core.MsgAppendEntries, addr, appendEntriesMessage, nil)
-		n.log.Info(fmt.Sprintf("Send Append Entries Message to %s with view number %d", addr, n.viewNumber+1))
+		n.log.Info(fmt.Sprintf("Send Append Entries Message to %s with view number %d", addr, n.viewChange.currentView.Load()+1))
 	}
 }
 
 func (n *Node) HandleAppendEntriesMessage(data core.AppendEntriesData) {
-	if n.HasLeader(n.viewNumber + 1) {
+	if n.HasLeader(n.viewChange.currentView.Load() + 1) {
 		return
 	}
 	n.log.Info(fmt.Sprintf("Handle Append Entries Message: from %s to %s, view number %d, vote number %d", config.NodeAddr[int(data.CurrentLeader)], data.To, data.ViewNumber, data.VoteNumber))

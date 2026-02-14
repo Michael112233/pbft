@@ -59,7 +59,7 @@ func (n *Node) SendCheckpointMessage(sequenceNumber int64, digest string) {
 			From:           n.GetAddr(),
 			To:             othersIp,
 			SequenceNumber: sequenceNumber,
-			ViewNumber:     n.viewNumber,
+			ViewNumber:     n.viewChange.currentView.Load(),
 			Digest:         digest,
 		}
 		n.log.Info(fmt.Sprintf("Send checkpoint message to %s", othersIp))

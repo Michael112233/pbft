@@ -24,7 +24,7 @@ func createTestNode(nodeID int64, nodeNum int) *Node {
 	node.messageHub.log = node.log
 	// 初始化 raftElection
 	node.raftElection = &RaftElection{
-		haveVoted:         false,
+		haveVoted:          false,
 		receivedVoteNumber: atomic.Int32{},
 	}
 	return node
@@ -36,7 +36,7 @@ func createTestNode(nodeID int64, nodeNum int) *Node {
 
 func TestResetRaftElection(t *testing.T) {
 	re := &RaftElection{
-		haveVoted:         true,
+		haveVoted:          true,
 		receivedVoteNumber: atomic.Int32{},
 	}
 	re.receivedVoteNumber.Store(5)
@@ -172,7 +172,7 @@ func TestGetReceivedVoteNumber(t *testing.T) {
 
 func TestStartRaftElection(t *testing.T) {
 	node := createTestNode(0, 4)
-	node.viewNumber = 0
+	node.viewChange.currentView.Store(0)
 
 	// 测试 StartRaftElection（注意：这个函数会 sleep，所以测试会比较慢）
 	startTime := time.Now()
@@ -196,7 +196,7 @@ func TestStartRaftElection(t *testing.T) {
 
 func TestHasLeader(t *testing.T) {
 	node := createTestNode(0, 4)
-	node.viewNumber = 0
+	node.viewChange.currentView.Store(0)
 
 	// 测试没有 leader 的情况
 	if node.HasLeader(1) != false {
@@ -217,7 +217,7 @@ func TestHasLeader(t *testing.T) {
 
 func TestSendRequestVote(t *testing.T) {
 	node := createTestNode(0, 4)
-	node.viewNumber = 0
+	node.viewChange.currentView.Store(0)
 
 	// 测试发送 RequestVote（函数会调用 messageHub.Send，但由于没有 leader，应该会尝试发送）
 	// 注意：由于 NodeMessageHub.Send 没有处理 MsgRequestVote，消息不会实际发送
@@ -226,31 +226,31 @@ func TestSendRequestVote(t *testing.T) {
 
 	// 验证函数执行完成（没有 panic）
 	// 由于无法验证消息是否发送，我们至少验证函数可以正常调用
-	if node.viewNumber != 0 {
-		t.Errorf("SendRequestVote: viewNumber should remain 0, got %d", node.viewNumber)
+	if node.viewChange.currentView.Load() != 0 {
+		t.Errorf("SendRequestVote: viewNumber should remain 0, got %d", node.viewChange.currentView.Load())
 	}
 }
 
 func TestSendRequestVote_WithExistingLeader(t *testing.T) {
 	node := createTestNode(0, 4)
-	node.viewNumber = 0
+	node.viewChange.currentView.Store(0)
 
 	// 设置已有 leader
-	node.viewChange.leaderElection.SetLeader(node.viewNumber+1, 1)
+	node.viewChange.leaderElection.SetLeader(node.viewChange.currentView.Load()+1, 1)
 
 	// 测试：如果已有 leader，函数应该提前返回
 	// 由于 HasLeader 返回 true，SendRequestVote 应该立即返回
 	node.SendRequestVote()
 
 	// 验证函数执行完成（没有 panic）
-	if !node.HasLeader(node.viewNumber + 1) {
-		t.Errorf("SendRequestVote: leader should exist for view %d", node.viewNumber+1)
+	if !node.HasLeader(node.viewChange.currentView.Load() + 1) {
+		t.Errorf("SendRequestVote: leader should exist for view %d", node.viewChange.currentView.Load()+1)
 	}
 }
 
 func TestHandleRequestVoteMessage(t *testing.T) {
 	node := createTestNode(0, 4)
-	node.viewNumber = 0
+	node.viewChange.currentView.Store(0)
 
 	// 测试正常情况：接收 RequestVote 并响应
 	requestVoteData := core.RequestVoteData{
@@ -272,7 +272,7 @@ func TestHandleRequestVoteMessage(t *testing.T) {
 
 func TestHandleRequestVoteMessage_WrongViewNumber(t *testing.T) {
 	node := createTestNode(0, 4)
-	node.viewNumber = 0
+	node.viewChange.currentView.Store(0)
 
 	// 测试错误的 viewNumber
 	requestVoteData := core.RequestVoteData{
@@ -291,7 +291,7 @@ func TestHandleRequestVoteMessage_WrongViewNumber(t *testing.T) {
 
 func TestHandleRequestVoteMessage_AlreadyVoted(t *testing.T) {
 	node := createTestNode(0, 4)
-	node.viewNumber = 0
+	node.viewChange.currentView.Store(0)
 
 	// 设置已投票
 	node.raftElection.SetHaveVoted(true)
@@ -312,7 +312,7 @@ func TestHandleRequestVoteMessage_AlreadyVoted(t *testing.T) {
 
 func TestSendRequestVoteResponse(t *testing.T) {
 	node := createTestNode(0, 4)
-	node.viewNumber = 0
+	node.viewChange.currentView.Store(0)
 
 	requestVoteData := core.RequestVoteData{
 		ViewNumber: 1,
@@ -329,7 +329,7 @@ func TestSendRequestVoteResponse(t *testing.T) {
 
 func TestSendRequestVoteResponse_WithExistingLeader(t *testing.T) {
 	node := createTestNode(0, 4)
-	node.viewNumber = 0
+	node.viewChange.currentView.Store(0)
 
 	// 设置已有 leader
 	node.viewChange.leaderElection.SetLeader(1, 1)
@@ -351,7 +351,7 @@ func TestSendRequestVoteResponse_WithExistingLeader(t *testing.T) {
 
 func TestHandleRequestVoteResponseMessage(t *testing.T) {
 	node := createTestNode(0, 4)
-	node.viewNumber = 0
+	node.viewChange.currentView.Store(0)
 
 	// 测试接收投票响应
 	responseData := core.RequestVoteResponseData{
@@ -389,7 +389,7 @@ func TestHandleRequestVoteResponseMessage(t *testing.T) {
 
 func TestHandleRequestVoteResponseMessage_WrongViewNumber(t *testing.T) {
 	node := createTestNode(0, 4)
-	node.viewNumber = 0
+	node.viewChange.currentView.Store(0)
 
 	responseData := core.RequestVoteResponseData{
 		ViewNumber:  999, // 错误的 viewNumber
@@ -408,7 +408,7 @@ func TestHandleRequestVoteResponseMessage_WrongViewNumber(t *testing.T) {
 
 func TestHandleRequestVoteResponseMessage_VoteNotGranted(t *testing.T) {
 	node := createTestNode(0, 4)
-	node.viewNumber = 0
+	node.viewChange.currentView.Store(0)
 
 	responseData := core.RequestVoteResponseData{
 		ViewNumber:  1,
@@ -427,7 +427,7 @@ func TestHandleRequestVoteResponseMessage_VoteNotGranted(t *testing.T) {
 
 func TestSendAppendEntriesMessage(t *testing.T) {
 	node := createTestNode(0, 4)
-	node.viewNumber = 0
+	node.viewChange.currentView.Store(0)
 	node.raftElection.receivedVoteNumber.Store(2)
 
 	// 测试发送 AppendEntries（函数会调用 messageHub.Send，但消息不会实际发送）
@@ -442,23 +442,23 @@ func TestSendAppendEntriesMessage(t *testing.T) {
 
 func TestSendAppendEntriesMessage_WithExistingLeader(t *testing.T) {
 	node := createTestNode(0, 4)
-	node.viewNumber = 0
+	node.viewChange.currentView.Store(0)
 
 	// 设置已有 leader
-	node.viewChange.leaderElection.SetLeader(node.viewNumber+1, 1)
+	node.viewChange.leaderElection.SetLeader(node.viewChange.currentView.Load()+1, 1)
 
 	// 测试：如果已有 leader，函数应该提前返回
 	node.SendAppendEntriesMessage()
 
 	// 验证函数执行完成（没有 panic）
-	if !node.HasLeader(node.viewNumber + 1) {
-		t.Errorf("SendAppendEntriesMessage: leader should exist for view %d", node.viewNumber+1)
+	if !node.HasLeader(node.viewChange.currentView.Load() + 1) {
+		t.Errorf("SendAppendEntriesMessage: leader should exist for view %d", node.viewChange.currentView.Load()+1)
 	}
 }
 
 func TestHandleAppendEntriesMessage(t *testing.T) {
 	node := createTestNode(0, 4)
-	node.viewNumber = 0
+	node.viewChange.currentView.Store(0)
 
 	appendData := core.AppendEntriesData{
 		ViewNumber:    1,
@@ -484,7 +484,7 @@ func TestHandleAppendEntriesMessage(t *testing.T) {
 
 func TestHandleAppendEntriesMessage_WithExistingLeader(t *testing.T) {
 	node := createTestNode(0, 4)
-	node.viewNumber = 0
+	node.viewChange.currentView.Store(0)
 
 	// 设置已有 leader（view 1 的 leader 是节点 0）
 	node.viewChange.leaderElection.SetLeader(1, 0)
@@ -524,7 +524,7 @@ func TestRaftElectionFlow(t *testing.T) {
 	nodes := make([]*Node, 4)
 	for i := 0; i < 4; i++ {
 		nodes[i] = createTestNode(int64(i), 4)
-		nodes[i].viewNumber = 0
+		nodes[i].viewChange.currentView.Store(0)
 	}
 
 	// 节点0发起选举
@@ -590,4 +590,3 @@ func TestRaftElectionFlow(t *testing.T) {
 		}
 	}
 }
-

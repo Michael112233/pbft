@@ -48,7 +48,7 @@ func (n *Node) SendPreprepareMessage(newSequenceNumber int64) {
 				From:           n.GetAddr(),
 				To:             othersIp,
 				SequenceNumber: sequenceNumber,
-				ViewNumber:     n.viewNumber,
+				ViewNumber:     n.viewChange.currentView.Load(),
 				Digest:         utils.GetDigest(data),
 				RequestMessage: data,
 			}
@@ -79,7 +79,7 @@ func (n *Node) SendPrepareMessage(data core.PreprepareMessage) {
 			From:           n.GetAddr(),
 			To:             othersIp,
 			SequenceNumber: data.SequenceNumber,
-			ViewNumber:     n.viewNumber,
+			ViewNumber:     n.viewChange.currentView.Load(),
 			Digest:         data.Digest,
 			RequestMessage: data.RequestMessage,
 		}
@@ -105,7 +105,7 @@ func (n *Node) SendCommitMessage(data core.PrepareMessage) {
 			From:           n.GetAddr(),
 			To:             othersIp,
 			SequenceNumber: data.SequenceNumber,
-			ViewNumber:     n.viewNumber,
+			ViewNumber:     n.viewChange.currentView.Load(),
 			Digest:         data.Digest,
 			RequestMessage: data.RequestMessage,
 		}
@@ -123,7 +123,7 @@ func (n *Node) SendReplyMessage(data core.CommitMessage) {
 		From:           n.GetAddr(),
 		To:             config.ClientAddr,
 		SequenceNumber: data.SequenceNumber,
-		ViewNumber:     n.viewNumber,
+		ViewNumber:     n.viewChange.currentView.Load(),
 		RequestMessage: data.RequestMessage,
 	}
 	// n.log.Info(fmt.Sprintf("Send reply message to %s with sequence number %d", config.ClientAddr, data.SequenceNumber))

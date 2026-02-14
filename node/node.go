@@ -1,6 +1,8 @@
 package node
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -11,8 +13,8 @@ import (
 )
 
 type Node struct {
-	NodeID                  int64
-	viewNumber              int64
+	NodeID int64
+
 	prepareMsgNumber        map[int64]*atomic.Int32
 	preprepareMsg           map[int64][]*core.PreprepareMessage
 	commitMsgNumber         map[int64]*atomic.Int32
@@ -53,6 +55,15 @@ type Node struct {
 
 	raftElection *RaftElection
 	mempoolLock  sync.Mutex
+
+	////
+	unverifiedClientMsgsChan chan []core.ClientMsgSignature // ptr or no
+	verifiedClientMsgsChan   chan core.ClientMsgSignature   // ptr or no
+	encryptionKeyStore       *KeyStore
+	preprepareSem            chan struct{}
+	preprepareSeqNumber      atomic.Int64
+	view                     int64
+	consensusState           *ConsensusState
 }
 
 func NewNode(nodeID int64, cfg *config.Config) *Node {
@@ -86,8 +97,8 @@ func NewNode(nodeID int64, cfg *config.Config) *Node {
 	// }
 
 	return &Node{
-		NodeID:                  nodeID,
-		viewNumber:              0,
+		NodeID: nodeID,
+
 		preprepareMsg:           preprepareMsg,
 		prepareMsgNumber:        prepareMsgNumber,
 		commitMsgNumber:         commitMsgNumber,
@@ -108,6 +119,14 @@ func NewNode(nodeID int64, cfg *config.Config) *Node {
 		Mempool:                 make([]*core.Transaction, 0),
 		preprepareStarted:       false,
 		raftElection:            nil,
+
+		encryptionKeyStore:       NewKeyStore(nodeID, cfg.NodeNum),
+		unverifiedClientMsgsChan: make(chan []core.ClientMsgSignature, 100), // buffer size can be tuned
+		verifiedClientMsgsChan:   make(chan core.ClientMsgSignature, 100),   // buffer size can be tuned
+		preprepareSem:            make(chan struct{}, 100),
+		preprepareSeqNumber:      atomic.Int64{},
+		view:                     0,
+		consensusState:           NewConsensusState(),
 	}
 }
 
@@ -129,6 +148,10 @@ func (n *Node) Stop() {
 
 func (n *Node) GetAddr() string {
 	return config.NodeAddr[int(n.NodeID)]
+}
+
+func (n *Node) GetNodeID() int64 {
+	return n.NodeID
 }
 
 func (n *Node) SetPreprepareSequenceNumber(seqNumber int64, preprepareMessage *core.PreprepareMessage) {
@@ -386,7 +409,114 @@ func (n *Node) monitorTimer(timerID string, timer *time.Timer) {
 	// start view changer
 	if !n.viewChange.IsInViewChange() {
 		n.log.Info("Start view change!")
-		n.viewChange.StartViewChange(n.viewNumber, n.lastStableCheckpoint)
+		n.viewChange.StartViewChange(n.viewChange.currentView.Load(), n.lastStableCheckpoint)
 		n.SendViewChangeMessage()
 	}
+}
+
+func (n *Node) ClientSignatureVerifier() {
+	for {
+		select {
+		case clientMsgSigs := <-n.unverifiedClientMsgsChan:
+
+			// Verify signatures
+			n.log.Info("Verifying client message signatures, count: %d", len(clientMsgSigs))
+		}
+	}
+}
+
+func (n *Node) VerifiedClientMessageHandler() {
+	const (
+		batchTimeout = 100 * time.Millisecond // Adjust as needed
+	)
+	batch := make([]core.ClientMsgSignature, 0, n.cfg.MaxBlockSize)
+	timer := time.NewTimer(batchTimeout)
+	timer.Stop() // Initially stop the timer
+	for {
+		select {
+		case clientMsgSig := <-n.verifiedClientMsgsChan: // can be block and then leftover txn can go in next batch
+			batch = append(batch, clientMsgSig)
+			if len(batch) == 1 {
+				// Start the timer when the first message arrives
+				timer.Reset(batchTimeout)
+			}
+			if len(batch) >= int(n.cfg.MaxBlockSize) {
+				// Process full batch
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				n.processClientMessageBatch(batch) // will block on sem and put backpressure, maybe pool when block
+				batch = nil
+
+			}
+		case <-timer.C:
+			if len(batch) > 0 {
+				// Process whatever is in the batch when the timer expires
+				n.processClientMessageBatch(batch)
+				batch = nil
+			}
+		}
+	}
+}
+
+func (n *Node) processClientMessageBatch(batch []core.ClientMsgSignature) {
+	n.preprepareSem <- struct{}{} // Acquire semaphore, may add default to drop batch if full
+
+	go func() {
+		defer func() { <-n.preprepareSem }()
+		n.preprepare(batch)
+	}()
+}
+
+type PreprepareMsgSigned struct {
+	Msg       PreprepareMsg
+	Signature []byte
+	ClientMsg []core.ClientMsgSignature
+}
+
+func ComputeBatchDigest(batch []core.ClientMsgSignature) ([32]byte, error) {
+	// can use buf pool and blake 2b later for optimization
+	// also can have worker for batch digest computation if it becomes bottleneck
+	data, err := json.Marshal(batch)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	return sha256.Sum256(data), nil
+}
+func (n *Node) preprepare(batch []core.ClientMsgSignature) {
+	seqNum := n.preprepareSeqNumber.Add(1)
+
+	digestClientMsg, err := ComputeBatchDigest(batch)
+	if err != nil {
+		n.log.Error("Failed to compute batch digest: %v", err)
+		return
+	}
+
+	preprepareMsg := core.PreprepareMsg{
+		View:      n.view,
+		SeqNum:    seqNum,
+		ClientMsg: batch,
+		// ideally sign preprepare with digest so less costly and piggy back client messages, but for simplicity we sign whole preprepare message here
+	}
+
+	newConsensusSlot := &ConsensusSlot{
+		ClientMsgs:   batch,
+		Phase:        PhasePreprepared,
+		PrepareVotes: make(map[int]bool), // cap from config
+		CommitVotes:  make(map[int]bool),
+	}
+	n.consensusState.mu.Lock()
+	n.consensusState.slots[slotKey{View: n.view, SeqNum: seqNum, Digest: digestClientMsg}] = newConsensusSlot
+	n.consensusState.mu.Unlock()
+
+	for _, othersIp := range config.NodeAddr {
+		if othersIp == n.GetAddr() {
+			continue
+		}
+		n.messageHub.Send(core.MsgPreprepareMessage, othersIp, preprepareMsg, nil) // cant do go in current state race
+	}
+
 }

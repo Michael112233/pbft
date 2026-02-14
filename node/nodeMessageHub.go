@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/michael112233/pbft/core"
+	"github.com/michael112233/pbft/crypto"
 	"github.com/michael112233/pbft/logger"
 	"github.com/michael112233/pbft/network"
 )
@@ -122,6 +123,29 @@ func (hub *NodeMessageHub) packMsg(msgType string, data []byte) []byte {
 	return networkBuf
 }
 
+func (hub *NodeMessageHub) packMsgWithSignature(msgType string, data []byte, signature []byte, from int) []byte {
+	msg := &core.Message{
+		MsgType:   msgType,
+		Data:      data,
+		Signature: signature,
+		From:      from,
+	}
+
+	var buf bytes.Buffer
+	msgEnc := gob.NewEncoder(&buf)
+	err := msgEnc.Encode(msg)
+	if err != nil {
+		hub.log.Error(fmt.Sprintf("pms gobEncodeErr: err=%v, msg=%v", err, msg))
+	}
+
+	msgBytes := buf.Bytes()
+	networkBuf := make([]byte, 4+len(msgBytes))
+	binary.BigEndian.PutUint32(networkBuf[:4], uint32(len(msgBytes)))
+	copy(networkBuf[4:], msgBytes)
+
+	return networkBuf
+}
+
 func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, callback func(...interface{})) {
 	switch msgType {
 	case core.MsgPreprepareMessage:
@@ -207,6 +231,20 @@ func (hub *NodeMessageHub) unpackMsg(packedMsg []byte) *core.Message {
 	return &msg
 }
 
+func (hub *NodeMessageHub) verifySignature(msg *core.Message) bool {
+	senderNodeId := msg.From
+	senderPubKey, exists := hub.node_ref.encryptionKeyStore.GetPublicKey(senderNodeId)
+	if !exists {
+		hub.log.Error(fmt.Sprintf("Public key not found for sender node ID: %d", senderNodeId))
+		return false
+	}
+	if !crypto.VerifySignatureEd25519(msg.Data, msg.Signature, senderPubKey) {
+		hub.log.Error(fmt.Sprintf("Signature verification failed for message from node ID: %d", senderNodeId))
+		return false
+	}
+	return true
+}
+
 func (hub *NodeMessageHub) handleConnection(conn net.Conn, ln net.Listener) {
 	defer conn.Close()
 	for {
@@ -228,9 +266,16 @@ func (hub *NodeMessageHub) handleConnection(conn net.Conn, ln net.Listener) {
 		}
 
 		msg := hub.unpackMsg(packedMsg)
+
+		if msg.MsgType == core.MsgPreprepareMessage || msg.MsgType == core.MsgPrepareMessage || msg.MsgType == core.MsgCommitMessage || msg.MsgType == core.MsgCheckpointMessage {
+			if !hub.verifySignature(msg) {
+				continue
+			}
+		}
+
 		switch msg.MsgType {
 		case core.MsgRequestMessage:
-			hub.handleRequestMessage(msg.Data)
+			go hub.handleRequestMessage(msg.Data)
 		case core.MsgPreprepareMessage:
 			hub.handlePreprepareMessage(msg.Data)
 		case core.MsgPrepareMessage:
@@ -393,14 +438,16 @@ func (hub *NodeMessageHub) sendPreprepareMessage(msg interface{}) {
 	if err != nil {
 		hub.log.Error(fmt.Sprintf("gobEncodeErr. Send Preprepare Message. caller: %s targetAddr: %s", data.From, data.To))
 	}
-
-	msg_bytes := hub.packMsg("MsgPreprepareMessage", buf.Bytes())
+	dataBytes := buf.Bytes()
+	signature := crypto.SignMessageEd25519(dataBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey())
+	// // msg_bytes := hub.packMsg("MsgPreprepareMessage", buf.Bytes())
+	msg_bytes := hub.packMsgWithSignature("MsgPreprepareMessage", dataBytes, signature, int(hub.node_ref.GetNodeID()))
 	msg_size := len(msg_bytes)
 	tx_count := 0
 	if data.RequestMessage != nil && data.RequestMessage.Txs != nil {
 		tx_count = len(data.RequestMessage.Txs)
 	}
-	hub.log.Debug(fmt.Sprintf("Preprepare Message size: %d bytes, SeqNum: %d, TxCount: %d, From: %s, To: %s", 
+	hub.log.Debug(fmt.Sprintf("Preprepare Message size: %d bytes, SeqNum: %d, TxCount: %d, From: %s, To: %s",
 		msg_size, data.SequenceNumber, tx_count, data.From, data.To))
 
 	addr := data.To
@@ -433,7 +480,11 @@ func (hub *NodeMessageHub) sendPrepareMessage(msg interface{}) {
 		hub.log.Error(fmt.Sprintf("gobEncodeErr. Send Prepare Message. caller: %s targetAddr: %s", data.From, data.To))
 	}
 
-	msg_bytes := hub.packMsg("MsgPrepareMessage", buf.Bytes())
+	dataBytes := buf.Bytes()
+	signature := crypto.SignMessageEd25519(dataBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey())
+
+	//msg_bytes := hub.packMsg("MsgPrepareMessage", buf.Bytes())
+	msg_bytes := hub.packMsgWithSignature("MsgPrepareMessage", dataBytes, signature, int(hub.node_ref.GetNodeID()))
 
 	addr := data.To
 	conn, ok := conns2Node.Get(addr)
@@ -464,14 +515,18 @@ func (hub *NodeMessageHub) sendCommitMessage(msg interface{}) {
 	if err != nil {
 		hub.log.Error(fmt.Sprintf("gobEncodeErr. Send Commit Message. caller: %s targetAddr: %s", data.From, data.To))
 	}
+	dataBytes := buf.Bytes()
+	signature := crypto.SignMessageEd25519(dataBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey())
+	//
 
-	msg_bytes := hub.packMsg("MsgCommitMessage", buf.Bytes())
+	//msg_bytes := hub.packMsg("MsgCommitMessage", buf.Bytes())
+	msg_bytes := hub.packMsgWithSignature("MsgCommitMessage", dataBytes, signature, int(hub.node_ref.GetNodeID()))
 	msg_size := len(msg_bytes)
 	tx_count := 0
 	if data.RequestMessage != nil && data.RequestMessage.Txs != nil {
 		tx_count = len(data.RequestMessage.Txs)
 	}
-	hub.log.Debug(fmt.Sprintf("Commit Message size: %d bytes, SeqNum: %d, TxCount: %d, From: %s, To: %s", 
+	hub.log.Debug(fmt.Sprintf("Commit Message size: %d bytes, SeqNum: %d, TxCount: %d, From: %s, To: %s",
 		msg_size, data.SequenceNumber, tx_count, data.From, data.To))
 
 	addr := data.To
@@ -535,8 +590,12 @@ func (hub *NodeMessageHub) sendCheckpointMessage(msg interface{}) {
 	if err != nil {
 		hub.log.Error(fmt.Sprintf("gobEncodeErr. Send Checkpoint Message. caller: %s targetAddr: %s", data.From, data.To))
 	}
+	dataBytes := buf.Bytes()
+	signature := crypto.SignMessageEd25519(dataBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey())
+	//
 
-	msg_bytes := hub.packMsg("MsgCheckpointMessage", buf.Bytes())
+	//msg_bytes := hub.packMsg("MsgCheckpointMessage", buf.Bytes())
+	msg_bytes := hub.packMsgWithSignature("MsgCheckpointMessage", dataBytes, signature, int(hub.node_ref.GetNodeID()))
 
 	addr := data.To
 	conn, ok := conns2Node.Get(addr)

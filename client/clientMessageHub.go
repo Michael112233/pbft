@@ -76,7 +76,7 @@ func (hub *ClientMessageHub) Dial(addr string) (net.Conn, error) {
 			hub.log.Debug(fmt.Sprintf("dial success. target_addr=%s", addr))
 		}
 	}
-	
+
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
 		if hub.client_ref != nil && hub.client_ref.config != nil {
 			if err := tcpConn.SetReadBuffer(hub.client_ref.config.TCPReadBufferSize); err != nil {
@@ -91,7 +91,7 @@ func (hub *ClientMessageHub) Dial(addr string) (net.Conn, error) {
 			}
 		}
 	}
-	
+
 	return conn, nil
 }
 
@@ -117,10 +117,10 @@ func (hub *ClientMessageHub) packMsg(msgType string, data []byte) []byte {
 	return networkBuf
 }
 
-func (hub *ClientMessageHub) Send(msgType string, ip string, msg interface{}, callback func(...interface{})) {
+func (hub *ClientMessageHub) Send(msgType string, from string, to string, msg interface{}, callback func(...interface{})) {
 	switch msgType {
 	case core.MsgRequestMessage:
-		hub.sendRequestMessage(msg)
+		hub.sendRequestMessage(msg, from, to)
 	case core.MsgCloseMessage:
 		hub.sendCloseMessage(msg)
 	default:
@@ -145,7 +145,7 @@ func (hub *ClientMessageHub) listen(addr string, wg *sync.WaitGroup) {
 			hub.log.Debug("Error accepting connection. Err: " + err.Error())
 			return
 		}
-		
+
 		if tcpConn, ok := conn.(*net.TCPConn); ok {
 			if hub.client_ref != nil && hub.client_ref.config != nil {
 				if err := tcpConn.SetReadBuffer(hub.client_ref.config.TCPReadBufferSize); err != nil {
@@ -160,7 +160,7 @@ func (hub *ClientMessageHub) listen(addr string, wg *sync.WaitGroup) {
 				}
 			}
 		}
-		
+
 		go hub.handleConnection(conn, ln)
 	}
 }
@@ -227,7 +227,7 @@ func (hub *ClientMessageHub) handleReplyMessage(dataBytes []byte) {
 // --------------------------------------------------------
 // Communication for Marshalling Messages to Send
 // --------------------------------------------------------
-func (hub *ClientMessageHub) sendRequestMessage(msg interface{}) {
+func (hub *ClientMessageHub) sendRequestMessage(msg interface{}, from string, to string) {
 	data := msg.(core.RequestMessage)
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)
@@ -238,12 +238,12 @@ func (hub *ClientMessageHub) sendRequestMessage(msg interface{}) {
 
 	msg_bytes := hub.packMsg("MsgRequestMessage", buf.Bytes())
 
-	addr := data.To
+	addr := to
 	conn, ok := conns2Node.Get(addr)
 	if !ok {
 		conn, err = hub.Dial(addr)
 		if err != nil || conn == nil {
-			hub.log.Error(fmt.Sprintf("Dial Error. Send Request Message. caller: %s targetAddr: %s", data.From, addr))
+			hub.log.Error(fmt.Sprintf("Dial Error. Send Request Message. caller: %s targetAddr: %s", from, addr))
 			return
 		}
 		conns2Node.Add(addr, conn)
@@ -252,7 +252,7 @@ func (hub *ClientMessageHub) sendRequestMessage(msg interface{}) {
 	writer.Write(msg_bytes)
 	writer.Flush()
 
-	hub.log.Info(fmt.Sprintf("Msg Sent: MsgRequestMessage, From %s, To %s, Txs %d", data.From, data.To, len(data.Txs)))
+	hub.log.Info(fmt.Sprintf("Msg Sent: MsgRequestMessage, From %s, To %s, Txs %d", from, to, len(data.Txs)))
 }
 
 func (hub *ClientMessageHub) sendCloseMessage(msg interface{}) {
