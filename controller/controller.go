@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/michael112233/pbft/client"
 	"github.com/michael112233/pbft/config"
@@ -29,8 +31,18 @@ func runNode(nodeID int64, cfg *config.Config) {
 		if input == "exit" {
 			fmt.Println("Exiting node...")
 			break
-		} else {
-			Node.PrintDetails()
+		} else if len(input) > 0 && input[0] == 's' {
+			// Extract number after 's'
+			parts := strings.Fields(input) // splits "s 1245" into ["s", "1245"]
+			if len(parts) >= 2 {
+				if num, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
+					Node.PrintSlot(num)
+				} else {
+					fmt.Println("Invalid number:", parts[1])
+				}
+			} else {
+				Node.PrintDetails() // no number provided, use default
+			}
 		}
 	}
 }

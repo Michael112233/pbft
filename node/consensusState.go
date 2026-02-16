@@ -57,6 +57,15 @@ func NewConsensusLog() *ConsensusLog {
 	}
 }
 
+func (log *ConsensusLog) PrintSlot(seqNum int64) {
+	if v, ok := log.slots.Load(seqNum); ok {
+		slot := v.(*consensusSlot)
+		fmt.Printf("SeqNum: %d, View: %d, Digest: %x, PrepareVotes: %d, CommitVotes: %d, PrepareSent: %t, CommitSent: %t, Executed: %t\n",
+			seqNum, slot.view, slot.digest, len(slot.prepares), len(slot.commits), slot.prepareSent, slot.commitSent, slot.executed)
+		fmt.Printf("Message details %d\n", slot.prePrepare.ClientMsg.Data.Id)
+	}
+}
+
 func (log *ConsensusLog) PrintDetails() {
 	newmap := make(map[int]*consensusSlot)
 	log.slots.Range(func(key, value any) bool {

@@ -90,6 +90,10 @@ func (n *Node) PrintDetails() {
 	n.consensusLog.PrintDetails()
 }
 
+func (n *Node) PrintSlot(seqNum int64) {
+	n.consensusLog.PrintSlot(seqNum)
+}
+
 func (n *Node) ClientSignatureVerifier() {
 	for {
 		select {
