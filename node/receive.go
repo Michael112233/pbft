@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/michael112233/pbft/core"
-	"github.com/michael112233/pbft/utils"
 )
 
 // handle request message
@@ -29,8 +28,11 @@ func (n *Node) HandleRequestMessage(data core.RequestMessage) {
 	// n.handleMessageLock.Unlock()
 	// n.log.Info(fmt.Sprintf("Preprepare started, send preprepare message to %s", data.To))
 	// go n.SendPreprepareMessage(-1)
-	go n.VerifiedClientMessageHandler()
-	go n.ClientSignatureVerifier()
+	// if !n.verificationWorkerStarted.Load() {
+	// 	n.verificationWorkerStarted.
+	// 	go n.VerifiedClientMessageHandler()
+	// 	go n.ClientSignatureVerifier()
+	// }
 	select {
 	case n.unverifiedClientMsgsChan <- data.Txs:
 
@@ -39,112 +41,112 @@ func (n *Node) HandleRequestMessage(data core.RequestMessage) {
 	}
 }
 
-func (n *Node) HandlePreprepareMessage(data core.PreprepareMessage) {
-	// n.handleMessageLock.Lock()
-	// defer n.handleMessageLock.Unlock()
-	if n.viewChange.IsInViewChange() {
-		// n.log.Error("Node %d is expired and Start to trigger view change", n.NodeID)
-		return
-	}
-	n.log.Info(fmt.Sprintf("SeqNumber %d: Received preprepare message from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
+// func (n *Node) HandlePreprepareMessage(data core.PreprepareMessage) {
+// 	// n.handleMessageLock.Lock()
+// 	// defer n.handleMessageLock.Unlock()
+// 	if n.viewChange.IsInViewChange() {
+// 		// n.log.Error("Node %d is expired and Start to trigger view change", n.NodeID)
+// 		return
+// 	}
+// 	n.log.Info(fmt.Sprintf("SeqNumber %d: Received preprepare message from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
 
-	if data.Digest != utils.GetDigest(data.RequestMessage) {
-		n.log.Error(fmt.Sprintf("SeqNumber %d: Preprepare message digest mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
-		return
-	} else if data.ViewNumber != n.viewChange.currentView.Load() {
-		n.log.Error(fmt.Sprintf("SeqNumber %d: Preprepare message view number mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
-		return
-	} else if data.SequenceNumber < n.cfg.SeqNumberLowerBound || data.SequenceNumber > n.cfg.SeqNumberUpperBound {
-		n.log.Error(fmt.Sprintf("SeqNumber %d: Preprepare message sequence number out of range. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
-		return
-		// } else if n.GetPreprepareSequenceNumber() != -1 && data.SequenceNumber != n.GetPreprepareSequenceNumber()+1 {
-		// 	n.log.Error(fmt.Sprintf("SeqNumber %d: Preprepare message sequence number mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
-		// 	return
-	} else {
-		// n.log.Info(fmt.Sprintf("SeqNumber %d: Preprepare message sequence number succeeds. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
-		timerID := fmt.Sprintf("request_%d_%d", n.NodeID, data.SequenceNumber)
-		n.StartExpireTimer(timerID)
-		n.SetPreprepareSequenceNumber(data.SequenceNumber, &data)
-		go n.SendPrepareMessage(data)
-	}
+// 	if data.Digest != utils.GetDigest(data.RequestMessage) {
+// 		n.log.Error(fmt.Sprintf("SeqNumber %d: Preprepare message digest mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
+// 		return
+// 	} else if data.ViewNumber != n.viewChange.currentView.Load() {
+// 		n.log.Error(fmt.Sprintf("SeqNumber %d: Preprepare message view number mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
+// 		return
+// 	} else if data.SequenceNumber < n.cfg.SeqNumberLowerBound || data.SequenceNumber > n.cfg.SeqNumberUpperBound {
+// 		n.log.Error(fmt.Sprintf("SeqNumber %d: Preprepare message sequence number out of range. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
+// 		return
+// 		// } else if n.GetPreprepareSequenceNumber() != -1 && data.SequenceNumber != n.GetPreprepareSequenceNumber()+1 {
+// 		// 	n.log.Error(fmt.Sprintf("SeqNumber %d: Preprepare message sequence number mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
+// 		// 	return
+// 	} else {
+// 		// n.log.Info(fmt.Sprintf("SeqNumber %d: Preprepare message sequence number succeeds. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
+// 		timerID := fmt.Sprintf("request_%d_%d", n.NodeID, data.SequenceNumber)
+// 		n.StartExpireTimer(timerID)
+// 		n.SetPreprepareSequenceNumber(data.SequenceNumber, &data)
+// 		go n.SendPrepareMessage(data)
+// 	}
 
-}
+// }
 
-func (n *Node) HandlePrepareMessage(data core.PrepareMessage) {
-	// n.handleMessageLock.Lock()
-	// defer n.handleMessageLock.Unlock()
-	if n.viewChange.IsInViewChange() {
-		// n.log.Error("Node %d is expired and Start to trigger view change", n.NodeID)
-		return
-	}
+// func (n *Node) HandlePrepareMessage(data core.PrepareMessage) {
+// 	// n.handleMessageLock.Lock()
+// 	// defer n.handleMessageLock.Unlock()
+// 	if n.viewChange.IsInViewChange() {
+// 		// n.log.Error("Node %d is expired and Start to trigger view change", n.NodeID)
+// 		return
+// 	}
 
-	// n.log.Info(fmt.Sprintf("SeqNumber %d: Received prepare message from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
-	if data.Digest != utils.GetDigest(data.RequestMessage) {
-		n.log.Error(fmt.Sprintf("SeqNumber %d: Prepare message digest mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
-		return
-	} else if data.ViewNumber != n.viewChange.currentView.Load() {
-		n.log.Error(fmt.Sprintf("SeqNumber %d: Prepare message view number mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
-		return
-	} else if data.SequenceNumber < n.cfg.SeqNumberLowerBound || data.SequenceNumber > n.cfg.SeqNumberUpperBound {
-		n.log.Error(fmt.Sprintf("SeqNumber %d: Prepare message sequence number out of range. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
-		return
-		// } else if n.GetPrepareSequenceNumber() != -1 && data.SequenceNumber != n.GetPrepareSequenceNumber()+1 {
-		// 	n.log.Error(fmt.Sprintf("SeqNumber %d: Prepare message sequence number mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
-		// 	return
-	} else {
-		n.AddPrepareMessageNumber(data.SequenceNumber)
-		n.log.Info(fmt.Sprintf("SeqNumber %d: Prepare message count for sequence %d is now %d", data.SequenceNumber, data.SequenceNumber, n.GetPrepareMessageNumber(data.SequenceNumber)))
-	}
-	// n.log.Info(fmt.Sprintf("SeqNumber %d: After receiving from %s, current prepare messages number is %d", data.SequenceNumber, data.From, n.GetPrepareMessageNumber(data.SequenceNumber)))
+// 	// n.log.Info(fmt.Sprintf("SeqNumber %d: Received prepare message from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
+// 	if data.Digest != utils.GetDigest(data.RequestMessage) {
+// 		n.log.Error(fmt.Sprintf("SeqNumber %d: Prepare message digest mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
+// 		return
+// 	} else if data.ViewNumber != n.viewChange.currentView.Load() {
+// 		n.log.Error(fmt.Sprintf("SeqNumber %d: Prepare message view number mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
+// 		return
+// 	} else if data.SequenceNumber < n.cfg.SeqNumberLowerBound || data.SequenceNumber > n.cfg.SeqNumberUpperBound {
+// 		n.log.Error(fmt.Sprintf("SeqNumber %d: Prepare message sequence number out of range. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
+// 		return
+// 		// } else if n.GetPrepareSequenceNumber() != -1 && data.SequenceNumber != n.GetPrepareSequenceNumber()+1 {
+// 		// 	n.log.Error(fmt.Sprintf("SeqNumber %d: Prepare message sequence number mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
+// 		// 	return
+// 	} else {
+// 		n.AddPrepareMessageNumber(data.SequenceNumber)
+// 		n.log.Info(fmt.Sprintf("SeqNumber %d: Prepare message count for sequence %d is now %d", data.SequenceNumber, data.SequenceNumber, n.GetPrepareMessageNumber(data.SequenceNumber)))
+// 	}
+// 	// n.log.Info(fmt.Sprintf("SeqNumber %d: After receiving from %s, current prepare messages number is %d", data.SequenceNumber, data.From, n.GetPrepareMessageNumber(data.SequenceNumber)))
 
-	if n.GetPrepareMessageNumber(data.SequenceNumber) >= 2*int32(n.cfg.FaultyNodesNum) {
-		n.log.Info(fmt.Sprintf("SeqNumber %d: Received %d prepare messages, enough to commit the block.", data.SequenceNumber, n.GetPrepareMessageNumber(data.SequenceNumber)))
-		n.SetPrepareSequenceNumber(data.SequenceNumber)
-		go n.SendCommitMessage(data)
-	}
-}
+// 	if n.GetPrepareMessageNumber(data.SequenceNumber) >= 2*int32(n.cfg.FaultyNodesNum) {
+// 		n.log.Info(fmt.Sprintf("SeqNumber %d: Received %d prepare messages, enough to commit the block.", data.SequenceNumber, n.GetPrepareMessageNumber(data.SequenceNumber)))
+// 		n.SetPrepareSequenceNumber(data.SequenceNumber)
+// 		go n.SendCommitMessage(data)
+// 	}
+// }
 
-func (n *Node) HandleCommitMessage(data core.CommitMessage) {
-	// n.handleMessageLock.Lock()
-	// defer n.handleMessageLock.Unlock()
-	if n.viewChange.IsInViewChange() {
-		// n.log.Error("Node %d is expired and Start to trigger view change", n.NodeID)
-		return
-	}
+// func (n *Node) HandleCommitMessage(data core.CommitMessage) {
+// 	// n.handleMessageLock.Lock()
+// 	// defer n.handleMessageLock.Unlock()
+// 	if n.viewChange.IsInViewChange() {
+// 		// n.log.Error("Node %d is expired and Start to trigger view change", n.NodeID)
+// 		return
+// 	}
 
-	n.log.Info(fmt.Sprintf("SeqNumber %d: Received commit message from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
-	if data.ViewNumber != n.viewChange.currentView.Load() {
-		n.log.Error(fmt.Sprintf("SeqNumber %d: Commit message view number mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
-		return
-	} else if data.Digest != utils.GetDigest(data.RequestMessage) {
-		n.log.Error(fmt.Sprintf("SeqNumber %d: Commit message digest mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
-		return
-	} else if data.SequenceNumber < n.cfg.SeqNumberLowerBound || data.SequenceNumber > n.cfg.SeqNumberUpperBound {
-		n.log.Error(fmt.Sprintf("SeqNumber %d: Commit message sequence number out of range. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
-		return
-		// } else if n.GetCommitSequenceNumber() != -1 {
-		// 	n.log.Error(fmt.Sprintf("SeqNumber %d: Commit message sequence number mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
-		// 	return
-	} else {
-		n.AddCommitMessageNumber(data.SequenceNumber)
-		n.log.Info(fmt.Sprintf("SeqNumber %d: Commit message count for sequence %d is now %d", data.SequenceNumber, data.SequenceNumber, n.GetCommitMessageNumber(data.SequenceNumber)))
-	}
-	// n.log.Info(fmt.Sprintf("SeqNumber %d: After receiving from %s, current commit messages number is %d", data.SequenceNumber, data.From, n.GetCommitMessageNumber(data.SequenceNumber)))
+// 	n.log.Info(fmt.Sprintf("SeqNumber %d: Received commit message from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
+// 	if data.ViewNumber != n.viewChange.currentView.Load() {
+// 		n.log.Error(fmt.Sprintf("SeqNumber %d: Commit message view number mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
+// 		return
+// 	} else if data.Digest != utils.GetDigest(data.RequestMessage) {
+// 		n.log.Error(fmt.Sprintf("SeqNumber %d: Commit message digest mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
+// 		return
+// 	} else if data.SequenceNumber < n.cfg.SeqNumberLowerBound || data.SequenceNumber > n.cfg.SeqNumberUpperBound {
+// 		n.log.Error(fmt.Sprintf("SeqNumber %d: Commit message sequence number out of range. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
+// 		return
+// 		// } else if n.GetCommitSequenceNumber() != -1 {
+// 		// 	n.log.Error(fmt.Sprintf("SeqNumber %d: Commit message sequence number mismatch. from %s, sequence number %d", data.SequenceNumber, data.From, data.SequenceNumber))
+// 		// 	return
+// 	} else {
+// 		n.AddCommitMessageNumber(data.SequenceNumber)
+// 		n.log.Info(fmt.Sprintf("SeqNumber %d: Commit message count for sequence %d is now %d", data.SequenceNumber, data.SequenceNumber, n.GetCommitMessageNumber(data.SequenceNumber)))
+// 	}
+// 	// n.log.Info(fmt.Sprintf("SeqNumber %d: After receiving from %s, current commit messages number is %d", data.SequenceNumber, data.From, n.GetCommitMessageNumber(data.SequenceNumber)))
 
-	if n.GetCommitMessageNumber(data.SequenceNumber) >= 2*int32(n.cfg.FaultyNodesNum) {
-		n.log.Info(fmt.Sprintf("SeqNumber %d: Received %d commit messages, enough to reply to client.", data.SequenceNumber, n.GetCommitMessageNumber(data.SequenceNumber)))
-		n.SetCommitSequenceNumber(data.SequenceNumber)
+// 	if n.GetCommitMessageNumber(data.SequenceNumber) >= 2*int32(n.cfg.FaultyNodesNum) {
+// 		n.log.Info(fmt.Sprintf("SeqNumber %d: Received %d commit messages, enough to reply to client.", data.SequenceNumber, n.GetCommitMessageNumber(data.SequenceNumber)))
+// 		n.SetCommitSequenceNumber(data.SequenceNumber)
 
-		n.AddSeq2Digest(data.SequenceNumber, data.Digest)
+// 		n.AddSeq2Digest(data.SequenceNumber, data.Digest)
 
-		go n.TriggerGarbageCollection(data.SequenceNumber, data.Digest)
-		n.SendReplyMessage(data)
-	}
-}
+// 		go n.TriggerGarbageCollection(data.SequenceNumber, data.Digest)
+// 		n.SendReplyMessage(data)
+// 	}
+// }
 
-func (n *Node) HandleCloseMessage(data core.CloseMessage) {
-	// n.handleMessageLock.Lock()
-	// defer n.handleMessageLock.Unlock()
-	n.log.Info(fmt.Sprintf("Received close message from %s", data.From))
-	n.StopChan <- struct{}{}
-}
+// func (n *Node) HandleCloseMessage(data core.CloseMessage) {
+// 	// n.handleMessageLock.Lock()
+// 	// defer n.handleMessageLock.Unlock()
+// 	n.log.Info(fmt.Sprintf("Received close message from %s", data.From))
+// 	n.StopChan <- struct{}{}
+// }

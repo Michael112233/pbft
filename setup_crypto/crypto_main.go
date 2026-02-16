@@ -34,7 +34,7 @@ func main() {
 
 	}
 
-	for i := 0; i < nodeNum; i++ {
+	for i := 1; i <= nodeNum; i++ {
 		pubKey, privKey, err := crypto.GenerateEd25519Keypair()
 		if err != nil {
 			fmt.Printf("Error generating keypair for node %d: %v\n", i, err)

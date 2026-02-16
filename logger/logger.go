@@ -17,7 +17,7 @@ type Logger struct {
 }
 
 // Init 初始化日志系统，为每个节点创建日志文件
-func NewLogger(nodeID int64, role string) *Logger {
+func NewLogger(nodeID int, role string) *Logger {
 	// 创建logs目录
 	os.MkdirAll("logs", 0755)
 	logFile := ""

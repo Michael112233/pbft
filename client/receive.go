@@ -7,8 +7,9 @@ import (
 )
 
 func (c *Client) HandleReplyMessage(data core.ReplyMessage) {
-	c.log.Info(fmt.Sprintf("Received reply message from %s, sequence number %d", data.From, data.SequenceNumber))
-	Block := core.NewBlock(data.SequenceNumber, data.RequestMessage.Txs, data.RequestMessage.To, data.RequestMessage.Timestamp)
-	Block.AddCommittedNode(data.From)
-	core.Chain.AddBlock(Block)
+	c.log.Info(fmt.Sprintf("Received reply message from %s, client message id %d", data.From, data.ClientMsg.Id))
+	// Block := core.NewBlock(data.SequenceNumber, data.RequestMessage.Txs, data.RequestMessage.To, data.RequestMessage.Timestamp)
+	// Block.AddCommittedNode(data.From)
+	// core.Chain.AddBlock(Block)
+	go c.TransactionManager.ReplyTxn(data.ClientMsg)
 }

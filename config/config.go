@@ -28,8 +28,8 @@ type Config struct {
 	TCPReadBufferSize  int `json:"tcp_read_buffer_size"`  // 接收缓冲区大小，默认256KB
 	TCPWriteBufferSize int `json:"tcp_write_buffer_size"` // 发送缓冲区大小，默认256KB
 
-	RaftTimeout   int64 `json:"raft_timeout"`
-	RaftInterval  int64 `json:"raft_interval"` // Heartbeat interval in milliseconds
+	RaftTimeout  int64 `json:"raft_timeout"`
+	RaftInterval int64 `json:"raft_interval"` // Heartbeat interval in milliseconds
 }
 
 func ReadCfg(filename string) *Config {

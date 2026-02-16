@@ -21,10 +21,11 @@ type Client struct {
 
 	WaitGroup sync.WaitGroup
 
-	leaderElection *leader_election.LeaderElection
-	log            *logger.Logger
-	messageHub     *ClientMessageHub
-	privateKey     ed25519.PrivateKey
+	leaderElection     *leader_election.LeaderElection
+	log                *logger.Logger
+	messageHub         *ClientMessageHub
+	privateKey         ed25519.PrivateKey
+	TransactionManager *TransactionManager
 }
 
 func NewClient(addr string, name string, config *config.Config) *Client {
@@ -41,10 +42,11 @@ func NewClient(addr string, name string, config *config.Config) *Client {
 
 		WaitGroup: sync.WaitGroup{},
 
-		leaderElection: leader_election.NewLeaderElection(config),
-		log:            logger.NewLogger(0, "client"),
-		messageHub:     NewClientMessageHub(),
-		privateKey:     privKey,
+		// leaderElection:     leader_election.NewLeaderElection(config),
+		log:                logger.NewLogger(0, "client"),
+		messageHub:         NewClientMessageHub(),
+		privateKey:         privKey,
+		TransactionManager: NewTransactionManager(),
 	}
 }
 

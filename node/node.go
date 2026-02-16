@@ -1,7 +1,11 @@
 package node
 
 import (
+	"bytes"
+	"fmt"
+
 	"crypto/sha256"
+	"encoding/gob"
 	"encoding/json"
 	"sync"
 	"sync/atomic"
@@ -9,136 +13,63 @@ import (
 
 	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
+	"github.com/michael112233/pbft/crypto"
 	"github.com/michael112233/pbft/logger"
 )
 
 type Node struct {
-	NodeID int64
-
-	prepareMsgNumber        map[int64]*atomic.Int32
-	preprepareMsg           map[int64][]*core.PreprepareMessage
-	commitMsgNumber         map[int64]*atomic.Int32
-	lastPreprepareSeqNumber int64
-	lastPrepareSeqNumber    int64
-	lastCommitSeqNumber     int64
-	initCommitSeqNumber     int64
-	lastStableCheckpoint    int64
-	checkpointList          map[int64]*atomic.Int32
-	seq2digest              map[int64]string
-	preprepareSeqLock       sync.Mutex
-	prepareSeqLock          sync.Mutex
-	commitSeqLock           sync.Mutex
-	PrepareMessageLock      sync.Mutex
-	CommitMessageLock       sync.Mutex
-	checkpointLock          sync.RWMutex
-	seq2digestLock          sync.RWMutex
+	NodeID int
 
 	cfg        *config.Config
 	log        *logger.Logger
 	messageHub *NodeMessageHub
-	viewChange *ViewChanger
-
-	expireTimers      map[string]*time.Timer
-	timerLock         sync.RWMutex
-	handleMessageLock sync.Mutex
-	preprepareStarted bool
-
-	// 全局 timer 管理
-	globalTimers     []*time.Timer
-	globalTimerLock  sync.RWMutex
-	timerAllowed     bool
-	timerAllowedLock sync.RWMutex
-
-	StopChan chan struct{}
-
-	Mempool []*core.Transaction
-
-	raftElection *RaftElection
-	mempoolLock  sync.Mutex
 
 	////
-	unverifiedClientMsgsChan chan []core.ClientMsgSignature // ptr or no
-	verifiedClientMsgsChan   chan core.ClientMsgSignature   // ptr or no
-	encryptionKeyStore       *KeyStore
-	preprepareSem            chan struct{}
-	preprepareSeqNumber      atomic.Int64
-	view                     int64
-	consensusState           *ConsensusState
+	unverifiedClientMsgsChan  chan []core.ClientMsgSignature // ptr or no
+	verifiedClientMsgsChan    chan core.ClientMsgSignature   // ptr or no
+	encryptionKeyStore        *KeyStore
+	preprepareSem             chan struct{}
+	preprepareSeqNumber       atomic.Int64
+	view                      int64
+	consensusLog              *ConsensusLog
+	viewChangeRunning         bool
+	viewMu                    sync.RWMutex
+	fNodes                    int
+	verificationWorkerStarted atomic.Bool
 }
 
-func NewNode(nodeID int64, cfg *config.Config) *Node {
-	prepareMsgNumber := make(map[int64]*atomic.Int32, cfg.SeqNumberUpperBound)
-	// for i := cfg.SeqNumberLowerBound; i <= cfg.SeqNumberUpperBound; i++ {
-	// 	prepareMsgNumber[int64(i)] = &atomic.Int32{}
-	// 	prepareMsgNumber[int64(i)].Store(0)
-	// }
-
-	commitMsgNumber := make(map[int64]*atomic.Int32, cfg.SeqNumberUpperBound)
-	// for i := cfg.SeqNumberLowerBound; i <= cfg.SeqNumberUpperBound; i++ {
-	// 	commitMsgNumber[int64(i)] = &atomic.Int32{}
-	// 	commitMsgNumber[int64(i)].Store(0)
-	// }
-
-	// initialize checkpoint counters for each possible sequence number
-	checkpointList := make(map[int64]*atomic.Int32, cfg.SeqNumberUpperBound)
-	for i := cfg.SeqNumberLowerBound; i <= cfg.SeqNumberUpperBound; i++ {
-		checkpointList[int64(i)] = &atomic.Int32{}
-		checkpointList[int64(i)].Store(0)
-	}
-
-	seq2digest := make(map[int64]string, cfg.SeqNumberUpperBound)
-	// for i := cfg.SeqNumberLowerBound; i <= cfg.SeqNumberUpperBound; i++ {
-	// 	seq2digest[int64(i)] = ""
-	// }
-
-	preprepareMsg := make(map[int64][]*core.PreprepareMessage, cfg.SeqNumberUpperBound)
-	// for i := cfg.SeqNumberLowerBound; i <= cfg.SeqNumberUpperBound; i++ {
-	// 	preprepareMsg[int64(i)] = make([]*core.PreprepareMessage, 0)
-	// }
+func NewNode(nodeID int, cfg *config.Config) *Node {
 
 	return &Node{
 		NodeID: nodeID,
 
-		preprepareMsg:           preprepareMsg,
-		prepareMsgNumber:        prepareMsgNumber,
-		commitMsgNumber:         commitMsgNumber,
-		checkpointList:          checkpointList,
-		seq2digest:              seq2digest,
-		initCommitSeqNumber:     -1,
-		lastPreprepareSeqNumber: -1,
-		lastPrepareSeqNumber:    -1,
-		lastCommitSeqNumber:     -1,
-		cfg:                     cfg,
-		log:                     logger.NewLogger(nodeID, "node"),
-		messageHub:              NewNodeMessageHub(),
-		expireTimers:            make(map[string]*time.Timer),
-		globalTimers:            make([]*time.Timer, 0),
-		timerAllowed:            true,
-		viewChange:              NewViewChanger(cfg),
-		StopChan:                make(chan struct{}),
-		Mempool:                 make([]*core.Transaction, 0),
-		preprepareStarted:       false,
-		raftElection:            nil,
+		cfg:        cfg,
+		log:        logger.NewLogger(nodeID, "node"),
+		messageHub: NewNodeMessageHub(),
 
 		encryptionKeyStore:       NewKeyStore(nodeID, cfg.NodeNum),
 		unverifiedClientMsgsChan: make(chan []core.ClientMsgSignature, 100), // buffer size can be tuned
 		verifiedClientMsgsChan:   make(chan core.ClientMsgSignature, 100),   // buffer size can be tuned
-		preprepareSem:            make(chan struct{}, 100),
+		preprepareSem:            make(chan struct{}, 5000),
 		preprepareSeqNumber:      atomic.Int64{},
-		view:                     0,
-		consensusState:           NewConsensusState(),
+		view:                     1,
+		consensusLog:             NewConsensusLog(),
+		viewChangeRunning:        false,
+		fNodes:                   (int(cfg.NodeNum) - 1) / 3,
 	}
 }
 
 func (n *Node) Start() {
 	n.messageHub.Start(n, &sync.WaitGroup{})
-	n.StartGarbageCollection()
+	// n.StartGarbageCollection()
+	go n.ClientSignatureVerifier()
+	go n.VerifiedClientMessageHandler()
 	n.log.Info("node started")
 }
 
 func (n *Node) Stop() {
 	// Stop all expire timers to prevent resource leaks
-	n.StopAllExpireTimers()
+	// n.StopAllExpireTimers()
 	// Close network resources to stop listeners and connections
 	if n.messageHub != nil {
 		n.messageHub.Close()
@@ -150,268 +81,13 @@ func (n *Node) GetAddr() string {
 	return config.NodeAddr[int(n.NodeID)]
 }
 
-func (n *Node) GetNodeID() int64 {
+func (n *Node) GetNodeID() int {
 	return n.NodeID
 }
-
-func (n *Node) SetPreprepareSequenceNumber(seqNumber int64, preprepareMessage *core.PreprepareMessage) {
-	n.preprepareSeqLock.Lock()
-	defer n.preprepareSeqLock.Unlock()
-	n.lastPreprepareSeqNumber = seqNumber
-	if _, exists := n.preprepareMsg[seqNumber]; !exists {
-		n.preprepareMsg[seqNumber] = make([]*core.PreprepareMessage, 0)
-	}
-	n.preprepareMsg[seqNumber] = append(n.preprepareMsg[seqNumber], preprepareMessage)
-	// n.log.Info(fmt.Sprintf("Add preprepare message to map, sequence number is %d, preprepare messages are %v", seqNumber, n.preprepareMsg[seqNumber]))
-}
-
-func (n *Node) GetPreprepareSequenceNumber() int64 {
-	n.preprepareSeqLock.Lock()
-	defer n.preprepareSeqLock.Unlock()
-	return n.lastPreprepareSeqNumber
-}
-
-// SnapshotPreprepareMessages returns a deep copy snapshot of preprepareMsg under lock.
-// This avoids concurrent iteration/write when serializing during view change.
-func (n *Node) SnapshotPreprepareMessages() map[int64][]*core.PreprepareMessage {
-	n.preprepareSeqLock.Lock()
-	defer n.preprepareSeqLock.Unlock()
-
-	snapshot := make(map[int64][]*core.PreprepareMessage, len(n.preprepareMsg))
-	for seq, msgs := range n.preprepareMsg {
-		// n.log.Info(fmt.Sprintf("Snapshot preprepare messages, sequence number is %d, preprepare messages: %v", seq, msgs))
-		if len(msgs) == 0 {
-			snapshot[seq] = nil
-			continue
-		}
-		copied := make([]*core.PreprepareMessage, len(msgs))
-		copy(copied, msgs)
-		snapshot[seq] = copied
-	}
-	// n.log.Info(fmt.Sprintf("Snapshot preprepare messages %v", snapshot))
-	return snapshot
-}
-
-func (n *Node) SetPrepareSequenceNumber(seqNumber int64) {
-	n.prepareSeqLock.Lock()
-	defer n.prepareSeqLock.Unlock()
-	n.lastPrepareSeqNumber = seqNumber
-}
-
-func (n *Node) GetPrepareSequenceNumber() int64 {
-	n.prepareSeqLock.Lock()
-	defer n.prepareSeqLock.Unlock()
-	return n.lastPrepareSeqNumber
-}
-
-func (n *Node) SetCommitSequenceNumber(seqNumber int64) {
-	n.commitSeqLock.Lock()
-	defer n.commitSeqLock.Unlock()
-	n.lastCommitSeqNumber = seqNumber
-	if n.initCommitSeqNumber == -1 {
-		n.initCommitSeqNumber = seqNumber
-	}
-}
-
-func (n *Node) GetCommitSequenceNumber() int64 {
-	n.commitSeqLock.Lock()
-	defer n.commitSeqLock.Unlock()
-	return n.lastCommitSeqNumber
-}
-
-func (n *Node) GetPrepareMessageNumber(seqNumber int64) int32 {
-	n.PrepareMessageLock.Lock()
-	defer n.PrepareMessageLock.Unlock()
-	counter, exists := n.prepareMsgNumber[seqNumber]
-	if !exists || counter == nil {
-		return 0
-	}
-	return counter.Load()
-}
-
-func (n *Node) GetCommitMessageNumber(seqNumber int64) int32 {
-	n.CommitMessageLock.Lock()
-	defer n.CommitMessageLock.Unlock()
-	counter, exists := n.commitMsgNumber[seqNumber]
-	if !exists || counter == nil {
-		return 0
-	}
-	return counter.Load()
-}
-
-func (n *Node) AddPrepareMessageNumber(seqNumber int64) {
-	n.PrepareMessageLock.Lock()
-	defer n.PrepareMessageLock.Unlock()
-	if _, exists := n.prepareMsgNumber[seqNumber]; !exists {
-		n.prepareMsgNumber[seqNumber] = &atomic.Int32{}
-		n.prepareMsgNumber[seqNumber].Store(0)
-	}
-	n.prepareMsgNumber[seqNumber].Add(1)
-}
-
-func (n *Node) AddCommitMessageNumber(seqNumber int64) {
-	n.CommitMessageLock.Lock()
-	defer n.CommitMessageLock.Unlock()
-	if _, exists := n.commitMsgNumber[seqNumber]; !exists {
-		n.commitMsgNumber[seqNumber] = &atomic.Int32{}
-		n.commitMsgNumber[seqNumber].Store(0)
-	}
-	n.commitMsgNumber[seqNumber].Add(1)
-}
-
-func (n *Node) AddSeq2Digest(seqNumber int64, digest string) {
-	n.seq2digestLock.Lock()
-	defer n.seq2digestLock.Unlock()
-	if _, exists := n.seq2digest[seqNumber]; !exists {
-		n.seq2digest[seqNumber] = ""
-	}
-	n.seq2digest[seqNumber] = digest
-}
-
-// StartExpireTimer starts a new expire timer with a unique ID
-// Multiple timers can run concurrently
-func (n *Node) StartExpireTimer(timerID string) {
-	// 检查是否允许创建新的 timer
-	if !n.isTimerAllowed() {
-		n.log.Debug("Timer creation not allowed, skipping timer '%s'", timerID)
-		return
-	}
-
-	// Stop existing timer with same ID if it exists
-	n.timerLock.Lock()
-	if existingTimer, exists := n.expireTimers[timerID]; exists {
-		if !existingTimer.Stop() {
-			// If timer already expired, drain the channel
-			select {
-			case <-existingTimer.C:
-			default:
-			}
-		}
-		delete(n.expireTimers, timerID)
-	}
-
-	// Create new timer
-	newTimer := time.NewTimer(time.Duration(n.cfg.ExpireTime) * time.Second)
-	n.expireTimers[timerID] = newTimer
-	n.timerLock.Unlock()
-
-	// 将新 timer 添加到全局数组中
-	n.addToGlobalTimers(newTimer)
-
-	n.log.Debug("expire timer '%s' started with duration: %d seconds", timerID, n.cfg.ExpireTime)
-
-	// Start monitoring goroutine for this specific timer
-	go n.monitorTimer(timerID, newTimer)
-}
-
-// StopExpireTimer stops a specific timer by ID
-func (n *Node) StopExpireTimer(timerID string) {
-	n.timerLock.Lock()
-	defer n.timerLock.Unlock()
-
-	if timer, exists := n.expireTimers[timerID]; exists {
-		if timer.Stop() {
-			// n.log.Debug("expire timer '%s' stopped", timerID)
-		} else {
-			// Timer already expired, drain the channel
-			select {
-			case <-timer.C:
-			default:
-			}
-			// n.log.Debug("expire timer '%s' was already expired, drained channel", timerID)
-		}
-		delete(n.expireTimers, timerID)
-	}
-}
-
-// StopAllExpireTimers stops all running timers
-func (n *Node) StopAllExpireTimers() {
-	n.timerLock.Lock()
-	defer n.timerLock.Unlock()
-
-	for timerID, timer := range n.expireTimers {
-		if timer.Stop() {
-			n.log.Debug("expire timer '%s' stopped", timerID)
-		} else {
-			// Timer already expired, drain the channel
-			select {
-			case <-timer.C:
-			default:
-			}
-			// n.log.Debug("expire timer '%s' was already expired, drained channel", timerID)
-		}
-	}
-
-	// Clear all timers
-	n.expireTimers = make(map[string]*time.Timer)
-	n.log.Debug("all expire timers stopped")
-}
-
-// isTimerAllowed 检查是否允许创建新的 timer
-func (n *Node) isTimerAllowed() bool {
-	n.timerAllowedLock.RLock()
-	defer n.timerAllowedLock.RUnlock()
-	return n.timerAllowed
-}
-
-// setTimerAllowed 设置是否允许创建新的 timer
-func (n *Node) setTimerAllowed(allowed bool) {
-	n.timerAllowedLock.Lock()
-	defer n.timerAllowedLock.Unlock()
-	n.timerAllowed = allowed
-}
-
-// addToGlobalTimers 将 timer 添加到全局数组中
-func (n *Node) addToGlobalTimers(timer *time.Timer) {
-	n.globalTimerLock.Lock()
-	defer n.globalTimerLock.Unlock()
-	n.globalTimers = append(n.globalTimers, timer)
-}
-
-// clearAllGlobalTimers 清除所有全局 timer
-func (n *Node) clearAllGlobalTimers() {
-	n.globalTimerLock.Lock()
-	defer n.globalTimerLock.Unlock()
-
-	// 停止所有全局 timer
-	for _, timer := range n.globalTimers {
-		if timer != nil {
-			timer.Stop()
-		}
-	}
-
-	// 清空数组
-	n.globalTimers = make([]*time.Timer, 0)
-	n.log.Info("All global timers cleared and stopped")
-}
-
-// monitorTimer monitors a specific timer and sets expire flag when timeout occurs
-func (n *Node) monitorTimer(timerID string, timer *time.Timer) {
-	if timer == nil {
-		return
-	}
-
-	// Wait for timer to expire
-	<-timer.C
-	n.log.Info("Timer '%s' expired! Setting inViewChange flag to true", timerID)
-
-	// 禁止创建新的 timer
-	n.setTimerAllowed(false)
-	n.log.Info("Timer creation disabled after timer '%s' expiration", timerID)
-
-	// Stop all other timers when this one expires
-	n.StopAllExpireTimers()
-	n.log.Info("All timers stopped after timer '%s' expiration", timerID)
-
-	// 清除所有全局 timer
-	n.clearAllGlobalTimers()
-
-	// start view changer
-	if !n.viewChange.IsInViewChange() {
-		n.log.Info("Start view change!")
-		n.viewChange.StartViewChange(n.viewChange.currentView.Load(), n.lastStableCheckpoint)
-		n.SendViewChangeMessage()
-	}
+func (n *Node) PrintDetails() {
+	// print sequence number
+	fmt.Printf("Node ID: %d, Address: %s, Current View: %d, PrePrepare Sequence Number: %d\n", n.NodeID, n.GetAddr(), n.view, n.preprepareSeqNumber.Load())
+	n.consensusLog.PrintDetails()
 }
 
 func (n *Node) ClientSignatureVerifier() {
@@ -420,6 +96,9 @@ func (n *Node) ClientSignatureVerifier() {
 		case clientMsgSigs := <-n.unverifiedClientMsgsChan:
 
 			// Verify signatures
+			for _, clientMsgSig := range clientMsgSigs {
+				n.verifiedClientMsgsChan <- clientMsgSig
+			}
 			n.log.Info("Verifying client message signatures, count: %d", len(clientMsgSigs))
 		}
 	}
@@ -427,7 +106,7 @@ func (n *Node) ClientSignatureVerifier() {
 
 func (n *Node) VerifiedClientMessageHandler() {
 	const (
-		batchTimeout = 100 * time.Millisecond // Adjust as needed
+		batchTimeout = 5000 * time.Millisecond // Adjust as needed
 	)
 	batch := make([]core.ClientMsgSignature, 0, n.cfg.MaxBlockSize)
 	timer := time.NewTimer(batchTimeout)
@@ -455,6 +134,7 @@ func (n *Node) VerifiedClientMessageHandler() {
 		case <-timer.C:
 			if len(batch) > 0 {
 				// Process whatever is in the batch when the timer expires
+				n.log.Info("Batch timeout reached, processing batch of size: %d", len(batch))
 				n.processClientMessageBatch(batch)
 				batch = nil
 			}
@@ -467,17 +147,11 @@ func (n *Node) processClientMessageBatch(batch []core.ClientMsgSignature) {
 
 	go func() {
 		defer func() { <-n.preprepareSem }()
-		n.preprepare(batch)
+		n.preprepare(batch[0])
 	}()
 }
 
-type PreprepareMsgSigned struct {
-	Msg       PreprepareMsg
-	Signature []byte
-	ClientMsg []core.ClientMsgSignature
-}
-
-func ComputeBatchDigest(batch []core.ClientMsgSignature) ([32]byte, error) {
+func ComputeBatchDigest(batch core.ClientMsg) ([32]byte, error) {
 	// can use buf pool and blake 2b later for optimization
 	// also can have worker for batch digest computation if it becomes bottleneck
 	data, err := json.Marshal(batch)
@@ -486,37 +160,319 @@ func ComputeBatchDigest(batch []core.ClientMsgSignature) ([32]byte, error) {
 	}
 	return sha256.Sum256(data), nil
 }
-func (n *Node) preprepare(batch []core.ClientMsgSignature) {
+func matchingVotes(votes map[int][32]byte, target [32]byte) int {
+	count := 0
+	for _, d := range votes {
+		if d == target {
+			count++
+		}
+	}
+	return count
+}
+
+func (n *Node) broadcastPrepare(view int64, seq int64, digest [32]byte) {
+	msg := core.PrepareMsg{
+		View:   view,
+		SeqNum: seq,
+		Digest: digest,
+		From:   n.GetNodeID(),
+	}
+	// sig := n.sign(marshal(msg))
+	// signed := SignedPrepare{Data: msg, Signature: sig}
+
+	for _, othersIp := range config.NodeAddr {
+		if othersIp == n.GetAddr() {
+			continue
+		}
+		msg.To = othersIp
+		n.messageHub.Send(core.MsgPrepareMessage, othersIp, msg, nil) // cant do go in current
+	}
+}
+
+func (n *Node) broadcastCommit(view, seq int64, digest [32]byte) {
+	msg := core.CommitMsg{
+		View:   view,
+		SeqNum: seq,
+		Digest: digest,
+		From:   n.GetNodeID(),
+	}
+
+	for _, othersIp := range config.NodeAddr {
+		if othersIp == n.GetAddr() {
+			continue
+		}
+		msg.To = othersIp
+		n.messageHub.Send(core.MsgCommitMessage, othersIp, msg, nil) // cant do go in current
+	}
+}
+func (n *Node) preprepare(batch core.ClientMsgSignature) {
+
+	n.viewMu.RLock()
+	if n.viewChangeRunning {
+		n.viewMu.RUnlock()
+		return
+	}
+	view := n.view
+	n.viewMu.RUnlock()
 	seqNum := n.preprepareSeqNumber.Add(1)
 
-	digestClientMsg, err := ComputeBatchDigest(batch)
+	digestClientMsg, err := ComputeBatchDigest(batch.Data)
 	if err != nil {
 		n.log.Error("Failed to compute batch digest: %v", err)
 		return
 	}
 
 	preprepareMsg := core.PreprepareMsg{
-		View:      n.view,
+		View:      view,
 		SeqNum:    seqNum,
 		ClientMsg: batch,
+		// DigestClientMsg: digestClientMsg,
 		// ideally sign preprepare with digest so less costly and piggy back client messages, but for simplicity we sign whole preprepare message here
 	}
 
-	newConsensusSlot := &ConsensusSlot{
-		ClientMsgs:   batch,
-		Phase:        PhasePreprepared,
-		PrepareVotes: make(map[int]bool), // cap from config
-		CommitVotes:  make(map[int]bool),
-	}
-	n.consensusState.mu.Lock()
-	n.consensusState.slots[slotKey{View: n.view, SeqNum: seqNum, Digest: digestClientMsg}] = newConsensusSlot
-	n.consensusState.mu.Unlock()
+	slot := n.consensusLog.getOrCreateLog(seqNum, view)
+	slot.mu.Lock()
+	slot.prePrepare = &preprepareMsg
+	slot.digest = digestClientMsg
+	slot.prepareSent = true
+	slot.mu.Unlock()
 
 	for _, othersIp := range config.NodeAddr {
 		if othersIp == n.GetAddr() {
 			continue
 		}
+		preprepareMsg.To = othersIp
 		n.messageHub.Send(core.MsgPreprepareMessage, othersIp, preprepareMsg, nil) // cant do go in current state race
 	}
 
+}
+
+func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg) {
+	n.viewMu.RLock()
+	if n.viewChangeRunning {
+		n.viewMu.RUnlock()
+		return
+	}
+	view := n.view
+	n.viewMu.RUnlock()
+
+	// --- Validation ---
+	if preprepareMsg.View != view {
+		return
+	}
+	// if pp.SenderID != n.leaderID() {
+	// 	return
+	// }
+	// if pp.SeqNum <= n.LowWaterMark || pp.SeqNum > n.HighWaterMark {
+	// 	return
+	// }
+	// if !n.verify(pp.SenderID, marshal(pp), msg.Signature) {
+	// 	return
+	// }
+	var buf bytes.Buffer
+	gob.NewEncoder(&buf).Encode(preprepareMsg.ClientMsg.Data)
+	verified := crypto.VerifySignatureEd25519(buf.Bytes(), preprepareMsg.ClientMsg.Signature, n.encryptionKeyStore.clientKey)
+	if !verified {
+		n.log.Error("Failed to verify client message signature in PrePrepare from %d, seqNum %d", preprepareMsg.View, preprepareMsg.SeqNum)
+		return
+	}
+
+	digestClientMsg, err := ComputeBatchDigest(preprepareMsg.ClientMsg.Data)
+	if err != nil {
+		n.log.Error("Failed to compute batch digest: %v", err)
+		return
+	}
+	// if !digestEqual(expectedDigest, pp.Digest) {
+	// 	return
+	// }
+
+	slot := n.consensusLog.getOrCreateLog(preprepareMsg.SeqNum, view)
+	slot.mu.Lock()
+
+	// View comparison on the log entry itself
+	if preprepareMsg.View < slot.view {
+		// Stale PrePrepare from an older view — ignore
+		slot.mu.Unlock()
+		return
+	}
+	if preprepareMsg.View > slot.view {
+		// New view for this seq — wipe old state
+		slot.resetForView(preprepareMsg.View)
+	}
+
+	// Already have a PrePrepare for this (view, seq)? Reject duplicate / conflicting.
+	if slot.prePrepare != nil {
+		slot.mu.Unlock()
+		return
+	}
+
+	slot.prePrepare = &preprepareMsg
+	slot.digest = digestClientMsg
+
+	if !slot.prepareSent {
+		slot.prepareSent = true
+		slot.prepares[n.GetNodeID()] = digestClientMsg
+		slot.mu.Unlock()
+		n.broadcastPrepare(view, preprepareMsg.SeqNum, digestClientMsg)
+	} else { //redundant else ?
+		slot.mu.Unlock()
+	}
+
+	// Buffered prepares may now form quorum with the PrePrepare
+	n.tryAdvancePrepare(slot, view, preprepareMsg.SeqNum, digestClientMsg)
+}
+
+func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg) {
+	n.viewMu.RLock()
+	if n.viewChangeRunning {
+		n.viewMu.RUnlock()
+		return
+	}
+	view := n.view
+	n.viewMu.RUnlock()
+
+	if prepareMsg.View != view {
+		return
+	}
+	// if p.SeqNum <= n.LowWaterMark || p.SeqNum > n.HighWaterMark {
+	// 	return
+	// }
+	// if !n.verify(p.SenderID, marshal(p), msg.Signature) {
+	// 	return
+	// }
+
+	slot := n.consensusLog.getOrCreateLog(prepareMsg.SeqNum, view)
+	slot.mu.Lock()
+
+	// View check on the log entry
+	if prepareMsg.View < slot.view {
+		slot.mu.Unlock()
+		return
+	}
+	if prepareMsg.View > slot.view {
+		// Prepare arrived before its PrePrepare in a new view — reset and buffer
+		slot.resetForView(prepareMsg.View)
+	}
+
+	// Digest check: if we have the PrePrepare, the digest must match.
+	// If we don't have it yet, store the prepare anyway (out-of-order).
+	if slot.digest != [32]byte{} && slot.digest != prepareMsg.Digest {
+		slot.mu.Unlock()
+		return
+	}
+
+	slot.prepares[prepareMsg.From] = prepareMsg.Digest
+	slot.mu.Unlock()
+
+	n.tryAdvancePrepare(slot, view, prepareMsg.SeqNum, prepareMsg.Digest)
+}
+
+func (n *Node) HandleCommit(commitMsg core.CommitMsg) {
+	n.viewMu.RLock()
+	if n.viewChangeRunning {
+		n.viewMu.RUnlock()
+		return
+	}
+	view := n.view
+	n.viewMu.RUnlock()
+
+	if commitMsg.View != view {
+		return
+	}
+	// if c.SeqNum <= n.LowWaterMark || c.SeqNum > n.HighWaterMark {
+	// 	return
+	// }
+	// if !n.verify(c.SenderID, marshal(c), msg.Signature) {
+	// 	return
+	// }
+
+	slot := n.consensusLog.getOrCreateLog(commitMsg.SeqNum, view)
+	slot.mu.Lock()
+
+	// View check on the log entry
+	if commitMsg.View < slot.view {
+		slot.mu.Unlock()
+		return
+	}
+	if commitMsg.View > slot.view {
+		// Commit arrived before its PrePrepare in a new view — reset and buffer
+		slot.resetForView(commitMsg.View)
+	}
+
+	if slot.digest != [32]byte{} && slot.digest != commitMsg.Digest {
+		slot.mu.Unlock()
+		return
+	} // msybe not needed here
+
+	slot.commits[commitMsg.From] = commitMsg.Digest
+	slot.mu.Unlock()
+
+	n.tryExecute(slot, commitMsg.SeqNum)
+}
+
+func (n *Node) tryAdvancePrepare(slot *consensusSlot, view, seq int64, digest [32]byte) {
+	slot.mu.Lock()
+	defer slot.mu.Unlock()
+
+	if slot.commitSent {
+		return // already advanced past prepare
+	}
+	if slot.prePrepare == nil || slot.digest == [32]byte{} {
+		return // can't be prepared without PrePrepare
+	}
+	// Need 2f prepares matching our accepted digest.
+	// Leader's PrePrepare is its implicit prepare-phase vote.
+	if len(slot.prepares) < 2*n.fNodes || matchingVotes(slot.prepares, slot.digest) < 2*n.fNodes {
+		return
+	}
+
+	slot.commitSent = true
+	// Add own commit vote with digest before releasing lock
+	slot.commits[n.GetNodeID()] = slot.digest
+
+	// Broadcast Commit (release lock first to avoid holding during I/O)
+	go func() {
+		n.broadcastCommit(view, seq, slot.digest)
+		// After broadcasting, check if commit quorum already met
+		// n.tryExecute(cl, seq)
+	}()
+}
+
+func (n *Node) tryExecute(slot *consensusSlot, seq int64) {
+	slot.mu.Lock()
+	defer slot.mu.Unlock()
+
+	if slot.executed {
+		return
+	}
+	if slot.prePrepare == nil {
+		return
+	}
+	// Must be prepared: have PrePrepare + 2f matching prepares
+	// if matchingVotes(cl.prepares, cl.digest) < 2*n.f {
+	// 	return
+	// }
+	if slot.commitSent == false {
+		return
+	}
+	// Committed-local: 2f+1 matching commits
+	if len(slot.commits) < 2*n.fNodes+1 || matchingVotes(slot.commits, slot.digest) < 2*n.fNodes+1 {
+		return
+	}
+
+	slot.executed = true
+	go n.sendReply(slot.prePrepare.ClientMsg.Data)
+	// slot.prePrepare.ClientMsg.
+	// Deliver to application layer.
+	// Execute in order — hand off to an ordered executor (you'll wire this up).
+	// go n.executeRequest(seq, cl.prePrepare.Data.ClientMsg)
+}
+
+func (n *Node) sendReply(clientMsg core.ClientMsg) {
+	replyMsg := core.ReplyMessage{
+		From:      n.GetAddr(),
+		To:        config.ClientAddr,
+		ClientMsg: clientMsg,
+	}
+	n.messageHub.Send(core.MsgReplyMessage, config.ClientAddr, replyMsg, nil)
 }
