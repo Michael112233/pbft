@@ -1,8 +1,6 @@
 package client
 
 import (
-	"bytes"
-	"encoding/gob"
 	"fmt"
 	"math/big"
 	"time"
@@ -11,6 +9,8 @@ import (
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/crypto"
 	"github.com/michael112233/pbft/result"
+	"github.com/michael112233/pbft/transportpb"
+	"google.golang.org/protobuf/proto"
 )
 
 func GenerateDummyTxs(count int) []*core.Transaction {
@@ -32,7 +32,7 @@ func (c *Client) InjectTxs() {
 		result.SetStartTime(time.Now())
 
 		// Create signed ClientMsgSignature array for all transactions
-		txns := GenerateDummyTxs(30000)
+		txns := GenerateDummyTxs(15000)
 		signedMsgs := make([]core.ClientMsgSignature, len(txns))
 		for i, tx := range txns {
 			clientMsg := core.ClientMsg{
@@ -42,10 +42,13 @@ func (c *Client) InjectTxs() {
 				ClientName: c.name,
 			}
 
-			// Serialize ClientMsg for signing
-			var buf bytes.Buffer
-			gob.NewEncoder(&buf).Encode(clientMsg)
-			signature := crypto.SignMessageEd25519(buf.Bytes(), c.privateKey)
+			// Serialize ClientMsg deterministically via protobuf for signing.
+			clientMsgBytes, err := proto.MarshalOptions{Deterministic: true}.Marshal(transportpb.ClientMsgToPB(clientMsg))
+			if err != nil {
+				c.log.Error("failed to marshal client message for signing: %v", err)
+				continue
+			}
+			signature := crypto.SignMessageEd25519(clientMsgBytes, c.privateKey)
 
 			signedMsgs[i] = core.ClientMsgSignature{
 				Data:      clientMsg,

@@ -141,11 +141,11 @@ type CloseMessage struct {
 // }
 
 type PreprepareMsg struct {
-	View   int64
-	SeqNum int64
-	// DigestClientMsg [32]byte
-	ClientMsg ClientMsgSignature
-	To        string
+	View            int64
+	SeqNum          int64
+	DigestClientMsg [32]byte
+	ClientMsg       ClientMsgSignature
+	To              string
 }
 
 type PrepareMsg struct {

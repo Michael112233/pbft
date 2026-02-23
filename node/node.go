@@ -1,12 +1,9 @@
 package node
 
 import (
-	"bytes"
 	"fmt"
 
 	"crypto/sha256"
-	"encoding/gob"
-	"encoding/json"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,6 +12,8 @@ import (
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/crypto"
 	"github.com/michael112233/pbft/logger"
+	"github.com/michael112233/pbft/transportpb"
+	"google.golang.org/protobuf/proto"
 )
 
 type Node struct {
@@ -158,7 +157,7 @@ func (n *Node) processClientMessageBatch(batch []core.ClientMsgSignature) {
 func ComputeBatchDigest(batch core.ClientMsg) ([32]byte, error) {
 	// can use buf pool and blake 2b later for optimization
 	// also can have worker for batch digest computation if it becomes bottleneck
-	data, err := json.Marshal(batch)
+	data, err := proto.MarshalOptions{Deterministic: true}.Marshal(transportpb.ClientMsgToPB(batch))
 	if err != nil {
 		return [32]byte{}, err
 	}
@@ -227,9 +226,10 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 	}
 
 	preprepareMsg := core.PreprepareMsg{
-		View:      view,
-		SeqNum:    seqNum,
-		ClientMsg: batch,
+		View:            view,
+		SeqNum:          seqNum,
+		ClientMsg:       batch,
+		DigestClientMsg: digestClientMsg,
 		// DigestClientMsg: digestClientMsg,
 		// ideally sign preprepare with digest so less costly and piggy back client messages, but for simplicity we sign whole preprepare message here
 	}
@@ -273,9 +273,12 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg) {
 	// if !n.verify(pp.SenderID, marshal(pp), msg.Signature) {
 	// 	return
 	// }
-	var buf bytes.Buffer
-	gob.NewEncoder(&buf).Encode(preprepareMsg.ClientMsg.Data)
-	verified := crypto.VerifySignatureEd25519(buf.Bytes(), preprepareMsg.ClientMsg.Signature, n.encryptionKeyStore.clientKey)
+	clientMsgBytes, err := proto.MarshalOptions{Deterministic: true}.Marshal(transportpb.ClientMsgToPB(preprepareMsg.ClientMsg.Data))
+	if err != nil {
+		n.log.Error("Failed to marshal client message for signature verification: %v", err)
+		return
+	}
+	verified := crypto.VerifySignatureEd25519(clientMsgBytes, preprepareMsg.ClientMsg.Signature, n.encryptionKeyStore.clientKey)
 	if !verified {
 		n.log.Error("Failed to verify client message signature in PrePrepare from %d, seqNum %d", preprepareMsg.View, preprepareMsg.SeqNum)
 		return
@@ -286,9 +289,10 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg) {
 		n.log.Error("Failed to compute batch digest: %v", err)
 		return
 	}
-	// if !digestEqual(expectedDigest, pp.Digest) {
-	// 	return
-	// }
+	if digestClientMsg != preprepareMsg.DigestClientMsg {
+		n.log.Error("PrePrepare digest mismatch from view %d seq %d", preprepareMsg.View, preprepareMsg.SeqNum)
+		return
+	}
 
 	slot := n.consensusLog.getOrCreateLog(preprepareMsg.SeqNum, view)
 	slot.mu.Lock()

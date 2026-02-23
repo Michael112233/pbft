@@ -1,284 +1,290 @@
 package client
 
 import (
-	"bufio"
-	"bytes"
-	"encoding/binary"
-	"encoding/gob"
+	"context"
+	"errors"
 	"fmt"
 	"io"
-	"net"
 	"sync"
 	"time"
 
+	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/logger"
-	"github.com/michael112233/pbft/network"
+	"github.com/michael112233/pbft/transportpb"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
-// --------------------------------------------------------
-// For Data Structure Definition
-// --------------------------------------------------------
-
-var (
-	conns2Node = network.NewConnectionsMap()
-	listenConn net.Listener
+const (
+	clientDialTimeout   = 3 * time.Second
+	streamRetryInterval = 500 * time.Millisecond
+	sendWaitTimeout     = 5 * time.Second
+	maxGRPCMsgBytes     = 32 * 1024 * 1024
 )
+
+type nodeStreamState struct {
+	conn   *grpc.ClientConn
+	client transportpb.PBFTTransportClient
+	stream transportpb.PBFTTransport_ClientNodeChannelClient
+	sendMu sync.Mutex
+}
 
 type ClientMessageHub struct {
-	exitChan   chan struct{}
 	client_ref *Client
+	log        *logger.Logger
 
-	log *logger.Logger
+	mu      sync.RWMutex
+	streams map[string]*nodeStreamState
+
+	ctx       context.Context
+	cancel    context.CancelFunc
+	workersWG sync.WaitGroup
+	closeOnce sync.Once
 }
 
 func NewClientMessageHub() *ClientMessageHub {
 	return &ClientMessageHub{
-		exitChan: make(chan struct{}, 1),
+		streams: make(map[string]*nodeStreamState),
 	}
 }
 
-func (hub *ClientMessageHub) Start(client *Client, wg *sync.WaitGroup) {
-	if client != nil {
-		hub.client_ref = client
-		hub.log = client.log
-		hub.log.Info("clientMessageHub started")
-		wg.Add(1)
-		go hub.listen(hub.client_ref.GetAddr(), wg)
+func (hub *ClientMessageHub) Start(client *Client, _ *sync.WaitGroup) {
+	if client == nil {
+		return
 	}
+	hub.client_ref = client
+	hub.log = client.log
+	hub.ctx, hub.cancel = context.WithCancel(context.Background())
+
+	for _, nodeAddr := range config.NodeAddr {
+		hub.workersWG.Add(1)
+		go hub.maintainNodeStream(nodeAddr)
+	}
+
+	hub.log.Info("clientMessageHub started")
+	hub.log.Info("client stream workers started for %d nodes", len(config.NodeAddr))
 }
 
 func (hub *ClientMessageHub) Close() {
-	hub.log.Debug("nodeMessageHub closing...")
-	for _, conn := range conns2Node.Connections {
-		conn.Close()
-	}
-	listenConn.Close()
-	hub.log.Debug("messageHub is close.")
+	hub.closeOnce.Do(func() {
+		hub.log.Debug("clientMessageHub closing...")
+		if hub.cancel != nil {
+			hub.cancel()
+		}
+		hub.workersWG.Wait()
+
+		hub.mu.Lock()
+		streams := make([]*nodeStreamState, 0, len(hub.streams))
+		for _, stream := range hub.streams {
+			streams = append(streams, stream)
+		}
+		hub.streams = make(map[string]*nodeStreamState)
+		hub.mu.Unlock()
+
+		for _, stream := range streams {
+			if stream != nil && stream.conn != nil {
+				_ = stream.conn.Close()
+			}
+		}
+		hub.log.Debug("clientMessageHub is close.")
+	})
 }
 
-// --------------------------------------------------------
-// Basic Communication Principles Implementation (like Dial & Listen)
-// --------------------------------------------------------
-func (hub *ClientMessageHub) Dial(addr string) (net.Conn, error) {
-	// 设置连接超时
-	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+func (hub *ClientMessageHub) setNodeStream(addr string, stream *nodeStreamState) {
+	hub.mu.Lock()
+	hub.log.Debug("setNodeStream: target=%s streamExists=%t", addr, hub.streams[addr] != nil)
+	hub.streams[addr] = stream
+	hub.mu.Unlock()
+}
+
+func (hub *ClientMessageHub) clearNodeStream(addr string, expected *nodeStreamState) {
+	hub.mu.Lock()
+	hub.log.Debug("clearNodeStream: target=%s streamExists=%t", addr, hub.streams[addr] != nil)
+	if current, ok := hub.streams[addr]; ok && current == expected {
+		delete(hub.streams, addr)
+	}
+	hub.mu.Unlock()
+}
+
+func (hub *ClientMessageHub) getNodeStream(addr string) *nodeStreamState {
+	hub.mu.RLock()
+	hub.log.Debug("getNodeStream: target=%s streamExists=%t", addr, hub.streams[addr] != nil)
+	stream := hub.streams[addr]
+	hub.mu.RUnlock()
+	return stream
+}
+
+func (hub *ClientMessageHub) openNodeStream(addr string) (*nodeStreamState, error) {
+	conn, err := grpc.NewClient(
+		addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(maxGRPCMsgBytes),
+			grpc.MaxCallSendMsgSize(maxGRPCMsgBytes),
+		),
+	)
 	if err != nil {
-		hub.log.Debug(fmt.Sprintf("DialTCPError: target_addr=%s, err=%v", addr, err))
-		// 再dial一次，但增加延迟
-		time.Sleep(100 * time.Millisecond)
-		hub.log.Debug(fmt.Sprintf("Try dial again... target_addr=%s", addr))
-		conn, err = net.DialTimeout("tcp", addr, 5*time.Second)
+		return nil, err
+	}
+
+	client := transportpb.NewPBFTTransportClient(conn)
+	// Use hub.ctx for stream lifetime. A short timeout context here would
+	// cancel the stream immediately after openNodeStream returns.
+	stream, err := client.ClientNodeChannel(hub.ctx)
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+
+	return &nodeStreamState{
+		conn:   conn,
+		client: client,
+		stream: stream,
+	}, nil
+}
+
+func (hub *ClientMessageHub) maintainNodeStream(addr string) {
+	defer hub.workersWG.Done()
+
+	for {
+		if hub.ctx.Err() != nil {
+			return
+		}
+
+		state, err := hub.openNodeStream(addr)
 		if err != nil {
-			hub.log.Debug(fmt.Sprintf("DialTCPError: target_addr=%s, err=%v", addr, err))
-			return nil, nil
-		} else {
-			hub.log.Debug(fmt.Sprintf("dial success. target_addr=%s", addr))
+			hub.log.Debug("open stream failed. target=%s err=%v", addr, err)
+			select {
+			case <-hub.ctx.Done():
+				return
+			case <-time.After(streamRetryInterval):
+			}
+			continue
+		}
+
+		hub.setNodeStream(addr, state)
+		hub.log.Debug("stream connected. target=%s", addr)
+
+		err = hub.recvLoop(addr, state)
+		hub.clearNodeStream(addr, state)
+		_ = state.conn.Close()
+
+		if hub.ctx.Err() != nil {
+			hub.log.Debug("stream check closed due to context cancellation. target=%s", addr)
+			return
+		}
+		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, context.Canceled) {
+			hub.log.Debug("stream recv ended. target=%s err=%v", addr, err)
+		}
+
+		select {
+		case <-hub.ctx.Done():
+			return
+		case <-time.After(streamRetryInterval):
 		}
 	}
-
-	if tcpConn, ok := conn.(*net.TCPConn); ok {
-		if hub.client_ref != nil && hub.client_ref.config != nil {
-			if err := tcpConn.SetReadBuffer(hub.client_ref.config.TCPReadBufferSize); err != nil {
-				hub.log.Debug(fmt.Sprintf("Failed to set TCP read buffer: %v", err))
-			} else {
-				hub.log.Debug(fmt.Sprintf("Set TCP read buffer to %d bytes", hub.client_ref.config.TCPReadBufferSize))
-			}
-			if err := tcpConn.SetWriteBuffer(hub.client_ref.config.TCPWriteBufferSize); err != nil {
-				hub.log.Debug(fmt.Sprintf("Failed to set TCP write buffer: %v", err))
-			} else {
-				hub.log.Debug(fmt.Sprintf("Set TCP write buffer to %d bytes", hub.client_ref.config.TCPWriteBufferSize))
-			}
-		}
-	}
-
-	return conn, nil
 }
 
-func (hub *ClientMessageHub) packMsg(msgType string, data []byte) []byte {
-	msg := &core.Message{
-		MsgType: msgType,
-		Data:    data,
+func (hub *ClientMessageHub) recvLoop(addr string, state *nodeStreamState) error {
+	for {
+		env, err := state.stream.Recv()
+		if err != nil {
+			hub.log.Debug("stream check recv error. target=%s err=%v", addr, err)
+			return err
+		}
+
+		switch env.MsgType {
+		case core.MsgReplyMessage:
+			reply := env.GetReply()
+			if reply == nil {
+				hub.log.Error("stream reply missing body. target=%s", addr)
+				continue
+			}
+			data, err := transportpb.ReplyFromPB(reply)
+			if err != nil {
+				hub.log.Error("stream reply decode failed. target=%s err=%v", addr, err)
+				continue
+			}
+			go hub.client_ref.HandleReplyMessage(data)
+		default:
+			hub.log.Error("Unknown stream message type received: msgType=%s target=%s", env.MsgType, addr)
+		}
+	}
+}
+
+func (hub *ClientMessageHub) sendToNodeStream(addr string, env *transportpb.Envelope) error {
+	deadline := time.Now().Add(sendWaitTimeout)
+	for {
+		state := hub.getNodeStream(addr)
+		if state != nil {
+			state.sendMu.Lock()
+			err := state.stream.Send(env)
+			state.sendMu.Unlock()
+			if err != nil {
+				hub.clearNodeStream(addr, state)
+				_ = state.conn.Close()
+				return err
+			}
+			return nil
+		}
+
+		if time.Now().After(deadline) {
+			return fmt.Errorf("stream not ready for target %s", addr)
+		}
+
+		select {
+		case <-hub.ctx.Done():
+			return errors.New("client message hub is shutting down")
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
+func (hub *ClientMessageHub) buildEnvelope(msgType string, msg interface{}) (*transportpb.Envelope, error) {
+	env := &transportpb.Envelope{MsgType: msgType}
+
+	switch msgType {
+	case core.MsgRequestMessage:
+		request, ok := msg.(core.RequestMessage)
+		if !ok {
+			return nil, fmt.Errorf("invalid payload type for %s: %T", msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_Request{Request: transportpb.RequestToPB(request)}
+
+	case core.MsgCloseMessage:
+		closeMsg, ok := msg.(core.CloseMessage)
+		if !ok {
+			return nil, fmt.Errorf("invalid payload type for %s: %T", msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_Close{Close: transportpb.CloseToPB(closeMsg)}
+
+	default:
+		return nil, fmt.Errorf("unsupported message type %s", msgType)
 	}
 
-	var buf bytes.Buffer
-	msgEnc := gob.NewEncoder(&buf)
-	err := msgEnc.Encode(msg)
-	if err != nil {
-		hub.log.Error(fmt.Sprintf("gobEncodeErr: err=%v, msg=%v", err, msg))
-	}
-
-	msgBytes := buf.Bytes()
-
-	networkBuf := make([]byte, 4+len(msgBytes))
-	binary.BigEndian.PutUint32(networkBuf[:4], uint32(len(msgBytes)))
-	copy(networkBuf[4:], msgBytes)
-
-	return networkBuf
+	return env, nil
 }
 
 func (hub *ClientMessageHub) Send(msgType string, from string, to string, msg interface{}, callback func(...interface{})) {
-	switch msgType {
-	case core.MsgRequestMessage:
-		hub.sendRequestMessage(msg, from, to)
-	case core.MsgCloseMessage:
-		hub.sendCloseMessage(msg)
-	default:
-		hub.log.Error(fmt.Sprintf("Unknown message type received: msgType=%s", msgType))
-	}
-}
-
-func (hub *ClientMessageHub) listen(addr string, wg *sync.WaitGroup) {
-	defer wg.Done()
-	ln, err := net.Listen("tcp", addr)
+	env, err := hub.buildEnvelope(msgType, msg)
 	if err != nil {
-		hub.log.Error(fmt.Sprintf("Error setting up listener. err: %v", err))
+		hub.log.Error("build envelope failed. msgType=%s err=%v", msgType, err)
 		return
 	}
-	hub.log.Info(fmt.Sprintf("start listening on %s", addr))
-	listenConn = ln
-	defer ln.Close()
 
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			hub.log.Debug("Error accepting connection. Err: " + err.Error())
-			return
-		}
-
-		if tcpConn, ok := conn.(*net.TCPConn); ok {
-			if hub.client_ref != nil && hub.client_ref.config != nil {
-				if err := tcpConn.SetReadBuffer(hub.client_ref.config.TCPReadBufferSize); err != nil {
-					hub.log.Debug(fmt.Sprintf("Failed to set TCP read buffer: %v", err))
-				} else {
-					hub.log.Debug(fmt.Sprintf("Set TCP read buffer to %d bytes for incoming connection", hub.client_ref.config.TCPReadBufferSize))
-				}
-				if err := tcpConn.SetWriteBuffer(hub.client_ref.config.TCPWriteBufferSize); err != nil {
-					hub.log.Debug(fmt.Sprintf("Failed to set TCP write buffer: %v", err))
-				} else {
-					hub.log.Debug(fmt.Sprintf("Set TCP write buffer to %d bytes for incoming connection", hub.client_ref.config.TCPWriteBufferSize))
-				}
-			}
-		}
-
-		go hub.handleConnection(conn, ln)
-	}
-}
-
-func (hub *ClientMessageHub) unpackMsg(packedMsg []byte) *core.Message {
-	var networkBuf bytes.Buffer
-	networkBuf.Write(packedMsg)
-	msgDec := gob.NewDecoder(&networkBuf)
-
-	var msg core.Message
-	err := msgDec.Decode(&msg)
-	if err != nil {
-		hub.log.Error("unpackMsgErr. Err: " + err.Error() + " msgBytes: " + string(packedMsg))
+	if err := hub.sendToNodeStream(to, env); err != nil {
+		hub.log.Error("stream send failed. msgType=%s target=%s err=%v", msgType, to, err)
+		return
 	}
 
-	return &msg
-}
+	if callback != nil {
+		callback()
+	}
 
-func (hub *ClientMessageHub) handleConnection(conn net.Conn, ln net.Listener) {
-	defer conn.Close()
-	for {
-		lenBuf := make([]byte, 4)
-		_, err := io.ReadFull(conn, lenBuf)
-		if err != nil {
-			if err.Error() == "EOF" {
-				return
-			}
-			hub.log.Test("Error reading from connection. Err: " + err.Error())
-			return
-		}
-		length := int(binary.BigEndian.Uint32(lenBuf))
-		packedMsg := make([]byte, length)
-		_, err = io.ReadFull(conn, packedMsg)
-		if err != nil {
-			hub.log.Error("Error reading from connection. Err: " + err.Error())
-		}
-
-		msg := hub.unpackMsg(packedMsg)
-		switch msg.MsgType {
-		case core.MsgReplyMessage:
-			go hub.handleReplyMessage(msg.Data)
-		default:
-			hub.log.Error(fmt.Sprintf("Unknown message type received: msgType=%s", msg.MsgType))
+	if msgType == core.MsgRequestMessage {
+		if request, ok := msg.(core.RequestMessage); ok {
+			hub.log.Info("Msg Sent: MsgRequestMessage, From %s, To %s, Txs %d", from, to, len(request.Txs))
 		}
 	}
-}
-
-// --------------------------------------------------------
-// Communication for Unmarshalling Received Messages
-// --------------------------------------------------------
-func (hub *ClientMessageHub) handleReplyMessage(dataBytes []byte) {
-	var buf bytes.Buffer
-	buf.Write(dataBytes)
-	dataDec := gob.NewDecoder(&buf)
-
-	var data core.ReplyMessage
-	err := dataDec.Decode(&data)
-	if err != nil {
-		hub.log.Error(fmt.Sprintf("handleReplyMessageErr: err=%v, dataBytes=%v", err, dataBytes))
-	}
-	hub.client_ref.HandleReplyMessage(data)
-}
-
-// --------------------------------------------------------
-// Communication for Marshalling Messages to Send
-// --------------------------------------------------------
-func (hub *ClientMessageHub) sendRequestMessage(msg interface{}, from string, to string) {
-	data := msg.(core.RequestMessage)
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-	err := enc.Encode(&data)
-	if err != nil {
-		hub.log.Error(fmt.Sprintf("gobEncodeErr: err=%v, data=%v", err, data))
-	}
-
-	msg_bytes := hub.packMsg("MsgRequestMessage", buf.Bytes())
-
-	addr := to
-	conn, ok := conns2Node.Get(addr)
-	if !ok {
-		conn, err = hub.Dial(addr)
-		if err != nil || conn == nil {
-			hub.log.Error(fmt.Sprintf("Dial Error. Send Request Message. caller: %s targetAddr: %s", from, addr))
-			return
-		}
-		conns2Node.Add(addr, conn)
-	}
-	writer := bufio.NewWriter(conn)
-	writer.Write(msg_bytes)
-	writer.Flush()
-
-	hub.log.Info(fmt.Sprintf("Msg Sent: MsgRequestMessage, From %s, To %s, Txs %d", from, to, len(data.Txs)))
-}
-
-func (hub *ClientMessageHub) sendCloseMessage(msg interface{}) {
-	data := msg.(core.CloseMessage)
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-	err := enc.Encode(&data)
-	if err != nil {
-		hub.log.Error(fmt.Sprintf("gobEncodeErr: err=%v, data=%v", err, data))
-	}
-
-	msg_bytes := hub.packMsg("MsgCloseMessage", buf.Bytes())
-
-	addr := data.To
-	conn, ok := conns2Node.Get(addr)
-	if !ok {
-		conn, err = hub.Dial(addr)
-		if err != nil || conn == nil {
-			hub.log.Error(fmt.Sprintf("Dial Error. Send Close Message. caller: %s targetAddr: %s", data.From, addr))
-			return
-		}
-		conns2Node.Add(addr, conn)
-	}
-	writer := bufio.NewWriter(conn)
-	writer.Write(msg_bytes)
-	writer.Flush()
-
-	hub.log.Info(fmt.Sprintf("Msg Sent: MsgCloseMessage, From %s, To %s", data.From, data.To))
 }

@@ -1,0 +1,95 @@
+syntax = "proto3";
+
+package pbft.transport.v1;
+
+option go_package = "github.com/michael112233/pbft/transportpb;transportpb";
+
+message Transaction {
+  string sender = 1;
+  string receiver = 2;
+  string amount = 3;
+  int64 timestamp = 4;
+}
+
+message ClientMsg {
+  int64 id = 1;
+  int64 timestamp = 2;
+  Transaction txn = 3;
+  string client_name = 4;
+}
+
+message ClientMsgSignature {
+  ClientMsg data = 1;
+  bytes signature = 2;
+}
+
+message RequestMessage {
+  repeated ClientMsgSignature txs = 1;
+}
+
+message PreprepareMsg {
+  int64 view = 1;
+  int64 seq_num = 2;
+  ClientMsgSignature client_msg = 3;
+  string to = 4;
+  bytes digest_client_msg = 5;
+}
+
+message PreprepareSignPayload {
+  int64 view = 1;
+  int64 seq_num = 2;
+  bytes digest_client_msg = 3;
+  string to = 4;
+}
+
+message PrepareMsg {
+  int64 view = 1;
+  int64 seq_num = 2;
+  bytes digest = 3;
+  int32 from = 4;
+  string to = 5;
+}
+
+message CommitMsg {
+  int64 view = 1;
+  int64 seq_num = 2;
+  bytes digest = 3;
+  int32 from = 4;
+  string to = 5;
+}
+
+message ReplyMessage {
+  string to = 1;
+  string from = 2;
+  ClientMsg client_msg = 3;
+}
+
+message CloseMessage {
+  int64 timestamp = 1;
+  string from = 2;
+  string to = 3;
+}
+
+message Envelope {
+  string msg_type = 1;
+  int32 from = 2;
+  bytes signature = 3;
+  oneof body {
+    RequestMessage request = 10;
+    PreprepareMsg preprepare = 11;
+    PrepareMsg prepare = 12;
+    CommitMsg commit = 13;
+    ReplyMessage reply = 14;
+    CloseMessage close = 15;
+  }
+}
+
+message Ack {
+  bool ok = 1;
+  string error = 2;
+}
+
+service PBFTTransport {
+  rpc Deliver(Envelope) returns (Ack);
+  rpc ClientNodeChannel(stream Envelope) returns (stream Envelope);
+}

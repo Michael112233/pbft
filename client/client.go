@@ -59,6 +59,7 @@ func (c *Client) Start() {
 
 func (c *Client) Stop() {
 	c.WaitGroup.Wait()
+	c.messageHub.Close()
 	c.log.Debug("client stopped")
 }
 

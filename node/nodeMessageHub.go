@@ -1,10 +1,8 @@
 package node
 
 import (
-	"bufio"
-	"bytes"
-	"encoding/binary"
-	"encoding/gob"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -14,702 +12,458 @@ import (
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/crypto"
 	"github.com/michael112233/pbft/logger"
-	"github.com/michael112233/pbft/network"
+	"github.com/michael112233/pbft/transportpb"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/proto"
 )
 
-// --------------------------------------------------------
-// For Data Structure Definition
-// --------------------------------------------------------
-var (
-	conns2Node = network.NewConnectionsMap()
-	listenConn net.Listener
+const (
+	rpcTimeout      = 60 * time.Second
+	maxGRPCMsgBytes = 32 * 1024 * 1024
 )
+
+type clientStreamState struct {
+	stream transportpb.PBFTTransport_ClientNodeChannelServer
+	sendMu sync.Mutex
+}
 
 type NodeMessageHub struct {
-	exitChan chan struct{}
-	node_ref *Node
+	transportpb.UnimplementedPBFTTransportServer
 
-	log *logger.Logger
+	node_ref *Node
+	log      *logger.Logger
+
+	mu        sync.RWMutex
+	clients   map[string]transportpb.PBFTTransportClient
+	conns     map[string]*grpc.ClientConn
+	grpcSrv   *grpc.Server
+	listener  net.Listener
+	closeOnce sync.Once
+
+	clientStreamMu sync.RWMutex
+	clientStream   *clientStreamState
 }
 
 func NewNodeMessageHub() *NodeMessageHub {
 	return &NodeMessageHub{
-		exitChan: make(chan struct{}, 1),
+		clients: make(map[string]transportpb.PBFTTransportClient),
+		conns:   make(map[string]*grpc.ClientConn),
 	}
 }
 
 func (hub *NodeMessageHub) Start(node *Node, wg *sync.WaitGroup) {
-	if node != nil {
-		hub.node_ref = node
-		hub.log = node.log
-		wg.Add(1)
-		go hub.listen(hub.node_ref.GetAddr(), wg)
+	if node == nil {
+		return
 	}
+	hub.node_ref = node
+	hub.log = node.log
+
+	lis, err := net.Listen("tcp", hub.node_ref.GetAddr())
+	if err != nil {
+		hub.log.Error("Error setting up gRPC listener: err=%v", err)
+		return
+	}
+
+	hub.mu.Lock()
+	hub.listener = lis
+	hub.grpcSrv = grpc.NewServer(
+		grpc.MaxRecvMsgSize(maxGRPCMsgBytes),
+		grpc.MaxSendMsgSize(maxGRPCMsgBytes),
+	)
+	transportpb.RegisterPBFTTransportServer(hub.grpcSrv, hub)
+	hub.mu.Unlock()
+
+	hub.log.Info("start gRPC listening on %s", hub.node_ref.GetAddr())
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := hub.grpcSrv.Serve(lis); err != nil {
+			hub.log.Debug("gRPC server stopped: err=%v", err)
+		}
+	}()
 }
 
 func (hub *NodeMessageHub) Close() {
-	// 关闭所有tcp连接，防止资源泄露
-	hub.log.Debug("nodeMessageHub closing...")
-	for _, conn := range conns2Node.Connections {
-		conn.Close()
-	}
-	// if listenConn != nil {
-	// 	listenConn.Close()
-	// }
-	hub.log.Debug("messageHub is close.")
-}
+	hub.closeOnce.Do(func() {
+		hub.log.Debug("nodeMessageHub closing...")
 
-// --------------------------------------------------------
-// Basic Communication Principles Implementation (like Dial & Listen)
-// --------------------------------------------------------
-func (hub *NodeMessageHub) Dial(addr string) (net.Conn, error) {
-	// 设置连接超时
-	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
-	if err != nil {
-		hub.log.Debug(fmt.Sprintf("DialTCPError: target_addr=%s, err=%v", addr, err))
-		// 再dial一次，但增加延迟
-		time.Sleep(100 * time.Millisecond)
-		hub.log.Debug(fmt.Sprintf("Try dial again... target_addr=%s", addr))
-		conn, err = net.DialTimeout("tcp", addr, 5*time.Second)
-		if err != nil {
-			hub.log.Debug(fmt.Sprintf("DialTCPError: target_addr=%s, err=%v", addr, err))
-			return nil, err
-		} else {
-			hub.log.Debug(fmt.Sprintf("dial success. target_addr=%s", addr))
+		hub.mu.Lock()
+		grpcSrv := hub.grpcSrv
+		listener := hub.listener
+		conns := make([]*grpc.ClientConn, 0, len(hub.conns))
+		for _, conn := range hub.conns {
+			conns = append(conns, conn)
 		}
-	}
+		hub.clients = make(map[string]transportpb.PBFTTransportClient)
+		hub.conns = make(map[string]*grpc.ClientConn)
+		hub.mu.Unlock()
 
-	// 设置TCP缓冲区大小
-	if tcpConn, ok := conn.(*net.TCPConn); ok {
-		if hub.node_ref != nil && hub.node_ref.cfg != nil {
-			// 设置接收缓冲区
-			if err := tcpConn.SetReadBuffer(hub.node_ref.cfg.TCPReadBufferSize); err != nil {
-				hub.log.Debug(fmt.Sprintf("Failed to set TCP read buffer: %v", err))
-			} else {
-				hub.log.Debug(fmt.Sprintf("Set TCP read buffer to %d bytes", hub.node_ref.cfg.TCPReadBufferSize))
-			}
-			// 设置发送缓冲区
-			if err := tcpConn.SetWriteBuffer(hub.node_ref.cfg.TCPWriteBufferSize); err != nil {
-				hub.log.Debug(fmt.Sprintf("Failed to set TCP write buffer: %v", err))
-			} else {
-				hub.log.Debug(fmt.Sprintf("Set TCP write buffer to %d bytes", hub.node_ref.cfg.TCPWriteBufferSize))
-			}
+		hub.clientStreamMu.Lock()
+		hub.clientStream = nil
+		hub.clientStreamMu.Unlock()
+
+		if grpcSrv != nil {
+			grpcSrv.Stop()
 		}
-	}
-
-	return conn, nil
-}
-
-func (hub *NodeMessageHub) packMsg(msgType string, data []byte) []byte {
-	msg := &core.Message{
-		MsgType: msgType,
-		Data:    data,
-	}
-
-	var buf bytes.Buffer
-	msgEnc := gob.NewEncoder(&buf)
-	err := msgEnc.Encode(msg)
-	if err != nil {
-		hub.log.Error(fmt.Sprintf("gobEncodeErr: err=%v, msg=%v", err, msg))
-	}
-
-	msgBytes := buf.Bytes()
-
-	// 前缀加上长度，防止粘包
-	networkBuf := make([]byte, 4+len(msgBytes))
-	binary.BigEndian.PutUint32(networkBuf[:4], uint32(len(msgBytes)))
-	copy(networkBuf[4:], msgBytes)
-
-	return networkBuf
-}
-
-func (hub *NodeMessageHub) packMsgWithSignature(msgType string, data []byte, signature []byte, from int) []byte {
-	msg := &core.Message{
-		MsgType:   msgType,
-		Data:      data,
-		Signature: signature,
-		From:      from,
-	}
-
-	var buf bytes.Buffer
-	msgEnc := gob.NewEncoder(&buf)
-	err := msgEnc.Encode(msg)
-	if err != nil {
-		hub.log.Error(fmt.Sprintf("pms gobEncodeErr: err=%v, msg=%v", err, msg))
-	}
-
-	msgBytes := buf.Bytes()
-	networkBuf := make([]byte, 4+len(msgBytes))
-	binary.BigEndian.PutUint32(networkBuf[:4], uint32(len(msgBytes)))
-	copy(networkBuf[4:], msgBytes)
-
-	return networkBuf
-}
-
-func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, callback func(...interface{})) {
-	switch msgType {
-	case core.MsgPreprepareMessage:
-		hub.sendPreprepareMessage(msg)
-	case core.MsgPrepareMessage:
-		hub.sendPrepareMessage(msg)
-	case core.MsgCommitMessage:
-		hub.sendCommitMessage(msg)
-	case core.MsgReplyMessage:
-		hub.sendReplyMessage(msg)
-	case core.MsgViewChangeMessage:
-		// hub.sendViewChangeMessage(msg)
-	case core.MsgCheckpointMessage:
-		// hub.sendCheckpointMessage(msg)
-	case core.MsgNewViewMessage:
-		// hub.sendNewViewMessage(msg)
-	case core.MsgMempoolMessage:
-		// hub.sendMempoolMessage(msg)
-	// case core.MsgRequestVote:
-	// 	hub.sendRequestVoteMessage(msg)
-	// case core.MsgRequestVoteResponse:
-	// 	hub.sendRequestVoteResponseMessage(msg)
-	// case core.MsgAppendEntries:
-	// 	hub.sendAppendEntriesMessage(msg)
-	default:
-		hub.log.Error("Unknown message type received. msgType=" + msgType)
-	}
-}
-
-func (hub *NodeMessageHub) listen(addr string, wg *sync.WaitGroup) {
-	defer wg.Done()
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		hub.log.Error(fmt.Sprintf("Error setting up listener: err=%v", err))
-		return
-	}
-	hub.log.Info(fmt.Sprintf("start listening on %s", addr))
-	listenConn = ln
-	defer ln.Close()
-
-	for {
-		// // 超过时间限制没有收到新的连接则退出
-		// ln.(*net.TCPListener).SetDeadline(time.Now().Add(10 * time.Second))
-		conn, err := ln.Accept()
-		if err != nil {
-			hub.log.Debug(fmt.Sprintf("Error accepting connection: err=%v", err))
-			return
+		if listener != nil {
+			_ = listener.Close()
 		}
-
-		// 设置TCP缓冲区大小（对于接收到的连接）
-		if tcpConn, ok := conn.(*net.TCPConn); ok {
-			if hub.node_ref != nil && hub.node_ref.cfg != nil {
-				// 设置接收缓冲区
-				if err := tcpConn.SetReadBuffer(hub.node_ref.cfg.TCPReadBufferSize); err != nil {
-					hub.log.Debug(fmt.Sprintf("Failed to set TCP read buffer: %v", err))
-				} else {
-					hub.log.Debug(fmt.Sprintf("Set TCP read buffer to %d bytes for incoming connection", hub.node_ref.cfg.TCPReadBufferSize))
-				}
-				// 设置发送缓冲区
-				if err := tcpConn.SetWriteBuffer(hub.node_ref.cfg.TCPWriteBufferSize); err != nil {
-					hub.log.Debug(fmt.Sprintf("Failed to set TCP write buffer: %v", err))
-				} else {
-					hub.log.Debug(fmt.Sprintf("Set TCP write buffer to %d bytes for incoming connection", hub.node_ref.cfg.TCPWriteBufferSize))
-				}
-			}
+		for _, conn := range conns {
+			_ = conn.Close()
 		}
+		hub.log.Debug("messageHub is close.")
+	})
+}
 
-		go hub.handleConnection(conn, ln)
+func marshalDeterministic(msg proto.Message) ([]byte, error) {
+	return proto.MarshalOptions{Deterministic: true}.Marshal(msg)
+}
+
+func errInvalidPayloadType(msgType string, payload interface{}) error {
+	return fmt.Errorf("invalid payload type for %s: %T", msgType, payload)
+}
+
+func errUnknownMessageType(msgType string) error {
+	return fmt.Errorf("unknown message type %s", msgType)
+}
+
+func preprepareSignPayload(msg *transportpb.PreprepareMsg) *transportpb.PreprepareSignPayload {
+	if msg == nil {
+		return nil
+	}
+	return &transportpb.PreprepareSignPayload{
+		View:            msg.View,
+		SeqNum:          msg.SeqNum,
+		DigestClientMsg: msg.DigestClientMsg,
+		To:              msg.To,
 	}
 }
 
-func (hub *NodeMessageHub) unpackMsg(packedMsg []byte) *core.Message {
-	var networkBuf bytes.Buffer
-	networkBuf.Write(packedMsg)
-	msgDec := gob.NewDecoder(&networkBuf)
-
-	var msg core.Message
-	err := msgDec.Decode(&msg)
-	if err != nil {
-		hub.log.Error(fmt.Sprintf("unpackMsgErr: err=%v, msgBytes=%v", err, packedMsg))
-	}
-
-	return &msg
-}
-
-func (hub *NodeMessageHub) verifySignature(msg *core.Message) bool {
-	senderNodeId := msg.From
-	senderPubKey, exists := hub.node_ref.encryptionKeyStore.GetPublicKey(senderNodeId)
+func (hub *NodeMessageHub) verifySignature(from int, signature []byte, payload proto.Message) bool {
+	senderPubKey, exists := hub.node_ref.encryptionKeyStore.GetPublicKey(from)
 	if !exists {
-		hub.log.Error(fmt.Sprintf("Public key not found for sender node ID: %d", senderNodeId))
+		hub.log.Error("Public key not found for sender node ID: %d", from)
 		return false
 	}
-	if !crypto.VerifySignatureEd25519(msg.Data, msg.Signature, senderPubKey) {
-		hub.log.Error(fmt.Sprintf("Signature verification failed for message from node ID: %d", senderNodeId))
+	payloadBytes, err := marshalDeterministic(payload)
+	if err != nil {
+		hub.log.Error("payload marshal failed: err=%v", err)
+		return false
+	}
+	if !crypto.VerifySignatureEd25519(payloadBytes, signature, senderPubKey) {
+		hub.log.Error("Signature verification failed for message from node ID: %d", from)
 		return false
 	}
 	return true
 }
 
-func (hub *NodeMessageHub) handleConnection(conn net.Conn, ln net.Listener) {
-	defer conn.Close()
+func (hub *NodeMessageHub) setClientStream(s *clientStreamState) {
+	hub.clientStreamMu.Lock()
+	hub.clientStream = s
+	hub.clientStreamMu.Unlock()
+}
+
+func (hub *NodeMessageHub) clearClientStream(s *clientStreamState) {
+	hub.clientStreamMu.Lock()
+	if hub.clientStream == s {
+		hub.clientStream = nil
+	}
+	hub.clientStreamMu.Unlock()
+}
+
+func (hub *NodeMessageHub) sendReplyOverClientStream(reply core.ReplyMessage) error {
+	hub.clientStreamMu.RLock()
+	streamState := hub.clientStream
+	hub.clientStreamMu.RUnlock()
+	if streamState == nil {
+		return errors.New("client stream is not connected")
+	}
+	env := &transportpb.Envelope{
+		MsgType: core.MsgReplyMessage,
+		Body: &transportpb.Envelope_Reply{
+			Reply: transportpb.ReplyToPB(reply),
+		},
+	}
+	streamState.sendMu.Lock()
+	defer streamState.sendMu.Unlock()
+	return streamState.stream.Send(env)
+}
+
+func (hub *NodeMessageHub) ClientNodeChannel(stream transportpb.PBFTTransport_ClientNodeChannelServer) error {
+	streamState := &clientStreamState{stream: stream}
+	hub.setClientStream(streamState)
+	defer hub.clearClientStream(streamState)
+
 	for {
-		lenBuf := make([]byte, 4)
-		_, err := io.ReadFull(conn, lenBuf)
+		env, err := stream.Recv()
 		if err != nil {
-			if err.Error() == "EOF" {
-				// 发送端主动关闭连接
-				return
+			if errors.Is(err, io.EOF) {
+				return nil
 			}
-			hub.log.Debug(fmt.Sprintf("Error reading from connection: err=%v", err))
-			return
-		}
-		length := int(binary.BigEndian.Uint32(lenBuf))
-		packedMsg := make([]byte, length)
-		_, err = io.ReadFull(conn, packedMsg)
-		if err != nil {
-			hub.log.Error(fmt.Sprintf("Error reading from connection: err=%v", err))
+			return err
 		}
 
-		msg := hub.unpackMsg(packedMsg)
-
-		if msg.MsgType == core.MsgPreprepareMessage || msg.MsgType == core.MsgPrepareMessage || msg.MsgType == core.MsgCommitMessage || msg.MsgType == core.MsgCheckpointMessage {
-			if !hub.verifySignature(msg) {
+		switch env.MsgType {
+		case core.MsgRequestMessage:
+			request := env.GetRequest()
+			if request == nil {
 				continue
 			}
-		}
+			data, err := transportpb.RequestFromPB(request)
+			if err != nil {
+				hub.log.Error("stream request decode failed: err=%v", err)
+				continue
+			}
+			go hub.node_ref.HandleRequestMessage(data)
 
-		switch msg.MsgType {
-		case core.MsgRequestMessage:
-			go hub.handleRequestMessage(msg.Data)
-		case core.MsgPreprepareMessage:
-			go hub.handlePreprepareMessage(msg.Data)
-		case core.MsgPrepareMessage:
-			go hub.handlePrepareMessage(msg.Data)
-		case core.MsgCommitMessage:
-			go hub.handleCommitMessage(msg.Data)
 		case core.MsgCloseMessage:
-			hub.handleCloseMessage(msg.Data)
-		case core.MsgViewChangeMessage:
-			// hub.handleViewChangeMessage(msg.Data)
-		case core.MsgCheckpointMessage:
-			// hub.handleCheckpointMessage(msg.Data)
-		case core.MsgNewViewMessage:
-			// hub.handleNewViewMessage(msg.Data)
-		case core.MsgMempoolMessage:
-			// hub.handleMempoolMessage(msg.Data)
-		// case core.MsgRequestVote:
-		// 	hub.handleRequestVoteMessage(msg.Data)
-		// case core.MsgRequestVoteResponse:
-		// 	hub.handleRequestVoteResponseMessage(msg.Data)
-		// case core.MsgAppendEntries:
-		// 	hub.handleAppendEntriesMessage(msg.Data)
+			return nil
+
 		default:
-			hub.log.Error(fmt.Sprintf("Unknown message type received: msgType=%s", msg.MsgType))
+			hub.log.Error("Unknown stream message type received: msgType=%s", env.MsgType)
 		}
 	}
 }
 
-// --------------------------------------------------------
-// Communication for Unmarshalling messages to Node
-// --------------------------------------------------------
+func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope) (*transportpb.Ack, error) {
+	switch env.MsgType {
+	case core.MsgRequestMessage:
+		request := env.GetRequest()
+		if request == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing request body"}, nil
+		}
+		data, err := transportpb.RequestFromPB(request)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		go hub.node_ref.HandleRequestMessage(data)
+		return &transportpb.Ack{Ok: true}, nil
 
-func (hub *NodeMessageHub) handleRequestMessage(dataBytes []byte) {
-	var buf bytes.Buffer
-	buf.Write(dataBytes)
-	dataDec := gob.NewDecoder(&buf)
+	case core.MsgPreprepareMessage:
+		preprepare := env.GetPreprepare()
+		if preprepare == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing preprepare body"}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, preprepareSignPayload(preprepare)) {
+			hub.log.Error("Signature verification failed for PrePrepare message from node ID: %d", env.From)
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.PreprepareFromPB(preprepare)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		go hub.node_ref.HandlePrePrepare(data)
+		return &transportpb.Ack{Ok: true}, nil
 
-	var data core.RequestMessage
-	err := dataDec.Decode(&data)
-	if err != nil {
-		hub.log.Error(fmt.Sprintf("handleRequestMessageErr: err=%v, dataBytes=%v", err, dataBytes))
+	case core.MsgPrepareMessage:
+		prepare := env.GetPrepare()
+		if prepare == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing prepare body"}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, prepare) {
+			hub.log.Error("Signature verification failed for Prepare message from node ID: %d", env.From)
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.PrepareFromPB(prepare)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		go hub.node_ref.HandlePrepare(data)
+		return &transportpb.Ack{Ok: true}, nil
+
+	case core.MsgCommitMessage:
+		commit := env.GetCommit()
+		if commit == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing commit body"}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, commit) {
+			hub.log.Error("Signature verification failed for Commit message from node ID: %d", env.From)
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.CommitFromPB(commit)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		go hub.node_ref.HandleCommit(data)
+		return &transportpb.Ack{Ok: true}, nil
+
+	case core.MsgCloseMessage:
+		_ = env.GetClose()
+		return &transportpb.Ack{Ok: true}, nil
+
+	default:
+		errMsg := "unknown message type: " + env.MsgType
+		hub.log.Error("%s", errMsg)
+		return &transportpb.Ack{Ok: false, Error: errMsg}, nil
 	}
-
-	hub.node_ref.HandleRequestMessage(data)
 }
 
-func (hub *NodeMessageHub) handlePreprepareMessage(dataBytes []byte) {
-	var buf bytes.Buffer
-	buf.Write(dataBytes)
-	dataDec := gob.NewDecoder(&buf)
-
-	var data core.PreprepareMsg
-	err := dataDec.Decode(&data)
-	if err != nil {
-		hub.log.Error(fmt.Sprintf("handlePreprepareMessageErr: err=%v, dataBytes=%v", err, dataBytes))
+func (hub *NodeMessageHub) getOrCreateClient(addr string) (transportpb.PBFTTransportClient, error) {
+	hub.mu.RLock()
+	client, ok := hub.clients[addr]
+	hub.mu.RUnlock()
+	if ok {
+		return client, nil
 	}
 
-	hub.node_ref.HandlePrePrepare(data)
+	conn, err := grpc.NewClient(
+		addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(maxGRPCMsgBytes),
+			grpc.MaxCallSendMsgSize(maxGRPCMsgBytes),
+		),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	createdClient := transportpb.NewPBFTTransportClient(conn)
+
+	hub.mu.Lock()
+	if existingClient, exists := hub.clients[addr]; exists {
+		hub.mu.Unlock()
+		_ = conn.Close()
+		return existingClient, nil
+	}
+	hub.clients[addr] = createdClient
+	hub.conns[addr] = conn
+	hub.mu.Unlock()
+
+	return createdClient, nil
 }
 
-func (hub *NodeMessageHub) handlePrepareMessage(dataBytes []byte) {
-	var buf bytes.Buffer
-	buf.Write(dataBytes)
-	dataDec := gob.NewDecoder(&buf)
-
-	var data core.PrepareMsg
-	err := dataDec.Decode(&data)
-	if err != nil {
-		hub.log.Error(fmt.Sprintf("handlePrepareMessageErr: err=%v, dataBytes=%v", err, dataBytes))
+func (hub *NodeMessageHub) dropClient(addr string) {
+	hub.mu.Lock()
+	conn, ok := hub.conns[addr]
+	if ok {
+		delete(hub.conns, addr)
+		delete(hub.clients, addr)
 	}
-	hub.node_ref.HandlePrepare(data)
+	hub.mu.Unlock()
+	if ok {
+		_ = conn.Close()
+	}
 }
 
-func (hub *NodeMessageHub) handleCommitMessage(dataBytes []byte) {
-	var buf bytes.Buffer
-	buf.Write(dataBytes)
-	dataDec := gob.NewDecoder(&buf)
+func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}) (*transportpb.Envelope, error) {
+	env := &transportpb.Envelope{MsgType: msgType}
 
-	var data core.CommitMsg
-	err := dataDec.Decode(&data)
-	if err != nil {
-		hub.log.Error(fmt.Sprintf("handleCommitMessageErr: err=%v, dataBytes=%v", err, dataBytes))
+	switch msgType {
+	case core.MsgRequestMessage:
+		request, ok := msg.(core.RequestMessage)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_Request{Request: transportpb.RequestToPB(request)}
+
+	case core.MsgPreprepareMessage:
+		preprepare, ok := msg.(core.PreprepareMsg)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		pbMsg := transportpb.PreprepareToPB(preprepare)
+		payloadBytes, err := marshalDeterministic(preprepareSignPayload(pbMsg))
+		if err != nil {
+			return nil, err
+		}
+		env.Body = &transportpb.Envelope_Preprepare{Preprepare: pbMsg}
+		env.From = int32(hub.node_ref.GetNodeID())
+		env.Signature = crypto.SignMessageEd25519(payloadBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey())
+
+	case core.MsgPrepareMessage:
+		prepare, ok := msg.(core.PrepareMsg)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		pbMsg := transportpb.PrepareToPB(prepare)
+		payloadBytes, err := marshalDeterministic(pbMsg)
+		if err != nil {
+			return nil, err
+		}
+		env.Body = &transportpb.Envelope_Prepare{Prepare: pbMsg}
+		env.From = int32(hub.node_ref.GetNodeID())
+		env.Signature = crypto.SignMessageEd25519(payloadBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey())
+
+	case core.MsgCommitMessage:
+		commit, ok := msg.(core.CommitMsg)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		pbMsg := transportpb.CommitToPB(commit)
+		payloadBytes, err := marshalDeterministic(pbMsg)
+		if err != nil {
+			return nil, err
+		}
+		env.Body = &transportpb.Envelope_Commit{Commit: pbMsg}
+		env.From = int32(hub.node_ref.GetNodeID())
+		env.Signature = crypto.SignMessageEd25519(payloadBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey())
+
+	case core.MsgReplyMessage:
+		reply, ok := msg.(core.ReplyMessage)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_Reply{Reply: transportpb.ReplyToPB(reply)}
+
+	case core.MsgCloseMessage:
+		closeMsg, ok := msg.(core.CloseMessage)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_Close{Close: transportpb.CloseToPB(closeMsg)}
+
+	default:
+		return nil, errUnknownMessageType(msgType)
 	}
-	hub.node_ref.HandleCommit(data)
+
+	return env, nil
 }
 
-func (hub *NodeMessageHub) handleCloseMessage(dataBytes []byte) {
-	var buf bytes.Buffer
-	buf.Write(dataBytes)
-	dataDec := gob.NewDecoder(&buf)
-
-	var data core.CloseMessage
-	err := dataDec.Decode(&data)
-	if err != nil {
-		hub.log.Error(fmt.Sprintf("handleCloseMessageErr: err=%v, dataBytes=%v", err, dataBytes))
-	}
-	// hub.node_ref.HandleCloseMessage(data)
-}
-
-// func (hub *NodeMessageHub) handleViewChangeMessage(dataBytes []byte) {
-// 	var buf bytes.Buffer
-// 	buf.Write(dataBytes)
-// 	dataDec := gob.NewDecoder(&buf)
-
-// 	var data core.ViewChangeMessage
-// 	err := dataDec.Decode(&data)
-// 	if err != nil {
-// 		hub.log.Error(fmt.Sprintf("handleViewChangeMessageErr: err=%v, dataBytes=%v", err, dataBytes))
-// 	}
-// 	hub.node_ref.HandleViewChangeMessage(data)
-// }
-
-// func (hub *NodeMessageHub) handleCheckpointMessage(dataBytes []byte) {
-// 	var buf bytes.Buffer
-// 	buf.Write(dataBytes)
-// 	dataDec := gob.NewDecoder(&buf)
-
-// 	var data core.CheckpointMessage
-// 	err := dataDec.Decode(&data)
-// 	if err != nil {
-// 		hub.log.Error(fmt.Sprintf("handleCheckpointMessageErr: err=%v, dataBytes=%v", err, dataBytes))
-// 	}
-// 	hub.node_ref.HandleCheckpointMessage(data)
-// }
-
-// func (hub *NodeMessageHub) handleNewViewMessage(dataBytes []byte) {
-// 	var buf bytes.Buffer
-// 	buf.Write(dataBytes)
-// 	dataDec := gob.NewDecoder(&buf)
-
-// 	var data core.NewViewMessage
-// 	err := dataDec.Decode(&data)
-// 	if err != nil {
-// 		hub.log.Error(fmt.Sprintf("handleNewViewMessageErr: err=%v, dataBytes=%v", err, dataBytes))
-// 	}
-// 	hub.node_ref.HandleNewViewMessage(data)
-// }
-
-// func (hub *NodeMessageHub) handleMempoolMessage(dataBytes []byte) {
-// 	var buf bytes.Buffer
-// 	buf.Write(dataBytes)
-// 	dataDec := gob.NewDecoder(&buf)
-
-// 	var data core.MempoolMsg
-// 	err := dataDec.Decode(&data)
-// 	if err != nil {
-// 		hub.log.Error(fmt.Sprintf("handleNewViewMessageErr: err=%v, dataBytes=%v", err, dataBytes))
-// 	}
-// 	hub.node_ref.HandleMempoolMessage(data)
-// }
-
-// --------------------------------------------------------
-// Communication for Marshalling Messages to Send
-// --------------------------------------------------------
-func (hub *NodeMessageHub) sendPreprepareMessage(msg interface{}) {
-	data := msg.(core.PreprepareMsg)
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-	err := enc.Encode(&data)
-	if err != nil {
-		hub.log.Error(fmt.Sprintf("gobEncodeErr. Send Preprepare Message. caller: %d targetAddr: %s", data.View, data.To))
-	}
-	dataBytes := buf.Bytes()
-	signature := crypto.SignMessageEd25519(dataBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey())
-	// // msg_bytes := hub.packMsg("MsgPreprepareMessage", buf.Bytes())
-	msg_bytes := hub.packMsgWithSignature("MsgPreprepareMessage", dataBytes, signature, int(hub.node_ref.GetNodeID()))
-	msg_size := len(msg_bytes)
-	// tx_count := 0
-	// if data.RequestMessage != nil && data.RequestMessage.Txs != nil {
-	// 	tx_count = len(data.RequestMessage.Txs)
-	// }
-	// hub.log.Debug(fmt.Sprintf("Preprepare Message size: %d bytes, SeqNum: %d, TxCount: %d, From: %s, To: %s",
-	// 	msg_size, data.SequenceNumber, tx_count, data.From, data.To))
-
-	addr := data.To
-	conn, ok := conns2Node.Get(addr)
-	if !ok || conn == nil {
-		conn, err = hub.Dial(addr)
-		if err != nil || conn == nil {
-			hub.log.Error(fmt.Sprintf("Dial Error. Send Preprepare Message. caller: %d targetAddr: %s", data.View, addr))
+func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, callback func(...interface{})) {
+	if msgType == core.MsgReplyMessage {
+		reply, ok := msg.(core.ReplyMessage)
+		if !ok {
+			hub.log.Error("build envelope failed. msgType=%s err=%v", msgType, errInvalidPayloadType(msgType, msg))
 			return
 		}
-		conns2Node.Add(addr, conn)
-	}
-	writer := bufio.NewWriter(conn)
-	if _, err := writer.Write(msg_bytes); err != nil {
-		hub.log.Error(fmt.Sprintf("Write Error. Send Preprepare Message. caller: %d targetAddr: %s, msg_size=%d bytes, err=%v", data.View, addr, msg_size, err))
-		return
-	}
-	if err := writer.Flush(); err != nil {
-		hub.log.Error(fmt.Sprintf("Flush Error. Send Preprepare Message. caller: %d targetAddr: %s, msg_size=%d bytes, err=%v", data.View, addr, msg_size, err))
-		return
-	}
-}
-
-func (hub *NodeMessageHub) sendPrepareMessage(msg interface{}) {
-	data := msg.(core.PrepareMsg)
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-	err := enc.Encode(&data)
-	if err != nil {
-		hub.log.Error(fmt.Sprintf("gobEncodeErr. Send Prepare Message. caller: %d targetAddr: %s", data.From, data.To))
-	}
-
-	dataBytes := buf.Bytes()
-	signature := crypto.SignMessageEd25519(dataBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey())
-
-	//msg_bytes := hub.packMsg("MsgPrepareMessage", buf.Bytes())
-	msg_bytes := hub.packMsgWithSignature("MsgPrepareMessage", dataBytes, signature, int(hub.node_ref.GetNodeID()))
-
-	addr := data.To
-	conn, ok := conns2Node.Get(addr)
-	if !ok || conn == nil {
-		conn, err = hub.Dial(addr)
-		if err != nil || conn == nil {
-			hub.log.Error(fmt.Sprintf("Dial Error. Send Prepare Message. caller: %d targetAddr: %s", data.From, addr))
+		if err := hub.sendReplyOverClientStream(reply); err != nil {
+			hub.log.Error("stream deliver failed. msgType=%s target=%s err=%v", msgType, ip, err)
 			return
 		}
-		conns2Node.Add(addr, conn)
-	}
-	writer := bufio.NewWriter(conn)
-	if _, err := writer.Write(msg_bytes); err != nil {
-		hub.log.Error(fmt.Sprintf("Write Error. Send Prepare Message. caller: %d targetAddr: %s, err=%v", data.From, addr, err))
-		return
-	}
-	if err := writer.Flush(); err != nil {
-		hub.log.Error(fmt.Sprintf("Flush Error. Send Prepare Message. caller: %d targetAddr: %s, err=%v", data.From, addr, err))
-		return
-	}
-}
-
-func (hub *NodeMessageHub) sendCommitMessage(msg interface{}) {
-	data := msg.(core.CommitMsg)
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-	err := enc.Encode(&data)
-	if err != nil {
-		hub.log.Error(fmt.Sprintf("gobEncodeErr. Send Commit Message. caller: %d targetAddr: %s", data.From, data.To))
-	}
-	dataBytes := buf.Bytes()
-	signature := crypto.SignMessageEd25519(dataBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey())
-	//
-
-	//msg_bytes := hub.packMsg("MsgCommitMessage", buf.Bytes())
-	msg_bytes := hub.packMsgWithSignature("MsgCommitMessage", dataBytes, signature, int(hub.node_ref.GetNodeID()))
-	msg_size := len(msg_bytes)
-	// tx_count := 0
-	// if data.RequestMessage != nil && data.RequestMessage.Txs != nil {
-	// 	tx_count = len(data.RequestMessage.Txs)
-	// }
-	// hub.log.Debug(fmt.Sprintf("Commit Message size: %d bytes, SeqNum: %d, TxCount: %d, From: %s, To: %s",
-	// 	msg_size, data.SequenceNumber, tx_count, data.From, data.To))
-
-	addr := data.To
-	conn, ok := conns2Node.Get(addr)
-	if !ok || conn == nil {
-		conn, err = hub.Dial(addr)
-		if err != nil || conn == nil {
-			hub.log.Error(fmt.Sprintf("Dial Error. Send Commit Message. caller: %d targetAddr: %s", data.From, addr))
-			return
+		if callback != nil {
+			callback()
 		}
-		conns2Node.Add(addr, conn)
-	}
-	writer := bufio.NewWriter(conn)
-	if _, err := writer.Write(msg_bytes); err != nil {
-		hub.log.Error(fmt.Sprintf("Write Error. Send Commit Message. caller: %d targetAddr: %s, msg_size=%d bytes, err=%v", data.From, addr, msg_size, err))
 		return
 	}
-	if err := writer.Flush(); err != nil {
-		hub.log.Error(fmt.Sprintf("Flush Error. Send Commit Message. caller: %d targetAddr: %s, msg_size=%d bytes, err=%v", data.From, addr, msg_size, err))
-		return
-	}
-}
 
-func (hub *NodeMessageHub) sendReplyMessage(msg interface{}) {
-	data := msg.(core.ReplyMessage)
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-	err := enc.Encode(&data)
+	env, err := hub.buildEnvelope(msgType, msg)
 	if err != nil {
-		hub.log.Error(fmt.Sprintf("gobEncodeErr. Send Reply Message. caller: %s targetAddr: %s", data.From, data.To))
-	}
-
-	msg_bytes := hub.packMsg("MsgReplyMessage", buf.Bytes())
-
-	addr := data.To
-	conn, ok := conns2Node.Get(addr)
-	if !ok || conn == nil {
-		conn, err = hub.Dial(addr)
-		if err != nil || conn == nil {
-			hub.log.Error(fmt.Sprintf("Dial Error. Send Reply Message. caller: %s targetAddr: %s", data.From, addr))
-			return
-		}
-		conns2Node.Add(addr, conn)
-	}
-	writer := bufio.NewWriter(conn)
-	if _, err := writer.Write(msg_bytes); err != nil {
-		hub.log.Error(fmt.Sprintf("Write Error. Send Reply Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+		hub.log.Error("build envelope failed. msgType=%s err=%v", msgType, err)
 		return
 	}
-	if err := writer.Flush(); err != nil {
-		hub.log.Error(fmt.Sprintf("Flush Error. Send Reply Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
+
+	client, err := hub.getOrCreateClient(ip)
+	if err != nil {
+		hub.log.Error("dial target failed. msgType=%s target=%s err=%v", msgType, ip, err)
 		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
+	defer cancel()
+
+	ack, err := client.Deliver(ctx, env)
+	if err != nil {
+		hub.log.Error("deliver rpc failed. msgType=%s target=%s err=%v", msgType, ip, err)
+		hub.dropClient(ip)
+		return
+	}
+	if ack != nil && !ack.Ok {
+		hub.log.Error("deliver rejected. msgType=%s target=%s err=%s", msgType, ip, ack.Error)
+	}
+
+	if callback != nil {
+		callback()
 	}
 }
-
-// func (hub *NodeMessageHub) sendCheckpointMessage(msg interface{}) {
-// 	data := msg.(core.CheckpointMessage)
-// 	var buf bytes.Buffer
-// 	enc := gob.NewEncoder(&buf)
-// 	err := enc.Encode(&data)
-// 	if err != nil {
-// 		hub.log.Error(fmt.Sprintf("gobEncodeErr. Send Checkpoint Message. caller: %s targetAddr: %s", data.From, data.To))
-// 	}
-// 	dataBytes := buf.Bytes()
-// 	signature := crypto.SignMessageEd25519(dataBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey())
-// 	//
-
-// 	//msg_bytes := hub.packMsg("MsgCheckpointMessage", buf.Bytes())
-// 	msg_bytes := hub.packMsgWithSignature("MsgCheckpointMessage", dataBytes, signature, int(hub.node_ref.GetNodeID()))
-
-// 	addr := data.To
-// 	conn, ok := conns2Node.Get(addr)
-// 	if !ok || conn == nil {
-// 		conn, err = hub.Dial(addr)
-// 		if err != nil || conn == nil {
-// 			hub.log.Error(fmt.Sprintf("Dial Error. Send Checkpoint Message. caller: %s targetAddr: %s", data.From, addr))
-// 			return
-// 		}
-// 		conns2Node.Add(addr, conn)
-// 	}
-// 	writer := bufio.NewWriter(conn)
-// 	if _, err := writer.Write(msg_bytes); err != nil {
-// 		hub.log.Error(fmt.Sprintf("Write Error. Send Checkpoint Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
-// 		return
-// 	}
-// 	if err := writer.Flush(); err != nil {
-// 		hub.log.Error(fmt.Sprintf("Flush Error. Send Checkpoint Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
-// 		return
-// 	}
-// }
-
-// func (hub *NodeMessageHub) sendViewChangeMessage(msg interface{}) {
-// 	data := msg.(core.ViewChangeMessage)
-// 	var buf bytes.Buffer
-// 	enc := gob.NewEncoder(&buf)
-// 	err := enc.Encode(&data)
-// 	if err != nil {
-// 		hub.log.Error(fmt.Sprintf("gobEncodeErr. Send View Change Message. caller: %s targetAddr: %s", data.From, data.To))
-// 	}
-
-// 	msg_bytes := hub.packMsg("MsgViewChangeMessage", buf.Bytes())
-
-// 	addr := data.To
-// 	conn, ok := conns2Node.Get(addr)
-// 	if !ok || conn == nil {
-// 		conn, err = hub.Dial(addr)
-// 		if err != nil || conn == nil {
-// 			hub.log.Error(fmt.Sprintf("Dial Error. Send View Change Message. caller: %s targetAddr: %s", data.From, addr))
-// 			return
-// 		}
-// 		conns2Node.Add(addr, conn)
-// 	}
-// 	writer := bufio.NewWriter(conn)
-// 	if _, err := writer.Write(msg_bytes); err != nil {
-// 		hub.log.Error(fmt.Sprintf("Write Error. Send View Change Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
-// 		return
-// 	}
-// 	if err := writer.Flush(); err != nil {
-// 		hub.log.Error(fmt.Sprintf("Flush Error. Send View Change Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
-// 		return
-// 	}
-// }
-
-// func (hub *NodeMessageHub) sendNewViewMessage(msg interface{}) {
-// 	data := msg.(core.NewViewMessage)
-// 	var buf bytes.Buffer
-// 	enc := gob.NewEncoder(&buf)
-// 	err := enc.Encode(&data)
-// 	if err != nil {
-// 		hub.log.Error(fmt.Sprintf("gobEncodeErr. Send New View Message. caller: %s targetAddr: %s", data.From, data.To))
-// 	}
-
-// 	msg_bytes := hub.packMsg("MsgNewViewMessage", buf.Bytes())
-
-// 	addr := data.To
-// 	conn, ok := conns2Node.Get(addr)
-// 	if !ok || conn == nil {
-// 		conn, err = hub.Dial(addr)
-// 		if err != nil || conn == nil {
-// 			hub.log.Error(fmt.Sprintf("Dial Error. Send New View Message. caller: %s targetAddr: %s", data.From, addr))
-// 			return
-// 		}
-// 		conns2Node.Add(addr, conn)
-// 	}
-// 	writer := bufio.NewWriter(conn)
-// 	if _, err := writer.Write(msg_bytes); err != nil {
-// 		hub.log.Error(fmt.Sprintf("Write Error. Send New View Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
-// 		return
-// 	}
-// 	if err := writer.Flush(); err != nil {
-// 		hub.log.Error(fmt.Sprintf("Flush Error. Send New View Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
-// 		return
-// 	}
-// }
-
-// func (hub *NodeMessageHub) sendMempoolMessage(msg interface{}) {
-// 	data := msg.(core.MempoolMsg)
-// 	var buf bytes.Buffer
-// 	enc := gob.NewEncoder(&buf)
-// 	err := enc.Encode(&data)
-// 	if err != nil {
-// 		hub.log.Error(fmt.Sprintf("gobEncodeErr. Send Mempool Message. caller: %s targetAddr: %s", data.From, data.To))
-// 	}
-
-// 	msg_bytes := hub.packMsg("MsgMempoolMessage", buf.Bytes())
-
-// 	addr := data.To
-// 	conn, ok := conns2Node.Get(addr)
-// 	if !ok || conn == nil {
-// 		conn, err = hub.Dial(addr)
-// 		if err != nil || conn == nil {
-// 			hub.log.Error(fmt.Sprintf("Dial Error. Send Mempool Message. caller: %s targetAddr: %s", data.From, addr))
-// 			return
-// 		}
-// 		conns2Node.Add(addr, conn)
-// 	}
-// 	writer := bufio.NewWriter(conn)
-// 	if _, err := writer.Write(msg_bytes); err != nil {
-// 		hub.log.Error(fmt.Sprintf("Write Error. Send Mempool Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
-// 		return
-// 	}
-// 	if err := writer.Flush(); err != nil {
-// 		hub.log.Error(fmt.Sprintf("Flush Error. Send Mempool Message. caller: %s targetAddr: %s, err=%v", data.From, addr, err))
-// 		return
-// 	}
-// }
