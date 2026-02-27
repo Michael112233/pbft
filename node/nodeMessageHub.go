@@ -246,7 +246,7 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 			return &transportpb.Ack{Ok: false, Error: "missing preprepare body"}, nil
 		}
 		if !hub.verifySignature(int(env.From), env.Signature, preprepareSignPayload(preprepare)) {
-			hub.log.Error("Signature verification failed for PrePrepare message from node ID: %d", env.From)
+			// hub.log.Error("Signature verification failed for PrePrepare message from node ID: %d", env.From)
 			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
 		}
 		data, err := transportpb.PreprepareFromPB(preprepare)
@@ -262,7 +262,7 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 			return &transportpb.Ack{Ok: false, Error: "missing prepare body"}, nil
 		}
 		if !hub.verifySignature(int(env.From), env.Signature, prepare) {
-			hub.log.Error("Signature verification failed for Prepare message from node ID: %d", env.From)
+			// hub.log.Error("Signature verification failed for Prepare message from node ID: %d", env.From)
 			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
 		}
 		data, err := transportpb.PrepareFromPB(prepare)
@@ -278,7 +278,7 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 			return &transportpb.Ack{Ok: false, Error: "missing commit body"}, nil
 		}
 		if !hub.verifySignature(int(env.From), env.Signature, commit) {
-			hub.log.Error("Signature verification failed for Commit message from node ID: %d", env.From)
+			// hub.log.Error("Signature verification failed for Commit message from node ID: %d", env.From)
 			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
 		}
 		data, err := transportpb.CommitFromPB(commit)

@@ -93,13 +93,15 @@ func (log *ConsensusLog) PrintDetails() {
 	fmt.Printf("Total lenght of log: %d\n", len(sortedSeqNums))
 	for _, seqNum := range sortedSeqNums {
 		slot := newmap[seqNum]
-		fmt.Printf("SeqNum: %d, View: %d, Digest: %x, PrepareVotes: %d, CommitVotes: %d, PrepareSent: %t, CommitSent: %t, Executed: %t\n",
-			seqNum, slot.view, slot.digest, len(slot.prepares), len(slot.commits), slot.prepareSent, slot.commitSent, slot.executed)
-		for nodeID, prepareDigest := range slot.prepares {
-			fmt.Printf("  Prepare Vote from Node %d: Digest %x\n", nodeID, prepareDigest)
-		}
-		for nodeID, commitDigest := range slot.commits {
-			fmt.Printf("  Commit Vote from Node %d: Digest %x\n", nodeID, commitDigest)
+		if !slot.executed {
+			fmt.Printf("SeqNum: %d, View: %d, Digest: %x, PrepareVotes: %d, CommitVotes: %d, PrepareSent: %t, CommitSent: %t, Executed: %t\n",
+				seqNum, slot.view, slot.digest, len(slot.prepares), len(slot.commits), slot.prepareSent, slot.commitSent, slot.executed)
+			for nodeID, prepareDigest := range slot.prepares {
+				fmt.Printf("  Prepare Vote from Node %d: Digest %x\n", nodeID, prepareDigest)
+			}
+			for nodeID, commitDigest := range slot.commits {
+				fmt.Printf("  Commit Vote from Node %d: Digest %x\n", nodeID, commitDigest)
+			}
 		}
 	}
 

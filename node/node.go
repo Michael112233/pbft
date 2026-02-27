@@ -16,6 +16,13 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+const defaultPBFTRequestTimeout = 5 * time.Second
+
+type clientRequestKey struct {
+	clientName string
+	id         int64
+}
+
 type Node struct {
 	NodeID int
 
@@ -35,15 +42,18 @@ type Node struct {
 	viewMu                    sync.RWMutex
 	fNodes                    int
 	verificationWorkerStarted atomic.Bool
+
+	pbftTimerManager *TimerManager
 }
 
 func NewNode(nodeID int, cfg *config.Config) *Node {
 
+	log := logger.NewLogger(nodeID, "node")
 	return &Node{
 		NodeID: nodeID,
 
 		cfg:        cfg,
-		log:        logger.NewLogger(nodeID, "node"),
+		log:        log,
 		messageHub: NewNodeMessageHub(),
 
 		encryptionKeyStore:       NewKeyStore(nodeID, cfg.NodeNum),
@@ -55,6 +65,7 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		consensusLog:             NewConsensusLog(),
 		viewChangeRunning:        false,
 		fNodes:                   (int(cfg.NodeNum) - 1) / 3,
+		pbftTimerManager:         NewTimerManager(log),
 	}
 }
 
@@ -63,6 +74,9 @@ func (n *Node) Start() {
 	// n.StartGarbageCollection()
 	go n.ClientSignatureVerifier()
 	go n.VerifiedClientMessageHandler()
+	if n.pbftTimerManager.pbftTimerStarted.CompareAndSwap(false, true) {
+		go n.pbftTimerManager.pbftTimerWorker()
+	}
 	n.log.Info("node started")
 }
 
@@ -73,6 +87,12 @@ func (n *Node) Stop() {
 	if n.messageHub != nil {
 		n.messageHub.Close()
 	}
+	n.pbftTimerManager.pbftTimerStopOnce.Do(func() {
+		close(n.pbftTimerManager.pbftTimerStopCh)
+	})
+	n.pbftTimerManager.pendingClientReqMu.Lock()
+	n.pbftTimerManager.stopPBFTTimerLocked()
+	n.pbftTimerManager.pendingClientReqMu.Unlock()
 	n.log.Info("node stopped")
 }
 
@@ -316,14 +336,18 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg) {
 
 	slot.prePrepare = &preprepareMsg
 	slot.digest = digestClientMsg
+	accepted := true
 
 	if !slot.prepareSent {
 		slot.prepareSent = true
 		slot.prepares[n.GetNodeID()] = digestClientMsg
 		slot.mu.Unlock()
-		n.broadcastPrepare(view, preprepareMsg.SeqNum, digestClientMsg)
+		go n.broadcastPrepare(view, preprepareMsg.SeqNum, digestClientMsg)
 	} else { //redundant else ?
 		slot.mu.Unlock()
+	}
+	if accepted {
+		n.pbftTimerManager.trackPreprepareRequest(preprepareMsg.ClientMsg)
 	}
 
 	// Buffered prepares may now form quorum with the PrePrepare
@@ -441,19 +465,25 @@ func (n *Node) tryAdvancePrepare(slot *consensusSlot, view, seq int64, digest [3
 	// Broadcast Commit (release lock first to avoid holding during I/O)
 	go func() {
 		n.broadcastCommit(view, seq, slot.digest)
-		// After broadcasting, check if commit quorum already met
-		// n.tryExecute(cl, seq)
+		// Commits may already be buffered from peers before we flip commitSent.
+		// Re-check execute to avoid leaving executable slots stuck.
+
 	}()
+	go n.tryExecute(slot, seq)
 }
 
 func (n *Node) tryExecute(slot *consensusSlot, seq int64) {
-	slot.mu.Lock()
-	defer slot.mu.Unlock()
+	_ = seq
+	var executedMsg core.ClientMsg
+	shouldExecute := false
 
+	slot.mu.Lock()
 	if slot.executed {
+		slot.mu.Unlock()
 		return
 	}
 	if slot.prePrepare == nil {
+		slot.mu.Unlock()
 		return
 	}
 	// Must be prepared: have PrePrepare + 2f matching prepares
@@ -461,15 +491,26 @@ func (n *Node) tryExecute(slot *consensusSlot, seq int64) {
 	// 	return
 	// }
 	if slot.commitSent == false {
+		slot.mu.Unlock()
 		return
 	}
 	// Committed-local: 2f+1 matching commits
 	if len(slot.commits) < 2*n.fNodes+1 || matchingVotes(slot.commits, slot.digest) < 2*n.fNodes+1 {
+		slot.mu.Unlock()
 		return
 	}
 
 	slot.executed = true
-	go n.sendReply(slot.prePrepare.ClientMsg.Data)
+	executedMsg = slot.prePrepare.ClientMsg.Data
+	shouldExecute = true
+	slot.mu.Unlock()
+
+	if !shouldExecute {
+		return
+	}
+
+	go n.sendReply(executedMsg)
+	n.pbftTimerManager.onRequestExecuted(executedMsg)
 	// slot.prePrepare.ClientMsg.
 	// Deliver to application layer.
 	// Execute in order — hand off to an ordered executor (you'll wire this up).
@@ -484,3 +525,69 @@ func (n *Node) sendReply(clientMsg core.ClientMsg) {
 	}
 	n.messageHub.Send(core.MsgReplyMessage, config.ClientAddr, replyMsg, nil)
 }
+
+func makeClientRequestKey(msg core.ClientMsg) clientRequestKey {
+	return clientRequestKey{
+		clientName: msg.ClientName,
+		id:         msg.Id,
+	}
+}
+
+// func (n *Node) onRequestExecuted(msg core.ClientMsg) {
+// 	key := makeClientRequestKey(msg)
+
+// 	n.pendingClientReqMu.Lock()
+// 	defer n.pendingClientReqMu.Unlock()
+
+// 	delete(n.pendingClientReq, key)
+
+// 	// if len(n.pendingClientReq) == 0 {
+// 	// 	n.stopPBFTTimerLocked()
+// 	// 	return
+// 	// }
+// 	if n.pbftTimerInitiated {
+// 		n.resetPBFTTimerLocked()
+// 	}
+// }
+
+// func (n *Node) startPBFTTimerLocked() {
+// 	if n.pbftTimer == nil {
+// 		return
+// 	}
+// 	if !n.pbftTimer.Stop() {
+// 		select {
+// 		case <-n.pbftTimer.C:
+// 		default:
+// 		}
+// 	}
+// 	n.pbftTimer.Reset(n.pbftTimeout)
+// 	n.pbftTimerInitiated = true
+// }
+
+// func (n *Node) resetPBFTTimerLocked() {
+// 	if n.pbftTimer == nil {
+// 		return
+// 	}
+// 	if !n.pbftTimer.Stop() {
+// 		select {
+// 		case <-n.pbftTimer.C:
+// 		default:
+// 		}
+// 	}
+// 	n.pbftTimer.Reset(n.pbftTimeout)
+// 	n.pbftTimerInitiated = true
+// }
+
+// func (n *Node) stopPBFTTimerLocked() {
+// 	if n.pbftTimer == nil {
+// 		n.pbftTimerInitiated = false
+// 		return
+// 	}
+// 	if !n.pbftTimer.Stop() {
+// 		select {
+// 		case <-n.pbftTimer.C:
+// 		default:
+// 		}
+// 	}
+// 	n.pbftTimerInitiated = false
+// }
