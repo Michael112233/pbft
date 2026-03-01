@@ -37,6 +37,9 @@ type Node struct {
 	preprepareSem             chan struct{}
 	preprepareSeqNumber       atomic.Int64
 	view                      int64
+	leaderId                  int
+	forView                   int64
+	votedFor                  int
 	consensusLog              *ConsensusLog
 	viewChangeRunning         bool
 	viewMu                    sync.RWMutex
@@ -44,6 +47,9 @@ type Node struct {
 	verificationWorkerStarted atomic.Bool
 
 	pbftTimerManager *TimerManager
+
+	viewChangeMsgsLog map[int64][]*core.ViewChangeMsgSig
+	voteLog           map[int64][]core.GrantVoteMsgSig
 }
 
 func NewNode(nodeID int, cfg *config.Config) *Node {
@@ -62,10 +68,13 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		preprepareSem:            make(chan struct{}, 5000),
 		preprepareSeqNumber:      atomic.Int64{},
 		view:                     1,
+		leaderId:                 1,
 		consensusLog:             NewConsensusLog(),
 		viewChangeRunning:        false,
 		fNodes:                   (int(cfg.NodeNum) - 1) / 3,
 		pbftTimerManager:         NewTimerManager(log),
+		viewChangeMsgsLog:        make(map[int64][]*core.ViewChangeMsgSig),
+		voteLog:                  make(map[int64][]core.GrantVoteMsgSig),
 	}
 }
 
@@ -75,7 +84,7 @@ func (n *Node) Start() {
 	go n.ClientSignatureVerifier()
 	go n.VerifiedClientMessageHandler()
 	if n.pbftTimerManager.pbftTimerStarted.CompareAndSwap(false, true) {
-		go n.pbftTimerManager.pbftTimerWorker()
+		go n.pbftTimerManager.pbftTimerWorker(n)
 	}
 	n.log.Info("node started")
 }
@@ -183,7 +192,16 @@ func ComputeBatchDigest(batch core.ClientMsg) ([32]byte, error) {
 	}
 	return sha256.Sum256(data), nil
 }
-func matchingVotes(votes map[int][32]byte, target [32]byte) int {
+func matchingVotes(votes map[int]*core.PrepareMsgSig, target [32]byte) int {
+	count := 0
+	for _, d := range votes {
+		if d.PrepareMsg.Digest == target {
+			count++
+		}
+	}
+	return count
+}
+func matchingVotesC(votes map[int][32]byte, target [32]byte) int {
 	count := 0
 	for _, d := range votes {
 		if d == target {
@@ -192,25 +210,34 @@ func matchingVotes(votes map[int][32]byte, target [32]byte) int {
 	}
 	return count
 }
-
-func (n *Node) broadcastPrepare(view int64, seq int64, digest [32]byte) {
-	msg := core.PrepareMsg{
-		View:   view,
-		SeqNum: seq,
-		Digest: digest,
-		From:   n.GetNodeID(),
-	}
-	// sig := n.sign(marshal(msg))
-	// signed := SignedPrepare{Data: msg, Signature: sig}
-
+func (n *Node) broadcastPrepare(msg core.PrepareMsg, signature []byte) {
 	for _, othersIp := range config.NodeAddr {
 		if othersIp == n.GetAddr() {
 			continue
 		}
-		msg.To = othersIp
-		n.messageHub.Send(core.MsgPrepareMessage, othersIp, msg, nil) // cant do go in current
+		n.messageHub.Send(core.MsgPrepareMessage, othersIp, msg, signature)
 	}
 }
+func (n *Node) broadcastViewChange(msg core.ViewChangeMsg, signature []byte) {
+	for _, othersIp := range config.NodeAddr {
+		if othersIp == n.GetAddr() {
+			continue
+		}
+		n.messageHub.Send(core.MsgViewChangeMessage, othersIp, msg, signature)
+	}
+}
+
+// sig := n.sign(marshal(msg))
+// signed := SignedPrepare{Data: msg, Signature: sig}
+
+// for _, othersIp := range config.NodeAddr {
+// 	if othersIp == n.GetAddr() {
+// 		continue
+// 	}
+// 	// msg.To = othersIp
+// 	n.messageHub.Send(core.MsgPrepareMessage, othersIp, msg, nil) // cant do go in current
+// }
+// }
 
 func (n *Node) broadcastCommit(view, seq int64, digest [32]byte) {
 	msg := core.CommitMsg{
@@ -220,23 +247,32 @@ func (n *Node) broadcastCommit(view, seq int64, digest [32]byte) {
 		From:   n.GetNodeID(),
 	}
 
+	pbMsg := transportpb.CommitToPB(msg)
+	payloadBytes, err := marshalDeterministic(pbMsg)
+	if err != nil {
+		n.log.Error("Failed to marshal Commit message for signing: %v", err)
+		return
+	}
+	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+
 	for _, othersIp := range config.NodeAddr {
 		if othersIp == n.GetAddr() {
 			continue
 		}
-		msg.To = othersIp
-		n.messageHub.Send(core.MsgCommitMessage, othersIp, msg, nil) // cant do go in current
+		// msg.To = othersIp
+		n.messageHub.Send(core.MsgCommitMessage, othersIp, msg, signature)
 	}
 }
 func (n *Node) preprepare(batch core.ClientMsgSignature) {
 
 	n.viewMu.RLock()
+	defer n.viewMu.RUnlock()
 	if n.viewChangeRunning {
-		n.viewMu.RUnlock()
+		// n.viewMu.RUnlock()
 		return
 	}
 	view := n.view
-	n.viewMu.RUnlock()
+	// n.viewMu.RUnlock()
 	seqNum := n.preprepareSeqNumber.Add(1)
 
 	digestClientMsg, err := ComputeBatchDigest(batch.Data)
@@ -254,34 +290,45 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 		// ideally sign preprepare with digest so less costly and piggy back client messages, but for simplicity we sign whole preprepare message here
 	}
 
+	pbMsg := transportpb.PreprepareToPB(preprepareMsg)
+	payloadBytes, err := marshalDeterministic(preprepareSignPayload(pbMsg))
+	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+
 	slot := n.consensusLog.getOrCreateLog(seqNum, view)
 	slot.mu.Lock()
 	slot.prePrepare = &preprepareMsg
 	slot.digest = digestClientMsg
+	slot.prePrepareSig = signature
 	slot.prepareSent = true
 	slot.mu.Unlock()
+	// n.viewMu.RUnlock()
 
-	for _, othersIp := range config.NodeAddr {
-		if othersIp == n.GetAddr() {
-			continue
+	go func() {
+		for _, othersIp := range config.NodeAddr {
+			if othersIp == n.GetAddr() {
+				continue
+			}
+			// preprepareMsg.To = othersIp
+			n.messageHub.Send(core.MsgPreprepareMessage, othersIp, preprepareMsg, signature) // cant do go in current state race
 		}
-		preprepareMsg.To = othersIp
-		n.messageHub.Send(core.MsgPreprepareMessage, othersIp, preprepareMsg, nil) // cant do go in current state race
-	}
+	}()
 
 }
 
-func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg) {
+func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []byte) {
 	n.viewMu.RLock()
+	defer n.viewMu.RUnlock()
+
 	if n.viewChangeRunning {
-		n.viewMu.RUnlock()
+		// n.viewMu.RUnlock()
 		return
 	}
 	view := n.view
-	n.viewMu.RUnlock()
+	// n.viewMu.RUnlock()
 
 	// --- Validation ---
 	if preprepareMsg.View != view {
+		// n.viewMu.RUnlock()
 		return
 	}
 	// if pp.SenderID != n.leaderID() {
@@ -335,14 +382,34 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg) {
 	}
 
 	slot.prePrepare = &preprepareMsg
+	slot.prePrepareSig = signature
 	slot.digest = digestClientMsg
 	accepted := true
 
 	if !slot.prepareSent {
+
+		msg := core.PrepareMsg{
+			View:   view,
+			SeqNum: preprepareMsg.SeqNum,
+			Digest: digestClientMsg,
+			From:   n.GetNodeID(),
+		}
+		pbMsg := transportpb.PrepareToPB(msg)
+		payloadBytes, err := marshalDeterministic(pbMsg)
+		if err != nil {
+			n.log.Error("Failed to marshal Prepare message for signing: %v", err)
+			// to be decided
+		}
+		signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+		msgForLog := core.PrepareMsgSig{
+			PrepareMsg: msg,
+			Signature:  signature,
+		}
 		slot.prepareSent = true
-		slot.prepares[n.GetNodeID()] = digestClientMsg
+
+		slot.prepares[n.GetNodeID()] = &msgForLog
 		slot.mu.Unlock()
-		go n.broadcastPrepare(view, preprepareMsg.SeqNum, digestClientMsg)
+		go n.broadcastPrepare(msg, signature)
 	} else { //redundant else ?
 		slot.mu.Unlock()
 	}
@@ -354,14 +421,15 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg) {
 	n.tryAdvancePrepare(slot, view, preprepareMsg.SeqNum, digestClientMsg)
 }
 
-func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg) {
+func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 	n.viewMu.RLock()
+	defer n.viewMu.RUnlock()
 	if n.viewChangeRunning {
-		n.viewMu.RUnlock()
+		// n.viewMu.RUnlock()
 		return
 	}
 	view := n.view
-	n.viewMu.RUnlock()
+	// n.viewMu.RUnlock()
 
 	if prepareMsg.View != view {
 		return
@@ -392,8 +460,11 @@ func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg) {
 		slot.mu.Unlock()
 		return
 	}
-
-	slot.prepares[prepareMsg.From] = prepareMsg.Digest
+	msgForLog := core.PrepareMsgSig{
+		PrepareMsg: prepareMsg,
+		Signature:  signature,
+	}
+	slot.prepares[prepareMsg.From] = &msgForLog
 	slot.mu.Unlock()
 
 	n.tryAdvancePrepare(slot, view, prepareMsg.SeqNum, prepareMsg.Digest)
@@ -401,12 +472,13 @@ func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg) {
 
 func (n *Node) HandleCommit(commitMsg core.CommitMsg) {
 	n.viewMu.RLock()
+	defer n.viewMu.RUnlock()
 	if n.viewChangeRunning {
-		n.viewMu.RUnlock()
+		// n.viewMu.RUnlock()
 		return
 	}
 	view := n.view
-	n.viewMu.RUnlock()
+	// n.viewMu.RUnlock()
 
 	if commitMsg.View != view {
 		return
@@ -495,7 +567,7 @@ func (n *Node) tryExecute(slot *consensusSlot, seq int64) {
 		return
 	}
 	// Committed-local: 2f+1 matching commits
-	if len(slot.commits) < 2*n.fNodes+1 || matchingVotes(slot.commits, slot.digest) < 2*n.fNodes+1 {
+	if len(slot.commits) < 2*n.fNodes+1 || matchingVotesC(slot.commits, slot.digest) < 2*n.fNodes+1 {
 		slot.mu.Unlock()
 		return
 	}
@@ -533,61 +605,462 @@ func makeClientRequestKey(msg core.ClientMsg) clientRequestKey {
 	}
 }
 
-// func (n *Node) onRequestExecuted(msg core.ClientMsg) {
-// 	key := makeClientRequestKey(msg)
+func (n *Node) primaryForView(view int64) int {
+	if n.cfg == nil || n.cfg.NodeNum <= 0 || view <= 0 {
+		return 0
+	}
+	return int((view-1)%n.cfg.NodeNum) + 1
+}
 
-// 	n.pendingClientReqMu.Lock()
-// 	defer n.pendingClientReqMu.Unlock()
+func (n *Node) verifyPreprepare(preprepareMsg core.PreprepareMsgSig) (bool, int64, int64, [32]byte) {
+	view := preprepareMsg.PreprepareMsgMini.View
+	seq := preprepareMsg.PreprepareMsgMini.SeqNum
+	digest := preprepareMsg.PreprepareMsgMini.DigestClientMsg
 
-// 	delete(n.pendingClientReq, key)
+	from := n.leaderId
+	if from == 0 {
+		n.log.Error("invalid view/cluster config for preprepare verification: view=%d", view)
+		return false, 0, 0, [32]byte{}
+	}
 
-// 	// if len(n.pendingClientReq) == 0 {
-// 	// 	n.stopPBFTTimerLocked()
-// 	// 	return
-// 	// }
-// 	if n.pbftTimerInitiated {
-// 		n.resetPBFTTimerLocked()
-// 	}
-// }
+	senderPubKey, exists := n.encryptionKeyStore.GetPublicKey(from)
+	if !exists {
+		n.log.Error("public key not found for preprepare sender node ID: %d", from)
+		return false, 0, 0, [32]byte{}
+	}
 
-// func (n *Node) startPBFTTimerLocked() {
-// 	if n.pbftTimer == nil {
-// 		return
-// 	}
-// 	if !n.pbftTimer.Stop() {
-// 		select {
-// 		case <-n.pbftTimer.C:
-// 		default:
-// 		}
-// 	}
-// 	n.pbftTimer.Reset(n.pbftTimeout)
-// 	n.pbftTimerInitiated = true
-// }
+	payload := &transportpb.PreprepareSignPayload{
+		View:            view,
+		SeqNum:          seq,
+		DigestClientMsg: digest[:],
+	}
+	payloadBytes, err := marshalDeterministic(payload)
+	if err != nil {
+		n.log.Error("preprepare payload marshal failed: err=%v", err)
+		return false, 0, 0, [32]byte{}
+	}
 
-// func (n *Node) resetPBFTTimerLocked() {
-// 	if n.pbftTimer == nil {
-// 		return
-// 	}
-// 	if !n.pbftTimer.Stop() {
-// 		select {
-// 		case <-n.pbftTimer.C:
-// 		default:
-// 		}
-// 	}
-// 	n.pbftTimer.Reset(n.pbftTimeout)
-// 	n.pbftTimerInitiated = true
-// }
+	if !crypto.VerifySignatureEd25519(payloadBytes, preprepareMsg.Signature, senderPubKey) {
+		n.log.Error("preprepare signature verification failed for node ID: %d", from)
+		return false, 0, 0, [32]byte{}
+	}
+	return true, view, seq, digest
+}
 
-// func (n *Node) stopPBFTTimerLocked() {
-// 	if n.pbftTimer == nil {
-// 		n.pbftTimerInitiated = false
-// 		return
-// 	}
-// 	if !n.pbftTimer.Stop() {
-// 		select {
-// 		case <-n.pbftTimer.C:
-// 		default:
-// 		}
-// 	}
-// 	n.pbftTimerInitiated = false
-// }
+func (n *Node) verifyPrepareLog(prepareLog map[int]*core.PrepareMsgSig, view, seq int64, digest [32]byte) bool {
+	required := 2 * n.fNodes
+	if required <= 0 {
+		return true
+	}
+	if len(prepareLog) < required {
+		return false
+	}
+
+	validCount := 0
+	for from, prepareMsgSig := range prepareLog {
+		if prepareMsgSig == nil {
+			continue
+		}
+
+		prepareMsg := prepareMsgSig.PrepareMsg
+		if prepareMsg.View != view || prepareMsg.SeqNum != seq || prepareMsg.Digest != digest {
+			continue
+		}
+		if prepareMsg.From != from {
+			n.log.Error("prepare sender mismatch: map key=%d payload from=%d", from, prepareMsg.From)
+			continue
+		}
+
+		senderPubKey, exists := n.encryptionKeyStore.GetPublicKey(from)
+		if !exists {
+			n.log.Error("public key not found for prepare sender node ID: %d", from)
+			continue
+		}
+
+		payloadBytes, err := marshalDeterministic(transportpb.PrepareToPB(prepareMsg))
+		if err != nil {
+			n.log.Error("prepare payload marshal failed: err=%v", err)
+			continue
+		}
+		if !crypto.VerifySignatureEd25519(payloadBytes, prepareMsgSig.Signature, senderPubKey) {
+			n.log.Error("prepare signature verification failed for node ID: %d", from)
+			continue
+		}
+
+		validCount++
+		if validCount >= required {
+			return true
+		}
+	}
+
+	n.log.Error("not enough valid prepare messages: valid=%d required=%d view=%d seq=%d", validCount, required, view, seq)
+	return false
+}
+
+func (n *Node) verifyPreparedCerts(preparedCerts map[int64]*core.PreparedCert) bool {
+	for certSeq, cert := range preparedCerts {
+		if cert == nil {
+			return false
+		}
+		ok, view, seq, digest := n.verifyPreprepare(cert.PreprepareMsg)
+		if !ok {
+			return false
+		}
+		if seq != certSeq {
+			n.log.Error("prepared cert seq mismatch: map key=%d preprepare seq=%d", certSeq, seq)
+			return false
+		}
+		if !n.verifyPrepareLog(cert.PrepareLog, view, seq, digest) {
+			return false
+		}
+	}
+	return true
+}
+
+func (n *Node) verifyVC(vc core.ViewChangeMsg) bool {
+	verifiedPreparedCerts := n.verifyPreparedCerts(vc.PreparedCerts)
+	// Additional checks can be added here, such as verifying the signature of the ViewChangeMsg itself.
+	return verifiedPreparedCerts
+}
+
+func (n *Node) verifyVoteLog(voteLog []core.GrantVoteMsgSig) bool {
+	required := 2*n.fNodes + 1
+	if len(voteLog) == required {
+		return true
+	} else {
+		return false
+	}
+
+	// seenFrom := make(map[int]struct{}, len(voteLog))
+	// for _, vote := range voteLog {
+	// 	seenFrom[vote.GrantVoteMsg.From] = struct{}{}
+	// 	if len(seenFrom) >= required {
+	// 		return true
+	// 	}
+	// }
+
+	// return false
+}
+
+func (n *Node) duplicateCheckVC(vcMsgSigs []*core.ViewChangeMsgSig) bool {
+	required := 2*n.fNodes + 1
+	if len(vcMsgSigs) == required {
+		return true
+	} else {
+		return false
+	}
+
+	// seenFrom := make(map[int]struct{}, len(vcMsgSigs))
+	// for _, vcMsgSig := range vcMsgSigs {
+	// 	if vcMsgSig == nil {
+	// 		continue
+	// 	}
+	// 	seenFrom[vcMsgSig.ViewChangeMsg.From] = struct{}{}
+	// 	if len(seenFrom) >= required {
+	// 		return true
+	// 	}
+	// }
+
+	// return false
+}
+
+func (n *Node) HandleViewChange(viewChange core.ViewChangeMsg, signature []byte) {
+
+	n.viewMu.Lock()
+	defer n.viewMu.Unlock()
+
+	if viewChange.ViewNumber <= n.view {
+		return
+	}
+	verifiedVC := n.verifyVC(viewChange)
+	if !verifiedVC {
+		return
+	}
+
+	n.viewChangeMsgsLog[viewChange.ViewNumber] = append(n.viewChangeMsgsLog[viewChange.ViewNumber],
+		&core.ViewChangeMsgSig{
+			ViewChangeMsg: viewChange,
+			Signature:     signature,
+		})
+	if n.forView == viewChange.ViewNumber {
+		if len(n.viewChangeMsgsLog[viewChange.ViewNumber]) == 2*n.fNodes+1 {
+			if n.votedFor == n.GetNodeID() {
+				verifiedvoteLog := n.verifyVoteLog(n.voteLog[viewChange.ViewNumber])
+				if verifiedvoteLog {
+					n.newView()
+				}
+			}
+		} else {
+			// start timer
+			n.pbftTimerManager.startNewViewTimer(n)
+		}
+	}
+
+}
+
+func (n *Node) HandleGrantVote(grantVote core.GrantVoteMsg, signature []byte) {
+	n.viewMu.Lock()
+	defer n.viewMu.Unlock()
+
+	if grantVote.ViewNumber != n.forView || n.votedFor != n.GetNodeID() {
+		return
+	}
+
+	if _, exists := n.voteLog[grantVote.ViewNumber]; !exists {
+		n.voteLog[grantVote.ViewNumber] = make([]core.GrantVoteMsgSig, 0)
+		n.log.Error("vote log should exists for view %d, this should not happen in grant vote handler", grantVote.ViewNumber)
+	}
+
+	n.voteLog[grantVote.ViewNumber] = append(n.voteLog[grantVote.ViewNumber], core.GrantVoteMsgSig{
+		GrantVoteMsg: grantVote,
+		Signature:    append([]byte(nil), signature...),
+	})
+
+	verfiedVoteLog := n.verifyVoteLog(n.voteLog[grantVote.ViewNumber])
+	if verfiedVoteLog {
+		duplicateCheckVC := n.duplicateCheckVC(n.viewChangeMsgsLog[n.forView])
+		if duplicateCheckVC {
+			n.newView()
+		}
+	}
+}
+
+func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
+	n.viewMu.Lock()
+	defer n.viewMu.Unlock()
+
+	if newViewMsg.NewViewNumber < n.view {
+		return
+	}
+
+	n.view = newViewMsg.NewViewNumber
+	n.forView = newViewMsg.NewViewNumber
+	n.leaderId = newViewMsg.From
+	n.viewChangeRunning = false
+	n.pbftTimerManager.stopNewViewTimer()
+}
+
+func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64) ([]core.PreprepareMsgSig, int64) {
+	O := make([]core.PreprepareMsgSig, 0)
+	preprepareLog := make(map[int64]core.PreprepareMsgSig)
+	minS := int64(0)
+	maxS := minS
+	for _, viewChangeMsg := range vcMsgSigs {
+		for seqNumber, pm := range viewChangeMsg.ViewChangeMsg.PreparedCerts {
+			if seqNumber > maxS {
+				maxS = seqNumber
+
+			}
+			preprepareLog[seqNumber] = pm.PreprepareMsg
+
+		}
+	}
+	for seq := minS; seq <= maxS; seq++ {
+		if preprepare, exists := preprepareLog[seq]; exists {
+			preprepare.PreprepareMsgMini.View = view
+			pbMsg := transportpb.PreprepareMiniToPB2(preprepare.PreprepareMsgMini)
+			payloadBytes, err := marshalDeterministic(preprepareSignPayload(pbMsg))
+			if err != nil {
+				// handle error, maybe skip this preprepare
+				continue
+			}
+			signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+			O = append(O, core.PreprepareMsgSig{
+				PreprepareMsgMini: preprepare.PreprepareMsgMini,
+				Signature:         signature,
+			})
+
+		} else {
+			dummyPreprepare := core.PreprepareMsgMini{
+				View:            view,
+				SeqNum:          seq,
+				DigestClientMsg: [32]byte{},
+			}
+			pbMsg := transportpb.PreprepareMiniToPB2(dummyPreprepare)
+			payloadBytes, err := marshalDeterministic(preprepareSignPayload(pbMsg))
+			if err != nil {
+				// handle error, maybe skip this preprepare
+				continue
+			}
+			signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+			O = append(O, core.PreprepareMsgSig{
+				PreprepareMsgMini: dummyPreprepare,
+				Signature:         signature,
+			})
+		}
+	}
+	return O, maxS
+
+}
+
+func (n *Node) broadcastNewView(newViewMsg core.NewViewMsg, signature []byte) {
+	for _, othersIp := range config.NodeAddr {
+		if othersIp == n.GetAddr() {
+			continue
+		}
+		n.messageHub.Send(core.MsgNewViewMessage, othersIp, newViewMsg, signature)
+	}
+}
+
+func (n *Node) newView() {
+	n.view = n.forView
+	n.leaderId = n.GetNodeID()
+	n.viewChangeRunning = false
+	n.pbftTimerManager.stopNewViewTimer()
+
+	O, maxSeq := n.createO(n.viewChangeMsgsLog[n.view], n.view)
+	n.preprepareSeqNumber.Store(maxSeq)
+
+	newViewMsg := core.NewViewMsg{
+		NewViewNumber: n.view,
+		From:          n.GetNodeID(),
+		PreprepareLog: O,
+		ViewChangeLog: n.viewChangeMsgsLog[n.view],
+	}
+	pbMsg := transportpb.NewViewToPB(newViewMsg)
+	payloadBytes, err := marshalDeterministic(pbMsg)
+	if err != nil {
+		n.log.Error("Failed to marshal NewView message for signing: %v", err)
+		return
+	}
+	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+
+	go n.broadcastNewView(newViewMsg, signature)
+
+}
+
+func (n *Node) handleViewChangeTimeoutDummy() {
+	n.forView = n.view + 1
+
+	reqVote := false
+
+	if len(n.viewChangeMsgsLog[n.forView]) == 0 {
+		reqVote = true
+		n.votedFor = n.GetNodeID()
+		// n.viewChangeMsgsLog[n.forView] = make([]*core.ViewChangeMsgSig, 0)
+		grantVoteMsg := core.GrantVoteMsg{
+			ViewNumber: n.forView,
+			From:       n.GetNodeID(),
+		}
+		pbMsg := transportpb.GrantVoteToPB(grantVoteMsg)
+		payloadBytes, err := marshalDeterministic(pbMsg)
+		if err != nil {
+			n.log.Error("Failed to marshal GrantVote message for signing: %v", err)
+			// return
+		}
+		signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+		grantVoteMsgSig := core.GrantVoteMsgSig{
+			GrantVoteMsg: grantVoteMsg,
+			Signature:    signature,
+		}
+		if _, exists := n.voteLog[n.forView]; !exists {
+			n.voteLog[n.forView] = make([]core.GrantVoteMsgSig, 0)
+
+		} else {
+			n.log.Error("vote log already exists for view %d, this should not happen in dummy timeout handler", n.forView)
+		}
+		n.voteLog[n.forView] = append(n.voteLog[n.forView], grantVoteMsgSig)
+	} else {
+		for _, vcMsgSig := range n.viewChangeMsgsLog[n.forView] {
+			if vcMsgSig == nil {
+				continue
+			}
+			if vcMsgSig.ViewChangeMsg.ReqVote {
+				n.votedFor = vcMsgSig.ViewChangeMsg.From
+				if ip, exists := config.NodeAddr[n.votedFor]; exists {
+					grantVoteMsg := core.GrantVoteMsg{
+						ViewNumber: n.forView,
+						From:       n.GetNodeID(),
+					}
+					pbMsg := transportpb.GrantVoteToPB(grantVoteMsg)
+					payloadBytes, err := marshalDeterministic(pbMsg)
+					if err != nil {
+						n.log.Error("Failed to marshal GrantVote message for signing: %v", err)
+					}
+					signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+					// grantVoteMsgSig := core.GrantVoteMsgSig{
+					// 	GrantVoteMsg: grantVoteMsg,
+					// 	Signature:    signature,
+					// }
+					n.messageHub.Send(core.MsgGrantVoteMessage, ip, grantVoteMsg, signature)
+				} else {
+					n.log.Error("invalid votedFor node ID %d not found in config", n.votedFor)
+				}
+
+				break
+			}
+		}
+
+	}
+
+	preparedCerts := make(map[int64]*core.PreparedCert)
+
+	n.consensusLog.slots.Range(func(_, value any) bool {
+		slot, ok := value.(*consensusSlot)
+		if !ok || slot == nil {
+			return true
+		}
+
+		slot.mu.Lock()
+		if slot.view != n.view || slot.prePrepare == nil || !slot.prepareSent {
+			slot.mu.Unlock()
+			return true
+		}
+
+		preprepareV := core.PreprepareMsgSig{
+
+			PreprepareMsgMini: core.PreprepareMsgMini{
+				View:            slot.prePrepare.View,
+				SeqNum:          slot.prePrepare.SeqNum,
+				DigestClientMsg: slot.prePrepare.DigestClientMsg,
+			},
+			Signature: slot.prePrepareSig,
+		}
+
+		prepareLog := slot.prepares
+		// for from, prepare := range slot.prepares {
+		// 	if prepare == nil {
+		// 		continue
+		// 	}
+		// 	prepareCopy := *prepare
+		// 	prepareCopy.Signature = append([]byte(nil), prepare.Signature...)
+		// 	prepareLog[from] = &prepareCopy
+		// }
+		slot.mu.Unlock()
+
+		preparedCerts[slot.prePrepare.SeqNum] = &core.PreparedCert{
+			PreprepareMsg: preprepareV,
+			PrepareLog:    prepareLog,
+		}
+		return true
+	})
+
+	vcPayload := core.ViewChangeMsg{
+		ViewNumber:          n.forView,
+		CheckpointSeqNumber: 0,
+		From:                n.GetNodeID(),
+		PreparedCerts:       preparedCerts,
+		ReqVote:             reqVote,
+	}
+	pbMsg := transportpb.ViewChangeToPB(vcPayload)
+	payloadBytes, err := marshalDeterministic(pbMsg)
+	if err != nil {
+		n.log.Error("Failed to marshal ViewChange message for signing: %v", err)
+		// return
+	}
+	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+
+	vcMsg := &core.ViewChangeMsgSig{
+		ViewChangeMsg: vcPayload,
+		Signature:     signature,
+	}
+	n.viewChangeMsgsLog[n.forView] = append(n.viewChangeMsgsLog[n.forView], vcMsg)
+
+	go n.broadcastViewChange(vcPayload, signature)
+
+	if len(n.viewChangeMsgsLog[n.forView]) == 2*n.fNodes+1 {
+		// timer start
+		n.pbftTimerManager.startNewViewTimer(n)
+	}
+
+}

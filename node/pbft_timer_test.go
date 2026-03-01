@@ -36,6 +36,11 @@ func newPBFTTimerTestNode(t *testing.T) (*Node, ed25519.PrivateKey) {
 		t.Fatalf("generate test client key failed: %v", err)
 	}
 	n.encryptionKeyStore.clientKey = clientPub
+	_, nodePriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate test node key failed: %v", err)
+	}
+	n.encryptionKeyStore.privateKey = nodePriv
 
 	n.pbftTimerManager.pendingClientReqMu.Lock()
 	n.pbftTimerManager.pbftTimer = time.NewTimer(n.pbftTimerManager.pbftTimeout)
@@ -80,7 +85,7 @@ func makeExecutedSlot(msg core.PreprepareMsg) *consensusSlot {
 		view:       msg.View,
 		prePrepare: &msg,
 		digest:     digest,
-		prepares:   map[int][32]byte{},
+		prepares:   map[int]*core.PrepareMsgV{},
 		commits: map[int][32]byte{
 			1: digest,
 			2: digest,
@@ -94,7 +99,7 @@ func TestHandlePrePrepareTracksAndStartsTimer(t *testing.T) {
 	n, clientPriv := newPBFTTimerTestNode(t)
 
 	msg := signedPreprepareMsg(t, clientPriv, 1, 1, 101, "client-a")
-	n.HandlePrePrepare(msg)
+	n.HandlePrePrepare(msg, nil)
 
 	n.pbftTimerManager.pendingClientReqMu.Lock()
 	defer n.pbftTimerManager.pendingClientReqMu.Unlock()
@@ -195,7 +200,7 @@ func TestTryExecuteResetsTimerWhenPendingStillExists(t *testing.T) {
 func TestHandlePBFTTimerExpiryEmptyQueueNoTrigger(t *testing.T) {
 	n, _ := newPBFTTimerTestNode(t)
 
-	n.pbftTimerManager.handlePBFTTimerExpiry()
+	n.pbftTimerManager.handlePBFTTimerExpiry(n)
 
 	if n.pbftTimerManager.viewChangeTimeoutDummyCount.Load() != 0 {
 		t.Fatalf("expected no dummy trigger for empty queue")
@@ -212,7 +217,7 @@ func TestHandlePBFTTimerExpiryNonEmptyQueueTriggersDummy(t *testing.T) {
 
 	pp := signedPreprepareMsg(t, clientPriv, 1, 1, 601, "client-timeout")
 	n.pbftTimerManager.trackPreprepareRequest(pp.ClientMsg)
-	n.pbftTimerManager.handlePBFTTimerExpiry()
+	n.pbftTimerManager.handlePBFTTimerExpiry(n)
 
 	if n.pbftTimerManager.viewChangeTimeoutDummyCount.Load() != 1 {
 		t.Fatalf("expected one dummy trigger, got %d", n.pbftTimerManager.viewChangeTimeoutDummyCount.Load())
@@ -231,7 +236,7 @@ func TestPostExpiryNextFirstPreprepareStartsTimerAgain(t *testing.T) {
 	pp2 := signedPreprepareMsg(t, clientPriv, 1, 2, 702, "client-b")
 
 	n.pbftTimerManager.trackPreprepareRequest(pp1.ClientMsg)
-	n.pbftTimerManager.handlePBFTTimerExpiry()
+	n.pbftTimerManager.handlePBFTTimerExpiry(n)
 	if n.pbftTimerManager.pbftTimerInitiated {
 		t.Fatalf("expected timer to be inactive right after expiry")
 	}

@@ -18,6 +18,9 @@ type TimerManager struct {
 	pbftTimerStopCh    chan struct{}
 	pbftTimerStopOnce  sync.Once
 	pbftTimerStarted   atomic.Bool
+	newViewTimeout     time.Duration
+	newViewTimerOn     atomic.Bool
+	newViewTimerEpoch  atomic.Int64
 
 	viewChangeTimeoutDummyCount atomic.Int64
 	log                         *logger.Logger
@@ -36,17 +39,58 @@ func NewTimerManager(log *logger.Logger) *TimerManager {
 		pbftTimer:          pbftTimer,
 		pbftTimerInitiated: false,
 		pbftTimeout:        defaultPBFTRequestTimeout,
+		newViewTimeout:     defaultPBFTRequestTimeout,
 		pbftTimerStopCh:    make(chan struct{}),
 		log:                log,
 	}
 }
 
-func (tm *TimerManager) pbftTimerWorker() {
+func (tm *TimerManager) startNewViewTimer(n *Node) {
+	if !tm.newViewTimerOn.CompareAndSwap(false, true) {
+		return
+	}
+
+	epoch := tm.newViewTimerEpoch.Add(1)
+	tm.log.Info("new-view timer started")
+	go func(localEpoch int64) {
+		timer := time.NewTimer(tm.newViewTimeout)
+		defer timer.Stop()
+
+		select {
+		case <-timer.C:
+		case <-tm.pbftTimerStopCh:
+			if tm.newViewTimerEpoch.Load() == localEpoch {
+				tm.newViewTimerOn.Store(false)
+			}
+			return
+		}
+
+		// Ignore stale timer goroutines.
+		if tm.newViewTimerEpoch.Load() != localEpoch || !tm.newViewTimerOn.Load() {
+			return
+		}
+
+		// This one-shot timer has fired; allow callback code to re-arm a new timer.
+		tm.newViewTimerOn.Store(false)
+
+		n.viewMu.Lock()
+		n.handleViewChangeTimeoutDummy()
+		n.viewMu.Unlock()
+	}(epoch)
+}
+
+func (tm *TimerManager) stopNewViewTimer() {
+	tm.log.Info("new-view timer stopped")
+	tm.newViewTimerEpoch.Add(1)
+	tm.newViewTimerOn.Store(false)
+}
+
+func (tm *TimerManager) pbftTimerWorker(n *Node) {
 	tm.log.Info("PBFT timer worker started")
 	for {
 		select {
 		case <-tm.pbftTimer.C:
-			tm.handlePBFTTimerExpiry()
+			tm.handlePBFTTimerExpiry(n)
 		case <-tm.pbftTimerStopCh:
 			return
 		}
@@ -88,7 +132,7 @@ func (tm *TimerManager) onRequestExecuted(msg core.ClientMsg) {
 		return
 	}
 	if tm.pbftTimerInitiated {
-		tm.log.Info("Resetting PBFT timer at execute with pending requests remaining")
+		// tm.log.Info("Resetting PBFT timer at execute with pending requests remaining")
 		tm.resetPBFTTimerLocked()
 	}
 }
@@ -135,12 +179,16 @@ func (tm *TimerManager) stopPBFTTimerLocked() {
 	tm.pbftTimerInitiated = false
 }
 
-func (tm *TimerManager) handlePBFTTimerExpiry() {
+func (tm *TimerManager) handlePBFTTimerExpiry(n *Node) {
 	tm.log.Info("PBFT timer expired; checking pending requests")
 	shouldTriggerViewChange := false
 
 	tm.pendingClientReqMu.Lock()
 	if len(tm.pendingClientReq) > 0 {
+		n.viewMu.Lock()
+		defer n.viewMu.Unlock()
+		// n.viewChangeRunning = true
+
 		tm.log.Info(" remaining request count: %d; triggering dummy view-change", len(tm.pendingClientReq))
 		shouldTriggerViewChange = true
 	} else {
@@ -151,11 +199,7 @@ func (tm *TimerManager) handlePBFTTimerExpiry() {
 	tm.pendingClientReqMu.Unlock()
 
 	if shouldTriggerViewChange {
-		tm.handleViewChangeTimeoutDummy()
+		tm.viewChangeTimeoutDummyCount.Add(1)
+		// n.handleViewChangeTimeoutDummy()
 	}
-}
-
-func (tm *TimerManager) handleViewChangeTimeoutDummy() {
-	tm.viewChangeTimeoutDummyCount.Add(1)
-	tm.log.Info("PBFT request timeout reached with pending requests; dummy view-change trigger invoked")
 }

@@ -136,7 +136,6 @@ func preprepareSignPayload(msg *transportpb.PreprepareMsg) *transportpb.Preprepa
 		View:            msg.View,
 		SeqNum:          msg.SeqNum,
 		DigestClientMsg: msg.DigestClientMsg,
-		To:              msg.To,
 	}
 }
 
@@ -253,7 +252,7 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		if err != nil {
 			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
 		}
-		go hub.node_ref.HandlePrePrepare(data)
+		go hub.node_ref.HandlePrePrepare(data, env.Signature)
 		return &transportpb.Ack{Ok: true}, nil
 
 	case core.MsgPrepareMessage:
@@ -269,7 +268,7 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		if err != nil {
 			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
 		}
-		go hub.node_ref.HandlePrepare(data)
+		go hub.node_ref.HandlePrepare(data, env.Signature)
 		return &transportpb.Ack{Ok: true}, nil
 
 	case core.MsgCommitMessage:
@@ -287,7 +286,51 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		}
 		go hub.node_ref.HandleCommit(data)
 		return &transportpb.Ack{Ok: true}, nil
+	case core.MsgViewChangeMessage:
+		viewChange := env.GetViewChange()
+		if viewChange == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing view change body"}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, viewChange) {
+			// hub.log.Error("Signature verification failed for ViewChange message from node ID: %d", env.From)
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.ViewChangeFromPB(viewChange)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		go hub.node_ref.HandleViewChange(data, env.Signature)
+		return &transportpb.Ack{Ok: true}, nil
 
+	case core.MsgGrantVoteMessage:
+		grantVote := env.GetGrantVote()
+		if grantVote == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing grant vote body"}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, grantVote) {
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.GrantVoteFromPB(grantVote)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		go hub.node_ref.HandleGrantVote(data, env.Signature)
+		return &transportpb.Ack{Ok: true}, nil
+
+	case core.MsgNewViewMessage:
+		newView := env.GetNewView()
+		if newView == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing new view body"}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, newView) {
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.NewViewFromPB(newView)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		go hub.node_ref.HandleNewView(data, env.Signature)
+		return &transportpb.Ack{Ok: true}, nil
 	case core.MsgCloseMessage:
 		_ = env.GetClose()
 		return &transportpb.Ack{Ok: true}, nil
@@ -347,8 +390,8 @@ func (hub *NodeMessageHub) dropClient(addr string) {
 	}
 }
 
-func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}) (*transportpb.Envelope, error) {
-	env := &transportpb.Envelope{MsgType: msgType}
+func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}, signature []byte) (*transportpb.Envelope, error) {
+	env := &transportpb.Envelope{MsgType: msgType, Signature: signature}
 
 	switch msgType {
 	case core.MsgRequestMessage:
@@ -364,13 +407,13 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}) (*tran
 			return nil, errInvalidPayloadType(msgType, msg)
 		}
 		pbMsg := transportpb.PreprepareToPB(preprepare)
-		payloadBytes, err := marshalDeterministic(preprepareSignPayload(pbMsg))
-		if err != nil {
-			return nil, err
-		}
+		// payloadBytes, err := marshalDeterministic(preprepareSignPayload(pbMsg))
+		// if err != nil {
+		// 	return nil, err
+		// }
 		env.Body = &transportpb.Envelope_Preprepare{Preprepare: pbMsg}
 		env.From = int32(hub.node_ref.GetNodeID())
-		env.Signature = crypto.SignMessageEd25519(payloadBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey())
+		// env.Signature = crypto.SignMessageEd25519(payloadBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey())
 
 	case core.MsgPrepareMessage:
 		prepare, ok := msg.(core.PrepareMsg)
@@ -378,13 +421,13 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}) (*tran
 			return nil, errInvalidPayloadType(msgType, msg)
 		}
 		pbMsg := transportpb.PrepareToPB(prepare)
-		payloadBytes, err := marshalDeterministic(pbMsg)
-		if err != nil {
-			return nil, err
-		}
+		// payloadBytes, err := marshalDeterministic(pbMsg)
+		// if err != nil {
+		// 	return nil, err
+		// }
 		env.Body = &transportpb.Envelope_Prepare{Prepare: pbMsg}
 		env.From = int32(hub.node_ref.GetNodeID())
-		env.Signature = crypto.SignMessageEd25519(payloadBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey())
+		// env.Signature = crypto.SignMessageEd25519(payloadBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey())
 
 	case core.MsgCommitMessage:
 		commit, ok := msg.(core.CommitMsg)
@@ -392,14 +435,40 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}) (*tran
 			return nil, errInvalidPayloadType(msgType, msg)
 		}
 		pbMsg := transportpb.CommitToPB(commit)
-		payloadBytes, err := marshalDeterministic(pbMsg)
-		if err != nil {
-			return nil, err
-		}
+		// payloadBytes, err := marshalDeterministic(pbMsg)
+		// if err != nil {
+		// 	return nil, err
+		// }
 		env.Body = &transportpb.Envelope_Commit{Commit: pbMsg}
 		env.From = int32(hub.node_ref.GetNodeID())
-		env.Signature = crypto.SignMessageEd25519(payloadBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey())
+		// env.Signature = crypto.SignMessageEd25519(payloadBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey())
+	case core.MsgViewChangeMessage:
+		viewChange, ok := msg.(core.ViewChangeMsg)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		pbMsg := transportpb.ViewChangeToPB(viewChange)
+		env.Body = &transportpb.Envelope_ViewChange{ViewChange: pbMsg}
+		env.From = int32(hub.node_ref.GetNodeID())
+		// env.Signature = crypto.SignMessageEd25519(payloadBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey())
 
+	case core.MsgGrantVoteMessage:
+		grantVote, ok := msg.(core.GrantVoteMsg)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		pbMsg := transportpb.GrantVoteToPB(grantVote)
+		env.Body = &transportpb.Envelope_GrantVote{GrantVote: pbMsg}
+		env.From = int32(hub.node_ref.GetNodeID())
+
+	case core.MsgNewViewMessage:
+		newView, ok := msg.(core.NewViewMsg)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		pbMsg := transportpb.NewViewToPB(newView)
+		env.Body = &transportpb.Envelope_NewView{NewView: pbMsg}
+		env.From = int32(hub.node_ref.GetNodeID())
 	case core.MsgReplyMessage:
 		reply, ok := msg.(core.ReplyMessage)
 		if !ok {
@@ -421,7 +490,7 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}) (*tran
 	return env, nil
 }
 
-func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, callback func(...interface{})) {
+func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, signature []byte) {
 	if msgType == core.MsgReplyMessage {
 		reply, ok := msg.(core.ReplyMessage)
 		if !ok {
@@ -432,13 +501,11 @@ func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, call
 			hub.log.Error("stream deliver failed. msgType=%s target=%s err=%v", msgType, ip, err)
 			return
 		}
-		if callback != nil {
-			callback()
-		}
+
 		return
 	}
 
-	env, err := hub.buildEnvelope(msgType, msg)
+	env, err := hub.buildEnvelope(msgType, msg, signature)
 	if err != nil {
 		hub.log.Error("build envelope failed. msgType=%s err=%v", msgType, err)
 		return
@@ -463,7 +530,4 @@ func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, call
 		hub.log.Error("deliver rejected. msgType=%s target=%s err=%s", msgType, ip, ack.Error)
 	}
 
-	if callback != nil {
-		callback()
-	}
 }

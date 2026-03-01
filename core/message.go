@@ -8,11 +8,7 @@ type Message struct {
 }
 
 type RequestMessage struct {
-	// Timestamp int64
-	// From string
-	// To   string
 	Txs []ClientMsgSignature
-	// Id        int64
 }
 
 type ClientMsg struct {
@@ -27,45 +23,10 @@ type ClientMsgSignature struct {
 	Signature []byte
 }
 
-// type PreprepareMessage struct {
-// 	Timestamp      int64
-// 	From           string
-// 	To             string
-// 	SequenceNumber int64
-// 	ViewNumber     int64
-// 	Digest         string
-// 	RequestMessage *RequestMessage
-// }
-
-// type PrepareMessage struct {
-// 	Timestamp      int64
-// 	From           string
-// 	To             string
-// 	SequenceNumber int64
-// 	ViewNumber     int64
-// 	Digest         string
-// 	RequestMessage *RequestMessage
-// }
-
-// type CommitMessage struct {
-// 	Timestamp      int64
-// 	From           string
-// 	To             string
-// 	SequenceNumber int64
-// 	ViewNumber     int64
-// 	Digest         string
-// 	RequestMessage *RequestMessage
-// }
-
 type ReplyMessage struct {
-	// Timestamp      int64
-	// From           string
 	To   string
 	From string
-	// SequenceNumber int64
-	// ViewNumber     int64
-	// Digest         string
-	// RequestMessage *RequestMessage
+
 	ClientMsg ClientMsg
 }
 
@@ -75,77 +36,21 @@ type CloseMessage struct {
 	To        string
 }
 
-// type ViewChangeMessage struct {
-// 	Timestamp           int64
-// 	From                string
-// 	To                  string
-// 	CheckpointSeqNumber int64
-// 	ViewNumber          int64
-// 	CheckpointMsgNumber int32
-// 	HavePreparedList    map[int64]bool
-// 	PreprepareMessages  map[int64][]*PreprepareMessage
-// 	Mempool             []*Transaction
-// }
-
-// type NewViewMessage struct {
-// 	Timestamp           int64
-// 	From                string
-// 	To                  string
-// 	OngoingTxs          []*Transaction
-// 	ViewNumber          int64
-// 	CheckpointSeqNumber int64
-// }
-
-// type CheckpointMessage struct {
-// 	Timestamp      int64
-// 	From           string
-// 	To             string
-// 	SequenceNumber int64
-// 	ViewNumber     int64
-// 	Digest         string
-// }
-
-// type MempoolMsg struct {
-// 	Mempool    []*Transaction
-// 	From       string
-// 	To         string
-// 	ViewNumber int64
-// }
-
-// type HeartbeatMessage struct {
-// 	Timestamp  int64
-// 	From       string
-// 	To         string
-// 	ViewNumber int64
-// 	LeaderAddr string
-// }
-
-// type RequestVoteData struct {
-// 	ViewNumber int64
-// 	From       string
-// 	To         string
-// }
-
-// type RequestVoteResponseData struct {
-// 	ViewNumber  int64
-// 	From        string
-// 	To          string
-// 	VoteGranted bool
-// }
-
-// type AppendEntriesData struct {
-// 	ViewNumber    int64
-// 	VoteNumber    int64
-// 	CurrentLeader int64
-// 	To            string
-// }
-
 type PreprepareMsg struct {
 	View            int64
 	SeqNum          int64
 	DigestClientMsg [32]byte
 	ClientMsg       ClientMsgSignature
-	To              string
+}
+
+type PreprepareMsgMini struct {
+	View            int64
+	SeqNum          int64
+	DigestClientMsg [32]byte
+}
+type PreprepareMsgSig struct {
+	PreprepareMsgMini PreprepareMsgMini
+	Signature         []byte
 }
 
 type PrepareMsg struct {
@@ -153,13 +58,54 @@ type PrepareMsg struct {
 	SeqNum int64
 	Digest [32]byte
 	From   int
-	To     string
+	// To     string
 }
-
+type PrepareMsgSig struct {
+	PrepareMsg PrepareMsg
+	Signature  []byte
+}
 type CommitMsg struct {
 	View   int64
 	SeqNum int64
 	Digest [32]byte
 	From   int
-	To     string
+}
+
+type PreparedCert struct {
+	PreprepareMsg PreprepareMsgSig
+	PrepareLog    map[int]*PrepareMsgSig
+}
+type ViewChangeMsg struct {
+	ViewNumber          int64
+	CheckpointSeqNumber int64
+	From                int
+	PreparedCerts       map[int64]*PreparedCert
+	ReqVote             bool
+}
+
+type ViewChangeMsgSig struct {
+	ViewChangeMsg ViewChangeMsg
+	Signature     []byte
+}
+
+type GrantVoteMsg struct {
+	ViewNumber int64
+	From       int
+}
+
+type GrantVoteMsgSig struct {
+	GrantVoteMsg GrantVoteMsg
+	Signature    []byte
+}
+
+type NewViewMsg struct {
+	PreprepareLog []PreprepareMsgSig
+	ViewChangeLog []*ViewChangeMsgSig
+	NewViewNumber int64
+	From          int
+}
+
+type NewViewMsgSig struct {
+	NewViewMsg NewViewMsg
+	Signature  []byte
 }

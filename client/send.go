@@ -32,7 +32,7 @@ func (c *Client) InjectTxs() {
 		result.SetStartTime(time.Now())
 
 		// Create signed ClientMsgSignature array for all transactions
-		txns := GenerateDummyTxs(15000)
+		txns := GenerateDummyTxs(28000)
 		signedMsgs := make([]core.ClientMsgSignature, len(txns))
 		for i, tx := range txns {
 			clientMsg := core.ClientMsg{
@@ -58,8 +58,8 @@ func (c *Client) InjectTxs() {
 
 		var injectTxs []core.ClientMsgSignature
 		c.TransactionManager.Start()
-		for i := int64(0); (i+1)*3000 <= int64(len(txns)); i++ {
-			injectTxs = signedMsgs[i*3000 : (i+1)*3000] //c.txs[i*c.config.InjectSpeed : (i+1)*c.config.InjectSpeed]
+		for i := int64(0); (i+1)*4000 <= int64(len(txns)); i++ {
+			injectTxs = signedMsgs[i*4000 : (i+1)*4000] //c.txs[i*c.config.InjectSpeed : (i+1)*c.config.InjectSpeed]
 			// leader := c.leaderElection.GetLeader(c.currentView)
 			leader := config.NodeAddr[1]
 			go c.TransactionManager.AddTransaction(injectTxs)

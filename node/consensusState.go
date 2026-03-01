@@ -29,14 +29,15 @@ type consensusSlot struct {
 	view int64 // view this log entry belongs to
 
 	// PrePrepare (nil until received/created)
-	prePrepare *core.PreprepareMsg
-	digest     [32]byte
+	prePrepare    *core.PreprepareMsg
+	prePrepareSig []byte
+	digest        [32]byte
 
 	// Vote sets — key is sender's NodeID, value is the digest they voted for.
 	// This defends against equivocation: a Byzantine leader can send different
 	// digests to different replicas, so we must only count votes matching our
 	// accepted PrePrepare digest at quorum-check time.
-	prepares map[int][32]byte
+	prepares map[int]*core.PrepareMsgSig
 	commits  map[int][32]byte
 
 	// One-shot flags so we broadcast exactly once per phase transition
@@ -114,7 +115,7 @@ func (log *ConsensusLog) getOrCreateLog(seq int64, view int64) *consensusSlot {
 	entry := &consensusSlot{
 		digest:   [32]byte{},
 		view:     view,
-		prepares: make(map[int][32]byte),
+		prepares: make(map[int]*core.PrepareMsgSig),
 		commits:  make(map[int][32]byte),
 	}
 	actual, _ := log.slots.LoadOrStore(seq, entry)
@@ -126,8 +127,9 @@ func (log *ConsensusLog) getOrCreateLog(seq int64, view int64) *consensusSlot {
 func (slot *consensusSlot) resetForView(newView int64) {
 	slot.view = newView
 	slot.prePrepare = nil
+	slot.prePrepareSig = nil
 	slot.digest = [32]byte{}
-	slot.prepares = make(map[int][32]byte)
+	slot.prepares = make(map[int]*core.PrepareMsgSig)
 	slot.commits = make(map[int][32]byte)
 	slot.prepareSent = false
 	slot.commitSent = false

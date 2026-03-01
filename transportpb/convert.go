@@ -116,12 +116,23 @@ func RequestFromPB(msg *RequestMessage) (core.RequestMessage, error) {
 	return out, nil
 }
 
+// func VCToPB(msg core.ViewChangeMsg) *ViewChangeMsg {
+
 func PreprepareToPB(msg core.PreprepareMsg) *PreprepareMsg {
 	return &PreprepareMsg{
-		View:            msg.View,
-		SeqNum:          msg.SeqNum,
-		ClientMsg:       ClientMsgSigToPB(msg.ClientMsg),
-		To:              msg.To,
+		View:      msg.View,
+		SeqNum:    msg.SeqNum,
+		ClientMsg: ClientMsgSigToPB(msg.ClientMsg),
+		// To:              msg.To,
+		DigestClientMsg: digestToPB(msg.DigestClientMsg),
+	}
+}
+
+func PreprepareMiniToPB2(msg core.PreprepareMsgMini) *PreprepareMsg {
+	return &PreprepareMsg{
+		View:   msg.View,
+		SeqNum: msg.SeqNum,
+		// ClientMsg: ClientMsgSigToPB(msg.ClientMsg),
 		DigestClientMsg: digestToPB(msg.DigestClientMsg),
 	}
 }
@@ -139,10 +150,10 @@ func PreprepareFromPB(msg *PreprepareMsg) (core.PreprepareMsg, error) {
 		return core.PreprepareMsg{}, err
 	}
 	return core.PreprepareMsg{
-		View:            msg.View,
-		SeqNum:          msg.SeqNum,
-		ClientMsg:       clientMsg,
-		To:              msg.To,
+		View:      msg.View,
+		SeqNum:    msg.SeqNum,
+		ClientMsg: clientMsg,
+		// To:              msg.To,
 		DigestClientMsg: digest,
 	}, nil
 }
@@ -168,7 +179,7 @@ func PrepareToPB(msg core.PrepareMsg) *PrepareMsg {
 		SeqNum: msg.SeqNum,
 		Digest: digestToPB(msg.Digest),
 		From:   int32(msg.From),
-		To:     msg.To,
+		// To:     msg.To,
 	}
 }
 
@@ -185,7 +196,7 @@ func PrepareFromPB(msg *PrepareMsg) (core.PrepareMsg, error) {
 		SeqNum: msg.SeqNum,
 		Digest: digest,
 		From:   int(msg.From),
-		To:     msg.To,
+		// To:     msg.To,
 	}, nil
 }
 
@@ -195,7 +206,7 @@ func CommitToPB(msg core.CommitMsg) *CommitMsg {
 		SeqNum: msg.SeqNum,
 		Digest: digestToPB(msg.Digest),
 		From:   int32(msg.From),
-		To:     msg.To,
+		// To:     msg.To,
 	}
 }
 
@@ -212,7 +223,7 @@ func CommitFromPB(msg *CommitMsg) (core.CommitMsg, error) {
 		SeqNum: msg.SeqNum,
 		Digest: digest,
 		From:   int(msg.From),
-		To:     msg.To,
+		// To:     msg.To,
 	}, nil
 }
 
@@ -256,4 +267,280 @@ func CloseFromPB(msg *CloseMessage) core.CloseMessage {
 		From:      msg.From,
 		To:        msg.To,
 	}
+}
+
+func PreprepareMiniToPB(msg core.PreprepareMsgMini) *PreprepareMsgMini {
+	return &PreprepareMsgMini{
+		View:            msg.View,
+		SeqNum:          msg.SeqNum,
+		DigestClientMsg: digestToPB(msg.DigestClientMsg),
+	}
+}
+
+func PreprepareMiniFromPB(msg *PreprepareMsgMini) (core.PreprepareMsgMini, error) {
+	if msg == nil {
+		return core.PreprepareMsgMini{}, nil
+	}
+	digest, err := digestFromPB(msg.DigestClientMsg)
+	if err != nil {
+		return core.PreprepareMsgMini{}, err
+	}
+	return core.PreprepareMsgMini{
+		View:            msg.View,
+		SeqNum:          msg.SeqNum,
+		DigestClientMsg: digest,
+	}, nil
+}
+
+func PreprepareMsgSigToPB(msg core.PreprepareMsgSig) *PreprepareMsgSig {
+	return &PreprepareMsgSig{
+		PreprepareMsgMini: PreprepareMiniToPB(msg.PreprepareMsgMini),
+		Signature:         append([]byte(nil), msg.Signature...),
+	}
+}
+
+func PreprepareMsgSigFromPB(msg *PreprepareMsgSig) (core.PreprepareMsgSig, error) {
+	if msg == nil {
+		return core.PreprepareMsgSig{}, nil
+	}
+	mini, err := PreprepareMiniFromPB(msg.PreprepareMsgMini)
+	if err != nil {
+		return core.PreprepareMsgSig{}, err
+	}
+	return core.PreprepareMsgSig{
+		PreprepareMsgMini: mini,
+		Signature:         append([]byte(nil), msg.Signature...),
+	}, nil
+}
+
+func PrepareMsgSigToPB(msg *core.PrepareMsgSig) *PrepareMsgSig {
+	if msg == nil {
+		return nil
+	}
+	return &PrepareMsgSig{
+		PrepareMsg: PrepareToPB(msg.PrepareMsg),
+		Signature:  append([]byte(nil), msg.Signature...),
+	}
+}
+
+func PrepareMsgSigFromPB(msg *PrepareMsgSig) (*core.PrepareMsgSig, error) {
+	if msg == nil {
+		return nil, nil
+	}
+	prepareMsg, err := PrepareFromPB(msg.PrepareMsg)
+	if err != nil {
+		return nil, err
+	}
+	return &core.PrepareMsgSig{
+		PrepareMsg: prepareMsg,
+		Signature:  append([]byte(nil), msg.Signature...),
+	}, nil
+}
+
+func PreparedCertToPB(msg core.PreparedCert) *PreparedCert {
+	out := &PreparedCert{
+		PreprepareMsg: PreprepareMsgSigToPB(msg.PreprepareMsg),
+		PrepareLog:    make(map[int32]*PrepareMsgSig, len(msg.PrepareLog)),
+	}
+	for k, v := range msg.PrepareLog {
+		out.PrepareLog[int32(k)] = PrepareMsgSigToPB(v)
+	}
+	return out
+}
+
+func PreparedCertFromPB(msg *PreparedCert) (core.PreparedCert, error) {
+	if msg == nil {
+		return core.PreparedCert{}, nil
+	}
+	pp, err := PreprepareMsgSigFromPB(msg.PreprepareMsg)
+	if err != nil {
+		return core.PreparedCert{}, err
+	}
+	out := core.PreparedCert{
+		PreprepareMsg: pp,
+		PrepareLog:    make(map[int]*core.PrepareMsgSig, len(msg.PrepareLog)),
+	}
+	for k, v := range msg.PrepareLog {
+		p, err := PrepareMsgSigFromPB(v)
+		if err != nil {
+			return core.PreparedCert{}, err
+		}
+		out.PrepareLog[int(k)] = p
+	}
+	return out, nil
+}
+
+func ViewChangeToPB(msg core.ViewChangeMsg) *ViewChangeMsg {
+	out := &ViewChangeMsg{
+		ViewNumber:          msg.ViewNumber,
+		CheckpointSeqNumber: msg.CheckpointSeqNumber,
+		From:                int32(msg.From),
+		PreparedCerts:       make(map[int64]*PreparedCert, len(msg.PreparedCerts)),
+		ReqVote:             msg.ReqVote,
+	}
+	for k, v := range msg.PreparedCerts {
+		if v == nil {
+			out.PreparedCerts[k] = nil
+			continue
+		}
+		out.PreparedCerts[k] = PreparedCertToPB(*v)
+	}
+	return out
+}
+
+func ViewChangeFromPB(msg *ViewChangeMsg) (core.ViewChangeMsg, error) {
+	if msg == nil {
+		return core.ViewChangeMsg{}, nil
+	}
+	out := core.ViewChangeMsg{
+		ViewNumber:          msg.ViewNumber,
+		CheckpointSeqNumber: msg.CheckpointSeqNumber,
+		From:                int(msg.From),
+		PreparedCerts:       make(map[int64]*core.PreparedCert, len(msg.PreparedCerts)),
+		ReqVote:             msg.ReqVote,
+	}
+	for k, v := range msg.PreparedCerts {
+		if v == nil {
+			out.PreparedCerts[k] = nil
+			continue
+		}
+		cert, err := PreparedCertFromPB(v)
+		if err != nil {
+			return core.ViewChangeMsg{}, err
+		}
+		out.PreparedCerts[k] = &cert
+	}
+	return out, nil
+}
+
+func ViewChangeMsgSigToPB(msg core.ViewChangeMsgSig) *ViewChangeMsgSig {
+	return &ViewChangeMsgSig{
+		ViewChangeMsg: ViewChangeToPB(msg.ViewChangeMsg),
+		Signature:     append([]byte(nil), msg.Signature...),
+	}
+}
+
+func ViewChangeMsgSigFromPB(msg *ViewChangeMsgSig) (core.ViewChangeMsgSig, error) {
+	if msg == nil {
+		return core.ViewChangeMsgSig{}, nil
+	}
+	vc, err := ViewChangeFromPB(msg.ViewChangeMsg)
+	if err != nil {
+		return core.ViewChangeMsgSig{}, err
+	}
+	return core.ViewChangeMsgSig{
+		ViewChangeMsg: vc,
+		Signature:     append([]byte(nil), msg.Signature...),
+	}, nil
+}
+
+func GrantVoteToPB(msg core.GrantVoteMsg) *GrantVoteMsg {
+	return &GrantVoteMsg{
+		ViewNumber: msg.ViewNumber,
+		From:       int32(msg.From),
+	}
+}
+
+func GrantVoteFromPB(msg *GrantVoteMsg) (core.GrantVoteMsg, error) {
+	if msg == nil {
+		return core.GrantVoteMsg{}, nil
+	}
+	return core.GrantVoteMsg{
+		ViewNumber: msg.ViewNumber,
+		From:       int(msg.From),
+	}, nil
+}
+
+func GrantVoteMsgSigToPB(msg core.GrantVoteMsgSig) *GrantVoteMsgSig {
+	return &GrantVoteMsgSig{
+		GrantVoteMsg: GrantVoteToPB(msg.GrantVoteMsg),
+		Signature:    append([]byte(nil), msg.Signature...),
+	}
+}
+
+func GrantVoteMsgSigFromPB(msg *GrantVoteMsgSig) (core.GrantVoteMsgSig, error) {
+	if msg == nil {
+		return core.GrantVoteMsgSig{}, nil
+	}
+	vote, err := GrantVoteFromPB(msg.GrantVoteMsg)
+	if err != nil {
+		return core.GrantVoteMsgSig{}, err
+	}
+	return core.GrantVoteMsgSig{
+		GrantVoteMsg: vote,
+		Signature:    append([]byte(nil), msg.Signature...),
+	}, nil
+}
+
+func NewViewToPB(msg core.NewViewMsg) *NewViewMsg {
+	out := &NewViewMsg{
+		PreprepareLog: make([]*PreprepareMsgSig, 0, len(msg.PreprepareLog)),
+		ViewChangeLog: make([]*ViewChangeMsgSig, 0, len(msg.ViewChangeLog)),
+		NewViewNumber: msg.NewViewNumber,
+		From:          int32(msg.From),
+	}
+	for _, p := range msg.PreprepareLog {
+		out.PreprepareLog = append(out.PreprepareLog, PreprepareMsgSigToPB(p))
+	}
+	for _, vc := range msg.ViewChangeLog {
+		if vc == nil {
+			out.ViewChangeLog = append(out.ViewChangeLog, nil)
+			continue
+		}
+		out.ViewChangeLog = append(out.ViewChangeLog, ViewChangeMsgSigToPB(*vc))
+	}
+	return out
+}
+
+func NewViewFromPB(msg *NewViewMsg) (core.NewViewMsg, error) {
+	if msg == nil {
+		return core.NewViewMsg{}, nil
+	}
+	out := core.NewViewMsg{
+		PreprepareLog: make([]core.PreprepareMsgSig, 0, len(msg.PreprepareLog)),
+		ViewChangeLog: make([]*core.ViewChangeMsgSig, 0, len(msg.ViewChangeLog)),
+		NewViewNumber: msg.NewViewNumber,
+		From:          int(msg.From),
+	}
+	for _, p := range msg.PreprepareLog {
+		preprepare, err := PreprepareMsgSigFromPB(p)
+		if err != nil {
+			return core.NewViewMsg{}, err
+		}
+		out.PreprepareLog = append(out.PreprepareLog, preprepare)
+	}
+	for _, vc := range msg.ViewChangeLog {
+		if vc == nil {
+			out.ViewChangeLog = append(out.ViewChangeLog, nil)
+			continue
+		}
+		viewChangeSig, err := ViewChangeMsgSigFromPB(vc)
+		if err != nil {
+			return core.NewViewMsg{}, err
+		}
+		v := viewChangeSig
+		out.ViewChangeLog = append(out.ViewChangeLog, &v)
+	}
+	return out, nil
+}
+
+func NewViewMsgSigToPB(msg core.NewViewMsgSig) *NewViewMsgSig {
+	return &NewViewMsgSig{
+		NewViewMsg: NewViewToPB(msg.NewViewMsg),
+		Signature:  append([]byte(nil), msg.Signature...),
+	}
+}
+
+func NewViewMsgSigFromPB(msg *NewViewMsgSig) (core.NewViewMsgSig, error) {
+	if msg == nil {
+		return core.NewViewMsgSig{}, nil
+	}
+	newViewMsg, err := NewViewFromPB(msg.NewViewMsg)
+	if err != nil {
+		return core.NewViewMsgSig{}, err
+	}
+	return core.NewViewMsgSig{
+		NewViewMsg: newViewMsg,
+		Signature:  append([]byte(nil), msg.Signature...),
+	}, nil
 }

@@ -31,15 +31,15 @@ message PreprepareMsg {
   int64 view = 1;
   int64 seq_num = 2;
   ClientMsgSignature client_msg = 3;
-  string to = 4;
   bytes digest_client_msg = 5;
+  reserved 4;
 }
 
 message PreprepareSignPayload {
   int64 view = 1;
   int64 seq_num = 2;
   bytes digest_client_msg = 3;
-  string to = 4;
+  reserved 4;
 }
 
 message PrepareMsg {
@@ -47,7 +47,7 @@ message PrepareMsg {
   int64 seq_num = 2;
   bytes digest = 3;
   int32 from = 4;
-  string to = 5;
+  reserved 5;
 }
 
 message CommitMsg {
@@ -55,7 +55,63 @@ message CommitMsg {
   int64 seq_num = 2;
   bytes digest = 3;
   int32 from = 4;
-  string to = 5;
+  reserved 5;
+}
+
+message PreprepareMsgMini {
+  int64 view = 1;
+  int64 seq_num = 2;
+  bytes digest_client_msg = 3;
+}
+
+message PreprepareMsgSig {
+  PreprepareMsgMini preprepare_msg_mini = 1;
+  bytes signature = 2;
+}
+
+message PrepareMsgSig {
+  PrepareMsg prepare_msg = 1;
+  bytes signature = 2;
+}
+
+message PreparedCert {
+  PreprepareMsgSig preprepare_msg = 1;
+  map<int32, PrepareMsgSig> prepare_log = 2;
+}
+
+message ViewChangeMsg {
+  int64 view_number = 1;
+  int64 checkpoint_seq_number = 2;
+  int32 from = 3;
+  map<int64, PreparedCert> prepared_certs = 4;
+  bool req_vote = 5;
+}
+
+message ViewChangeMsgSig {
+  ViewChangeMsg view_change_msg = 1;
+  bytes signature = 2;
+}
+
+message GrantVoteMsg {
+  int64 view_number = 1;
+  int32 from = 2;
+}
+
+message GrantVoteMsgSig {
+  GrantVoteMsg grant_vote_msg = 1;
+  bytes signature = 2;
+}
+
+message NewViewMsg {
+  repeated PreprepareMsgSig preprepare_log = 1;
+  repeated ViewChangeMsgSig view_change_log = 2;
+  int64 new_view_number = 3;
+  int32 from = 4;
+}
+
+message NewViewMsgSig {
+  NewViewMsg new_view_msg = 1;
+  bytes signature = 2;
 }
 
 message ReplyMessage {
@@ -81,6 +137,9 @@ message Envelope {
     CommitMsg commit = 13;
     ReplyMessage reply = 14;
     CloseMessage close = 15;
+    ViewChangeMsg view_change = 16;
+    GrantVoteMsg grant_vote = 17;
+    NewViewMsg new_view = 18;
   }
 }
 
