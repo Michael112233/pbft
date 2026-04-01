@@ -52,7 +52,7 @@ func NewClient(addr string, name string, config *config.Config) *Client {
 
 func (c *Client) Start() {
 	c.messageHub.Start(c, &sync.WaitGroup{})
-
+	go c.TransactionManager.TransactionTimerWorker(c)
 	c.injectSpeed = c.config.InjectSpeed
 	c.InjectTxs()
 }
@@ -60,6 +60,7 @@ func (c *Client) Start() {
 func (c *Client) Stop() {
 	c.WaitGroup.Wait()
 	c.messageHub.Close()
+	c.TransactionManager.StopTimer()
 	c.log.Debug("client stopped")
 }
 

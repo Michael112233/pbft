@@ -1,0 +1,4 @@
+write now not checking if workers stream connected inject txn can start parallel and first getnodestream may fail but run on retry , it works but can change it
+osascript -e 'tell application "Terminal" to close every window'
+
+pkill -f pbft_main || true

@@ -1,6 +1,7 @@
 package node
 
 import (
+	"bytes"
 	"fmt"
 
 	"crypto/sha256"
@@ -16,7 +17,10 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const defaultPBFTRequestTimeout = 5 * time.Second
+const (
+	defaultPBFTRequestTimeout          = 5 * time.Second
+	defaultPBFTRequestTimeoutJitterMax = 500 * time.Millisecond
+)
 
 type clientRequestKey struct {
 	clientName string
@@ -50,6 +54,11 @@ type Node struct {
 
 	viewChangeMsgsLog map[int64][]*core.ViewChangeMsgSig
 	voteLog           map[int64][]core.GrantVoteMsgSig
+
+	pool *Pool
+
+	dead  bool
+	split bool
 }
 
 func NewNode(nodeID int, cfg *config.Config) *Node {
@@ -68,6 +77,7 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		preprepareSem:            make(chan struct{}, 5000),
 		preprepareSeqNumber:      atomic.Int64{},
 		view:                     1,
+		forView:                  1,
 		leaderId:                 1,
 		consensusLog:             NewConsensusLog(),
 		viewChangeRunning:        false,
@@ -75,6 +85,7 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		pbftTimerManager:         NewTimerManager(log),
 		viewChangeMsgsLog:        make(map[int64][]*core.ViewChangeMsgSig),
 		voteLog:                  make(map[int64][]core.GrantVoteMsgSig),
+		pool:                     NewPool(),
 	}
 }
 
@@ -99,9 +110,9 @@ func (n *Node) Stop() {
 	n.pbftTimerManager.pbftTimerStopOnce.Do(func() {
 		close(n.pbftTimerManager.pbftTimerStopCh)
 	})
-	n.pbftTimerManager.pendingClientReqMu.Lock()
+	n.pbftTimerManager.lock.Lock()
 	n.pbftTimerManager.stopPBFTTimerLocked()
-	n.pbftTimerManager.pendingClientReqMu.Unlock()
+	n.pbftTimerManager.lock.Unlock()
 	n.log.Info("node stopped")
 }
 
@@ -114,12 +125,44 @@ func (n *Node) GetNodeID() int {
 }
 func (n *Node) PrintDetails() {
 	// print sequence number
-	fmt.Printf("Node ID: %d, Address: %s, Current View: %d, PrePrepare Sequence Number: %d\n", n.NodeID, n.GetAddr(), n.view, n.preprepareSeqNumber.Load())
+	n.viewMu.RLock()
+	fmt.Printf("------ Node and View CHnange Details ------\n")
+	fmt.Printf("Node ID: %d, Address: %s, Current View: %d, For View: %d, leaderID: %d, voted For: %d, PrePrepare Sequence Number: %d\n\n", n.NodeID, n.GetAddr(), n.view, n.forView, n.leaderId, n.votedFor, n.preprepareSeqNumber.Load())
+	for forView, viewChangeMsgs := range n.viewChangeMsgsLog {
+		fmt.Printf("For View %d, View Change Messages:\n", forView)
+		for _, msg := range viewChangeMsgs {
+			fmt.Printf("  From Node %d, View Number: %d\n", msg.ViewChangeMsg.From, msg.ViewChangeMsg.ViewNumber)
+			if msg.ViewChangeMsg.ReqVote {
+				fmt.Printf("    Requested Vote: Yes\n")
+			} else {
+				fmt.Printf("    Requested Vote: No\n")
+			}
+			for _, preprepare := range msg.ViewChangeMsg.PreparedCerts {
+				fmt.Printf("    PrePrepare - View: %d, SeqNum: %d, Digest: %x, prepared : %v\n", preprepare.PreprepareMsg.PreprepareMsgMini.View, preprepare.PreprepareMsg.PreprepareMsgMini.SeqNum, preprepare.PreprepareMsg.PreprepareMsgMini.DigestClientMsg, preprepare.PrepareLog)
+			}
+		}
+	}
+	fmt.Printf("---------------- VOTE LOG DETAILS ------------------\n")
+	for forView, grantVotes := range n.voteLog {
+		fmt.Printf("For View %d, Grant Vote Messages:\n", forView)
+		for _, msg := range grantVotes {
+			fmt.Printf("  From Node %d, View Number: %d\n", msg.GrantVoteMsg.From, msg.GrantVoteMsg.ViewNumber)
+		}
+	}
+	fmt.Printf("------------------ LOG DETAILS ------------------\n")
+	n.viewMu.RUnlock()
 	n.consensusLog.PrintDetails()
 }
 
 func (n *Node) PrintSlot(seqNum int64) {
 	n.consensusLog.PrintSlot(seqNum)
+}
+
+func (n *Node) Dead() {
+	n.dead = true
+}
+func (n *Node) Split() {
+	n.split = true
 }
 
 func (n *Node) ClientSignatureVerifier() {
@@ -129,6 +172,7 @@ func (n *Node) ClientSignatureVerifier() {
 
 			// Verify signatures
 			for _, clientMsgSig := range clientMsgSigs {
+
 				n.verifiedClientMsgsChan <- clientMsgSig
 			}
 			n.log.Info("Verifying client message signatures, count: %d", len(clientMsgSigs))
@@ -385,7 +429,10 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 	slot.prePrepareSig = signature
 	slot.digest = digestClientMsg
 	accepted := true
-
+	if accepted {
+		n.pool.Add(preprepareMsg.ClientMsg)
+		n.pbftTimerManager.trackPreprepareRequest()
+	}
 	if !slot.prepareSent {
 
 		msg := core.PrepareMsg{
@@ -409,16 +456,116 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 
 		slot.prepares[n.GetNodeID()] = &msgForLog
 		slot.mu.Unlock()
+
 		go n.broadcastPrepare(msg, signature)
+
 	} else { //redundant else ?
 		slot.mu.Unlock()
-	}
-	if accepted {
-		n.pbftTimerManager.trackPreprepareRequest(preprepareMsg.ClientMsg)
 	}
 
 	// Buffered prepares may now form quorum with the PrePrepare
 	n.tryAdvancePrepare(slot, view, preprepareMsg.SeqNum, digestClientMsg)
+}
+
+func (n *Node) HandlePrePrepareNewView(preprepareMsg core.PreprepareMsgMini, signature []byte) bool {
+
+	view := n.view
+	// n.viewMu.RUnlock()
+
+	// --- Validation ---
+	if preprepareMsg.View != view {
+		// n.viewMu.RUnlock()
+		return false
+	}
+	// if pp.SenderID != n.leaderID() {
+	// 	return
+	// }
+	// if pp.SeqNum <= n.LowWaterMark || pp.SeqNum > n.HighWaterMark {
+	// 	return
+	// }
+
+	payloadBytes, err := marshalDeterministic(preprepareSignPayload(transportpb.PreprepareMiniToPB2(preprepareMsg)))
+	if err != nil {
+		n.log.Error("Failed to marshal preprepare mini message for signature verification: %v", err)
+		return false
+	}
+	leaderPubKey, exists := n.encryptionKeyStore.GetPublicKey(n.leaderId)
+	if !exists {
+		n.log.Error("Failed to get leader public key: %v", err)
+		return false
+	}
+	verified := crypto.VerifySignatureEd25519(payloadBytes, signature, leaderPubKey)
+	if !verified {
+		n.log.Error("Failed to verify signature in PrePrepareMini from leader %d, view %d seqNum %d", n.leaderId, preprepareMsg.View, preprepareMsg.SeqNum)
+		return false
+	}
+
+	slot, slotExists := n.consensusLog.getSlot(preprepareMsg.SeqNum)
+
+	if !slotExists {
+		return false
+	}
+
+	slot.mu.Lock()
+
+	// if preprepareMsg.View < slot.view {
+
+	// 	slot.mu.Unlock()
+	// 	return
+	// } // already did match O this is not possible
+	if preprepareMsg.View > slot.view {
+		// New view for this seq — wipe old state
+		n.log.Info("Resetting slot for new view %d seq %d due to PrePrepareMini", preprepareMsg.View, preprepareMsg.SeqNum)
+		disgestMismatch := slot.resetForNewView(preprepareMsg.View, preprepareMsg.DigestClientMsg)
+		if disgestMismatch { // only possible in equivocation
+			n.log.Error("Digest mismatch when resetting slot for new view %d seq %d", preprepareMsg.View, preprepareMsg.SeqNum)
+			slot.mu.Unlock()
+			return false
+		}
+	} // should always run
+
+	slot.prePrepare.SeqNum = preprepareMsg.SeqNum
+	slot.prePrepare.View = preprepareMsg.View
+	slot.prePrepareSig = signature
+	clientMsg := slot.prePrepare.ClientMsg
+
+	accepted := true
+
+	if !slot.prepareSent {
+
+		msg := core.PrepareMsg{
+			View:   view,
+			SeqNum: preprepareMsg.SeqNum,
+			Digest: slot.prePrepare.DigestClientMsg,
+			From:   n.GetNodeID(),
+		}
+		pbMsg := transportpb.PrepareToPB(msg)
+		payloadBytes, err := marshalDeterministic(pbMsg)
+		if err != nil {
+			n.log.Error("Failed to marshal Prepare message for signing: %v", err)
+			// to be decided
+		}
+		signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+		msgForLog := core.PrepareMsgSig{
+			PrepareMsg: msg,
+			Signature:  signature,
+		}
+		slot.prepareSent = true
+
+		slot.prepares[n.GetNodeID()] = &msgForLog
+		slot.mu.Unlock()
+		n.log.Info("Sending broadcast prepare from newview")
+		go n.broadcastPrepare(msg, signature)
+
+	} else { //redundant else ?
+		slot.mu.Unlock()
+	}
+	if accepted {
+		n.pool.Add(clientMsg)
+		// n.pbftTimerManager.trackPreprepareRequest()
+	}
+	return true
+
 }
 
 func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
@@ -451,6 +598,7 @@ func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 	}
 	if prepareMsg.View > slot.view {
 		// Prepare arrived before its PrePrepare in a new view — reset and buffer
+		n.log.Info("Resetting slot for new view %d seq %d due to Prepare", prepareMsg.View, prepareMsg.SeqNum)
 		slot.resetForView(prepareMsg.View)
 	}
 
@@ -580,9 +728,10 @@ func (n *Node) tryExecute(slot *consensusSlot, seq int64) {
 	if !shouldExecute {
 		return
 	}
-
+	n.log.Info("Executing request for view %d seq %d", slot.prePrepare.View, slot.prePrepare.SeqNum)
 	go n.sendReply(executedMsg)
-	n.pbftTimerManager.onRequestExecuted(executedMsg)
+	n.pool.Delete(executedMsg)
+	n.pbftTimerManager.onRequestExecuted(executedMsg, n)
 	// slot.prePrepare.ClientMsg.
 	// Deliver to application layer.
 	// Execute in order — hand off to an ordered executor (you'll wire this up).
@@ -777,6 +926,7 @@ func (n *Node) HandleViewChange(viewChange core.ViewChangeMsg, signature []byte)
 		return
 	}
 
+	// check for dup attack in queue
 	n.viewChangeMsgsLog[viewChange.ViewNumber] = append(n.viewChangeMsgsLog[viewChange.ViewNumber],
 		&core.ViewChangeMsgSig{
 			ViewChangeMsg: viewChange,
@@ -787,14 +937,27 @@ func (n *Node) HandleViewChange(viewChange core.ViewChangeMsg, signature []byte)
 			if n.votedFor == n.GetNodeID() {
 				verifiedvoteLog := n.verifyVoteLog(n.voteLog[viewChange.ViewNumber])
 				if verifiedvoteLog {
+					n.log.Info("New view from view change")
 					n.newView()
+				} else {
+					n.log.Info(" couldnt get enough votes for view change view %d, starting new view timer", viewChange.ViewNumber)
+					n.pbftTimerManager.startNewViewTimer(n)
 				}
+			} else {
+				// start timer
+				n.log.Info("Starting new view timer for view CHANGE %d", viewChange.ViewNumber)
+				n.pbftTimerManager.startNewViewTimer(n)
 			}
-		} else {
-			// start timer
-			n.pbftTimerManager.startNewViewTimer(n)
+
 		}
+	} else if n.forView < viewChange.ViewNumber {
+		n.log.Info("Received view change for view %d which is higher than my for view %d, ", viewChange.ViewNumber, n.forView)
+	} else {
+		n.log.Info("Received view change for view %d which is lower than my for view %d, just adding to log", viewChange.ViewNumber, n.forView)
 	}
+
+	// if > than for then and f+1 then start newview
+	// if < than do nothing just add
 
 }
 
@@ -803,6 +966,7 @@ func (n *Node) HandleGrantVote(grantVote core.GrantVoteMsg, signature []byte) {
 	defer n.viewMu.Unlock()
 
 	if grantVote.ViewNumber != n.forView || n.votedFor != n.GetNodeID() {
+		n.log.Error("Received grant vote for view %d but my for view is %d and my node ID is %d", grantVote.ViewNumber, n.forView, n.GetNodeID())
 		return
 	}
 
@@ -820,30 +984,140 @@ func (n *Node) HandleGrantVote(grantVote core.GrantVoteMsg, signature []byte) {
 	if verfiedVoteLog {
 		duplicateCheckVC := n.duplicateCheckVC(n.viewChangeMsgsLog[n.forView])
 		if duplicateCheckVC {
+			n.log.Info("New view from grant vote")
 			n.newView()
 		}
 	}
 }
 
+func (n *Node) verifyNewView(newViewMsg core.NewViewMsg) bool {
+	seenFrom := make(map[int]struct{}, len(newViewMsg.ViewChangeLog))
+	viewChangeMsgsCached := n.viewChangeMsgsLog[newViewMsg.NewViewNumber]
+	for _, vcMsgSig := range newViewMsg.ViewChangeLog {
+		if vcMsgSig == nil {
+			n.log.Error("nil view change message in new view message log for view %d", newViewMsg.NewViewNumber)
+			return false
+		}
+		if _, exists := seenFrom[vcMsgSig.ViewChangeMsg.From]; exists {
+			continue
+		}
+
+		foundInCache := false
+		for _, cachedMsg := range viewChangeMsgsCached {
+			if cachedMsg == nil {
+				continue
+			}
+			if cachedMsg.ViewChangeMsg.From == vcMsgSig.ViewChangeMsg.From {
+				cachedPayloadBytes, err := marshalDeterministic(transportpb.ViewChangeToPB(cachedMsg.ViewChangeMsg))
+				if err != nil {
+					n.log.Error("failed to marshal cached view change message for view %d from node %d: %v", newViewMsg.NewViewNumber, cachedMsg.ViewChangeMsg.From, err)
+					continue
+				}
+				incomingPayloadBytes, err := marshalDeterministic(transportpb.ViewChangeToPB(vcMsgSig.ViewChangeMsg))
+				if err != nil {
+					n.log.Error("failed to marshal incoming view change message for view %d from node %d: %v", newViewMsg.NewViewNumber, vcMsgSig.ViewChangeMsg.From, err)
+					continue
+				}
+				if !bytes.Equal(cachedPayloadBytes, incomingPayloadBytes) {
+					n.log.Error("cached view change payload mismatch for view %d from node %d", newViewMsg.NewViewNumber, vcMsgSig.ViewChangeMsg.From)
+					continue
+				}
+				foundInCache = true
+				break
+			}
+		}
+		if !foundInCache {
+			payloadBytes, err := marshalDeterministic(transportpb.ViewChangeToPB(vcMsgSig.ViewChangeMsg))
+			if err != nil {
+				n.log.Error("failed to marshal view change message for view %d from node %d: %v", newViewMsg.NewViewNumber, vcMsgSig.ViewChangeMsg.From, err)
+				continue
+			}
+			senderPubKey, exists := n.encryptionKeyStore.GetPublicKey(vcMsgSig.ViewChangeMsg.From)
+			if !exists {
+				n.log.Error("public key not found for view change sender node ID: %d", vcMsgSig.ViewChangeMsg.From)
+				continue
+			}
+			if !crypto.VerifySignatureEd25519(payloadBytes, vcMsgSig.Signature, senderPubKey) {
+				n.log.Error("signature verification failed for view change message for view %d from node %d", newViewMsg.NewViewNumber, vcMsgSig.ViewChangeMsg.From)
+				continue
+			}
+			verifiedVC := n.verifyVC(vcMsgSig.ViewChangeMsg)
+			if verifiedVC {
+				seenFrom[vcMsgSig.ViewChangeMsg.From] = struct{}{}
+			}
+		} else {
+			seenFrom[vcMsgSig.ViewChangeMsg.From] = struct{}{}
+		}
+	}
+
+	if len(seenFrom) >= 2*n.fNodes+1 {
+		return true
+	} else {
+		n.log.Error("not enough unique view change messages in new view message log for view %d: unique=%d required=%d", newViewMsg.NewViewNumber, len(seenFrom), 2*n.fNodes+1)
+		return false
+	}
+}
+
+func verifyOSet(Ocreated map[int64]core.PreprepareMsgSig, Oreceived []core.PreprepareMsgSig) bool {
+	for _, preprepareMsgSig := range Oreceived {
+		if o, exists := Ocreated[preprepareMsgSig.PreprepareMsgMini.SeqNum]; !exists {
+			return false
+		} else {
+			if o.PreprepareMsgMini.View != preprepareMsgSig.PreprepareMsgMini.View ||
+				o.PreprepareMsgMini.SeqNum != preprepareMsgSig.PreprepareMsgMini.SeqNum ||
+				o.PreprepareMsgMini.DigestClientMsg != preprepareMsgSig.PreprepareMsgMini.DigestClientMsg {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	n.viewMu.Lock()
 	defer n.viewMu.Unlock()
+	n.log.Info("Received new view message for view %d from leader %d and my current view is %d and my for view is %d", newViewMsg.NewViewNumber, newViewMsg.From, n.view, n.forView)
 
 	if newViewMsg.NewViewNumber < n.view {
 		return
 	}
-
+	if newViewMsg.NewViewNumber < n.forView {
+		n.log.Info("Received new view message for view %d which is less than my for view %d, ignoring", newViewMsg.NewViewNumber, n.forView)
+		// return
+	}
+	n.pbftTimerManager.stopNewViewTimer()
+	return
+	verifiedNewView := n.verifyNewView(newViewMsg)
+	if !verifiedNewView {
+		return
+	}
+	Oset, _ := n.createOReplica(newViewMsg.ViewChangeLog, newViewMsg.NewViewNumber)
+	verifiedOsets := verifyOSet(Oset, newViewMsg.PreprepareLog)
+	if !verifiedOsets {
+		n.log.Error("O set verification failed for new view message for view %d", newViewMsg.NewViewNumber)
+		return
+	}
 	n.view = newViewMsg.NewViewNumber
 	n.forView = newViewMsg.NewViewNumber
 	n.leaderId = newViewMsg.From
 	n.viewChangeRunning = false
 	n.pbftTimerManager.stopNewViewTimer()
+	n.log.Info("Transitioned to new view %d with leader %d", n.view, n.leaderId)
+	needSyncLog := make([]*core.PreprepareMsgSig, len(newViewMsg.PreprepareLog))
+	for _, preprepareMsg := range newViewMsg.PreprepareLog {
+		needSync := n.HandlePrePrepareNewView(preprepareMsg.PreprepareMsgMini, preprepareMsg.Signature)
+		if needSync {
+			needSyncLog = append(needSyncLog, &preprepareMsg)
+		}
+
+	}
+	n.pbftTimerManager.forceResetPBFTTimer()
 }
 
 func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64) ([]core.PreprepareMsgSig, int64) {
 	O := make([]core.PreprepareMsgSig, 0)
 	preprepareLog := make(map[int64]core.PreprepareMsgSig)
-	minS := int64(0)
+	minS := int64(1)
 	maxS := minS
 	for _, viewChangeMsg := range vcMsgSigs {
 		for seqNumber, pm := range viewChangeMsg.ViewChangeMsg.PreparedCerts {
@@ -871,6 +1145,7 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64) ([]core.P
 			})
 
 		} else {
+			n.log.Info("No prepared cert for seq %d in view change messages, creating dummy preprepare the min and max seq are %d and %d", seq, minS, maxS)
 			dummyPreprepare := core.PreprepareMsgMini{
 				View:            view,
 				SeqNum:          seq,
@@ -893,6 +1168,56 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64) ([]core.P
 
 }
 
+func (n *Node) createOReplica(vcMsgSigs []*core.ViewChangeMsgSig, view int64) (map[int64]core.PreprepareMsgSig, int64) {
+
+	preprepareLog := make(map[int64]core.PreprepareMsgSig)
+	minS := int64(0)
+	maxS := minS
+	for _, viewChangeMsg := range vcMsgSigs {
+		for seqNumber, pm := range viewChangeMsg.ViewChangeMsg.PreparedCerts {
+			if seqNumber > maxS {
+				maxS = seqNumber
+
+			}
+			preprepareLog[seqNumber] = pm.PreprepareMsg
+
+		}
+	}
+	for seq := minS; seq <= maxS; seq++ {
+		if preprepare, exists := preprepareLog[seq]; exists {
+			preprepare.PreprepareMsgMini.View = view
+			// pbMsg := transportpb.PreprepareMiniToPB2(preprepare.PreprepareMsgMini)
+			// payloadBytes, err := marshalDeterministic(preprepareSignPayload(pbMsg))
+			// if err != nil {
+			// 	// handle error, maybe skip this preprepare
+			// 	continue
+			// }
+			// signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+			preprepareLog[seq] = preprepare
+
+		} else {
+			dummyPreprepare := core.PreprepareMsgMini{
+				View:            view,
+				SeqNum:          seq,
+				DigestClientMsg: [32]byte{},
+			}
+			// pbMsg := transportpb.PreprepareMiniToPB2(dummyPreprepare)
+			// payloadBytes, err := marshalDeterministic(preprepareSignPayload(pbMsg))
+			// if err != nil {
+			// 	// handle error, maybe skip this preprepare
+			// 	continue
+			// }
+			// signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+			preprepareLog[seq] = core.PreprepareMsgSig{
+				PreprepareMsgMini: dummyPreprepare,
+				Signature:         nil, // dummy preprepare doesn't need signature for replica verification
+			}
+		}
+	}
+	return preprepareLog, maxS
+
+}
+
 func (n *Node) broadcastNewView(newViewMsg core.NewViewMsg, signature []byte) {
 	for _, othersIp := range config.NodeAddr {
 		if othersIp == n.GetAddr() {
@@ -903,6 +1228,7 @@ func (n *Node) broadcastNewView(newViewMsg core.NewViewMsg, signature []byte) {
 }
 
 func (n *Node) newView() {
+	oldView := n.view
 	n.view = n.forView
 	n.leaderId = n.GetNodeID()
 	n.viewChangeRunning = false
@@ -910,6 +1236,34 @@ func (n *Node) newView() {
 
 	O, maxSeq := n.createO(n.viewChangeMsgsLog[n.view], n.view)
 	n.preprepareSeqNumber.Store(maxSeq)
+
+	for _, preprepareMsg := range O {
+		slot := n.consensusLog.getOrCreateLog(preprepareMsg.PreprepareMsgMini.SeqNum, oldView)
+		slot.mu.Lock()
+		if preprepareMsg.PreprepareMsgMini.View > slot.view {
+			n.log.Info("at LeaderResetting slot for new view %d seq %d due to new view creation", preprepareMsg.PreprepareMsgMini.View, preprepareMsg.PreprepareMsgMini.SeqNum)
+			disgestMismatch := slot.resetForNewView(preprepareMsg.PreprepareMsgMini.View, preprepareMsg.PreprepareMsgMini.DigestClientMsg)
+			if disgestMismatch { // only possible in equivocation
+				n.log.Error("at leader Digest mismatch when resetting slot for new view %d seq %d during new view creation", preprepareMsg.PreprepareMsgMini.View, preprepareMsg.PreprepareMsgMini.SeqNum)
+				slot.mu.Unlock()
+				continue
+			}
+		} else {
+			n.log.Error("at leader This should not happen in new view at leader")
+		}
+		slot.prePrepare.SeqNum = preprepareMsg.PreprepareMsgMini.SeqNum
+		slot.prePrepare.View = preprepareMsg.PreprepareMsgMini.View
+		slot.prePrepareSig = preprepareMsg.Signature
+		clientMsg := slot.prePrepare.ClientMsg
+		n.pool.Add(clientMsg)
+		slot.mu.Unlock()
+	}
+
+	if n.split {
+		n.log.Info("Node in split got votes")
+	} else {
+		n.log.Info("Node not in split got votes")
+	}
 
 	newViewMsg := core.NewViewMsg{
 		NewViewNumber: n.view,
@@ -924,17 +1278,19 @@ func (n *Node) newView() {
 		return
 	}
 	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
-
+	// should strart pbft timer
 	go n.broadcastNewView(newViewMsg, signature)
 
 }
 
 func (n *Node) handleViewChangeTimeoutDummy() {
-	n.forView = n.view + 1
+	n.forView = n.forView + 1
 
 	reqVote := false
 
-	if len(n.viewChangeMsgsLog[n.forView]) == 0 {
+	if len(n.viewChangeMsgsLog[n.forView]) == 0 || n.split {
+		n.log.Info("Length of view change log forView %d is len: %d and i am requesting vote and my current view is %d", n.forView, len(n.viewChangeMsgsLog[n.forView]), n.view)
+
 		reqVote = true
 		n.votedFor = n.GetNodeID()
 		// n.viewChangeMsgsLog[n.forView] = make([]*core.ViewChangeMsgSig, 0)
@@ -961,6 +1317,7 @@ func (n *Node) handleViewChangeTimeoutDummy() {
 		}
 		n.voteLog[n.forView] = append(n.voteLog[n.forView], grantVoteMsgSig)
 	} else {
+		n.log.Info("my forView is %d and my curr views is %d and first req vote is from node %d and last req vote is from node %d", n.forView, n.view, n.viewChangeMsgsLog[n.forView][0].ViewChangeMsg.From, n.viewChangeMsgsLog[n.forView][len(n.viewChangeMsgsLog[n.forView])-1].ViewChangeMsg.From)
 		for _, vcMsgSig := range n.viewChangeMsgsLog[n.forView] {
 			if vcMsgSig == nil {
 				continue
@@ -1002,7 +1359,7 @@ func (n *Node) handleViewChangeTimeoutDummy() {
 		}
 
 		slot.mu.Lock()
-		if slot.view != n.view || slot.prePrepare == nil || !slot.prepareSent {
+		if slot.view != n.view || slot.prePrepare == nil || !slot.commitSent {
 			slot.mu.Unlock()
 			return true
 		}
@@ -1058,8 +1415,9 @@ func (n *Node) handleViewChangeTimeoutDummy() {
 
 	go n.broadcastViewChange(vcPayload, signature)
 
-	if len(n.viewChangeMsgsLog[n.forView]) == 2*n.fNodes+1 {
+	if len(n.viewChangeMsgsLog[n.forView]) >= 2*n.fNodes+1 {
 		// timer start
+		n.log.Info("Starting new view timer from timeout dummy %d", n.forView)
 		n.pbftTimerManager.startNewViewTimer(n)
 	}
 

@@ -23,6 +23,11 @@ func runNode(nodeID int64, cfg *config.Config) {
 
 	Node.Start()
 
+	if nodeID == 2 || nodeID == 3 {
+		fmt.Println("Node split activated")
+		Node.Split()
+	}
+
 	// time.Sleep(time.Duration(cfg.RunTime+20) * time.Second)
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Println("Node is running. Type 'exit' to stop.")
@@ -31,7 +36,7 @@ func runNode(nodeID int64, cfg *config.Config) {
 		if input == "exit" {
 			fmt.Println("Exiting node...")
 			break
-		} else if len(input) > 0 && input[0] == 's' {
+		} else if input[0] == 's' {
 			// Extract number after 's'
 			parts := strings.Fields(input) // splits "s 1245" into ["s", "1245"]
 			if len(parts) >= 2 {
@@ -40,10 +45,17 @@ func runNode(nodeID int64, cfg *config.Config) {
 				} else {
 					fmt.Println("Invalid number:", parts[1])
 				}
-			} else {
-				Node.PrintDetails() // no number provided, use default
 			}
+		} else if input[0] == 'i' {
+
+			Node.PrintDetails() // no number provided, use default
+
+		} else if input[0] == 'd' {
+			Node.Dead()
+		} else if input[0] == 'e' {
+			Node.Split()
 		}
+
 	}
 }
 

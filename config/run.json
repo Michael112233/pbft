@@ -6,7 +6,7 @@
 
   "experiment_mode": "local",
 
-  "node_num": 4,
+  "node_num": 10,
   "run_time": 20,
 
   "election_method": "raft",

@@ -94,9 +94,9 @@ func (log *ConsensusLog) PrintDetails() {
 	fmt.Printf("Total lenght of log: %d\n", len(sortedSeqNums))
 	for _, seqNum := range sortedSeqNums {
 		slot := newmap[seqNum]
-		if !slot.executed {
-			fmt.Printf("SeqNum: %d, View: %d, Digest: %x, PrepareVotes: %d, CommitVotes: %d, PrepareSent: %t, CommitSent: %t, Executed: %t\n",
-				seqNum, slot.view, slot.digest, len(slot.prepares), len(slot.commits), slot.prepareSent, slot.commitSent, slot.executed)
+		if !slot.executed || seqNum == 300 || seqNum == 14356 || seqNum == 10234 {
+			fmt.Printf("SeqNum: %d, View: %d, Data ID: %d, PrepareVotes: %d, CommitVotes: %d, PrepareSent: %t, CommitSent: %t, Executed: %t\n",
+				seqNum, slot.view, slot.prePrepare.ClientMsg.Data.Id, len(slot.prepares), len(slot.commits), slot.prepareSent, slot.commitSent, slot.executed)
 			for nodeID, prepareDigest := range slot.prepares {
 				fmt.Printf("  Prepare Vote from Node %d: Digest %x\n", nodeID, prepareDigest)
 			}
@@ -121,6 +121,13 @@ func (log *ConsensusLog) getOrCreateLog(seq int64, view int64) *consensusSlot {
 	actual, _ := log.slots.LoadOrStore(seq, entry)
 	return actual.(*consensusSlot)
 }
+func (log *ConsensusLog) getSlot(seq int64) (*consensusSlot, bool) {
+	v, ok := log.slots.Load(seq)
+	if !ok {
+		return nil, false
+	}
+	return v.(*consensusSlot), true
+}
 
 // resetForView wipes all consensus state for a new view.
 // Caller MUST hold cl.mu.
@@ -136,4 +143,28 @@ func (slot *consensusSlot) resetForView(newView int64) {
 	slot.executed = false
 	// executed intentionally NOT reset — if we already executed this seq
 	// in an older view, we must not execute it again.
+}
+
+func (slot *consensusSlot) resetForNewView(newView int64, newDigest [32]byte) bool {
+	if slot.digest != newDigest {
+		slot.view = newView
+		slot.prePrepare = nil
+		slot.prePrepareSig = nil
+		slot.digest = [32]byte{}
+		slot.prepares = make(map[int]*core.PrepareMsgSig)
+		slot.commits = make(map[int][32]byte)
+		slot.prepareSent = false
+		slot.commitSent = false
+		slot.executed = false
+		return true
+	} else {
+		slot.view = newView
+		slot.prepares = make(map[int]*core.PrepareMsgSig)
+		slot.commits = make(map[int][32]byte)
+		slot.prepareSent = false
+		slot.commitSent = false
+		slot.executed = false // executed is committed
+		return false
+	}
+
 }

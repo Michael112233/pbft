@@ -1,0 +1,37 @@
+# macOS system files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Python virtual environment
+venv/
+env/
+ENV/
+
+# Build artifacts
+pbft_main
+crypto_main
+*.o
+*.exe
+
+# Data and results (if they're generated/temporary)
+*.csv
+*.png
+result/
+
+
+
+# IDE files (optional)
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Log files
+*.log
+logs/
+
+#  go cache
+.gocache/

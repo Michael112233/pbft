@@ -202,7 +202,10 @@ func (hub *NodeMessageHub) ClientNodeChannel(stream transportpb.PBFTTransport_Cl
 			}
 			return err
 		}
-
+		if hub.node_ref.dead {
+			hub.log.Info("Node is dead. Ignoring message from client stream.")
+			continue
+		}
 		switch env.MsgType {
 		case core.MsgRequestMessage:
 			request := env.GetRequest()
@@ -226,6 +229,10 @@ func (hub *NodeMessageHub) ClientNodeChannel(stream transportpb.PBFTTransport_Cl
 }
 
 func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope) (*transportpb.Ack, error) {
+	if hub.node_ref.dead {
+		hub.log.Info("Node is dead. Ignoring message from %d", env.From)
+		return &transportpb.Ack{Ok: true}, nil
+	}
 	switch env.MsgType {
 	case core.MsgRequestMessage:
 		request := env.GetRequest()

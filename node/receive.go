@@ -8,35 +8,31 @@ import (
 
 // handle request message
 func (n *Node) HandleRequestMessage(data core.RequestMessage) {
-	// n.handleMessageLock.Lock()
-	// defer n.handleMessageLock.Unlock()
-	// if n.viewChange.IsInViewChange() {
-	// 	// n.log.Error("Node %d is in view change and Ignore request message", n.NodeID)
-	// 	return
-	// }
-	// n.log.Info(fmt.Sprintf("Received request message from %s to %s with %d transactions", data.From, data.To, len(data.Txs)))
+	n.viewMu.RLock()
+	defer n.viewMu.RUnlock()
+	if n.viewChangeRunning {
+		n.log.Info(fmt.Sprintf("Node %d is in view change, drop the request message from client %s, id %d", n.GetNodeID(), data.Txs[0].Data.ClientName, data.Txs[0].Data.Id))
+		return
+	}
+	n.log.Info(fmt.Sprintf("Received request message from client %s, id %d, length of batch is %d", data.Txs[0].Data.ClientName, data.Txs[0].Data.Id, len(data.Txs)))
+	if n.leaderId == n.GetNodeID() {
 
-	// n.mempoolLock.Lock()
-	// n.Mempool = append(n.Mempool, data.Txs...)
-	// n.mempoolLock.Unlock()
-	// n.handleMessageLock.Lock()
-	// if n.preprepareStarted {
-	// 	n.handleMessageLock.Unlock()
-	// 	return
-	// }
-	// n.preprepareStarted = true
-	// n.handleMessageLock.Unlock()
-	// n.log.Info(fmt.Sprintf("Preprepare started, send preprepare message to %s", data.To))
-	// go n.SendPreprepareMessage(-1)
-	// if !n.verificationWorkerStarted.Load() {
-	// 	n.verificationWorkerStarted.
-	// 	go n.VerifiedClientMessageHandler()
-	// 	go n.ClientSignatureVerifier()
-	// }
-	select {
-	case n.unverifiedClientMsgsChan <- data.Txs:
+		// select {
+		// case n.unverifiedClientMsgsChan <- data.Txs:
 
-	default:
-		n.log.Error(fmt.Sprintf("Dropped the batch"))
+		// default:
+		// 	n.log.Error(fmt.Sprintf("Dropped the batch"))
+		// }
+		for _, clientMsgSig := range data.Txs {
+			n.pool.Add(clientMsgSig)
+			n.pbftTimerManager.trackPreprepareRequest()
+			n.verifiedClientMsgsChan <- clientMsgSig
+		}
+	} else {
+		for _, clienMsgSig := range data.Txs {
+			n.pool.Add(clienMsgSig)
+			n.pbftTimerManager.trackPreprepareRequest()
+
+		}
 	}
 }

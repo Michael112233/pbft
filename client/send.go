@@ -32,7 +32,7 @@ func (c *Client) InjectTxs() {
 		result.SetStartTime(time.Now())
 
 		// Create signed ClientMsgSignature array for all transactions
-		txns := GenerateDummyTxs(28000)
+		txns := GenerateDummyTxs(4)
 		signedMsgs := make([]core.ClientMsgSignature, len(txns))
 		for i, tx := range txns {
 			clientMsg := core.ClientMsg{
@@ -58,10 +58,13 @@ func (c *Client) InjectTxs() {
 
 		var injectTxs []core.ClientMsgSignature
 		c.TransactionManager.Start()
-		for i := int64(0); (i+1)*4000 <= int64(len(txns)); i++ {
-			injectTxs = signedMsgs[i*4000 : (i+1)*4000] //c.txs[i*c.config.InjectSpeed : (i+1)*c.config.InjectSpeed]
+		// c.log.Info("Starting to inject transactions...")
+		for i := int64(0); (i+1)*1 <= int64(len(txns)); i++ {
+			// c.log.Info(fmt.Sprintf("Injecting transaction batch %d", i))
+			injectTxs = signedMsgs[i*1 : (i+1)*1] //c.txs[i*c.config.InjectSpeed : (i+1)*c.config.InjectSpeed]
 			// leader := c.leaderElection.GetLeader(c.currentView)
 			leader := config.NodeAddr[1]
+			c.TransactionManager.StartTimer()
 			go c.TransactionManager.AddTransaction(injectTxs)
 
 			msg := core.RequestMessage{
@@ -69,6 +72,13 @@ func (c *Client) InjectTxs() {
 
 				Txs: injectTxs,
 				// Id:        int64(i),
+			}
+			if i == 3 {
+				c.TransactionManager.TemporaryStopTimer()
+				// ask user input
+				fmt.Println("Press Enter to continue...")
+				fmt.Scanln()
+				c.TransactionManager.ResetTimer()
 			}
 			c.log.Info(fmt.Sprintf("Send request message to %s with %d transactions", leader, int64(i)))
 

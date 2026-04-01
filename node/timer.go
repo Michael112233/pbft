@@ -1,6 +1,7 @@
 package node
 
 import (
+	"math/rand/v2"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -10,20 +11,22 @@ import (
 )
 
 type TimerManager struct {
-	pendingClientReqMu sync.Mutex // also protects pbftTimerInitiated in locked fn
-	pendingClientReq   map[clientRequestKey]core.ClientMsgSignature
-	pbftTimer          *time.Timer
-	pbftTimerInitiated bool
-	pbftTimeout        time.Duration
-	pbftTimerStopCh    chan struct{}
-	pbftTimerStopOnce  sync.Once
-	pbftTimerStarted   atomic.Bool
-	newViewTimeout     time.Duration
-	newViewTimerOn     atomic.Bool
-	newViewTimerEpoch  atomic.Int64
+	lock sync.Mutex // also protects pbftTimerInitiated in locked fn
+
+	pbftTimer            *time.Timer
+	pbftTimerInitiated   bool
+	pbftTimeout          time.Duration
+	pbftTimeoutJitterMax time.Duration
+	pbftTimerStopCh      chan struct{}
+	pbftTimerStopOnce    sync.Once
+	pbftTimerStarted     atomic.Bool
+	newViewTimeout       time.Duration
+	newViewTimerOn       atomic.Bool
+	newViewTimerEpoch    atomic.Int64
 
 	viewChangeTimeoutDummyCount atomic.Int64
 	log                         *logger.Logger
+	node_ref                    *Node
 }
 
 func NewTimerManager(log *logger.Logger) *TimerManager {
@@ -35,25 +38,27 @@ func NewTimerManager(log *logger.Logger) *TimerManager {
 		}
 	}
 	return &TimerManager{
-		pendingClientReq:   make(map[clientRequestKey]core.ClientMsgSignature),
-		pbftTimer:          pbftTimer,
-		pbftTimerInitiated: false,
-		pbftTimeout:        defaultPBFTRequestTimeout,
-		newViewTimeout:     defaultPBFTRequestTimeout,
-		pbftTimerStopCh:    make(chan struct{}),
-		log:                log,
+
+		pbftTimer:            pbftTimer,
+		pbftTimerInitiated:   false,
+		pbftTimeout:          defaultPBFTRequestTimeout,
+		pbftTimeoutJitterMax: defaultPBFTRequestTimeoutJitterMax,
+		newViewTimeout:       defaultPBFTRequestTimeout,
+		pbftTimerStopCh:      make(chan struct{}),
+		log:                  log,
 	}
 }
 
 func (tm *TimerManager) startNewViewTimer(n *Node) {
 	if !tm.newViewTimerOn.CompareAndSwap(false, true) {
+		tm.log.Info("new-view timer already started")
 		return
 	}
 
 	epoch := tm.newViewTimerEpoch.Add(1)
 	tm.log.Info("new-view timer started")
 	go func(localEpoch int64) {
-		timer := time.NewTimer(tm.newViewTimeout)
+		timer := time.NewTimer(tm.nextPBFTTimeoutLocked())
 		defer timer.Stop()
 
 		select {
@@ -74,6 +79,7 @@ func (tm *TimerManager) startNewViewTimer(n *Node) {
 		tm.newViewTimerOn.Store(false)
 
 		n.viewMu.Lock()
+		tm.log.Info("New-view timer expired for view %d; triggering dummy view-change", n.forView)
 		n.handleViewChangeTimeoutDummy()
 		n.viewMu.Unlock()
 	}(epoch)
@@ -87,6 +93,7 @@ func (tm *TimerManager) stopNewViewTimer() {
 
 func (tm *TimerManager) pbftTimerWorker(n *Node) {
 	tm.log.Info("PBFT timer worker started")
+	tm.node_ref = n
 	for {
 		select {
 		case <-tm.pbftTimer.C:
@@ -97,16 +104,10 @@ func (tm *TimerManager) pbftTimerWorker(n *Node) {
 	}
 }
 
-func (tm *TimerManager) trackPreprepareRequest(msg core.ClientMsgSignature) {
-	key := makeClientRequestKey(msg.Data)
+func (tm *TimerManager) trackPreprepareRequest() {
 
-	tm.pendingClientReqMu.Lock()
-	defer tm.pendingClientReqMu.Unlock()
-
-	if _, exists := tm.pendingClientReq[key]; exists {
-		return
-	}
-	tm.pendingClientReq[key] = msg
+	tm.lock.Lock()
+	defer tm.lock.Unlock()
 
 	if !tm.pbftTimerInitiated {
 		tm.log.Info("Starting PBFT timer for new pending request")
@@ -114,27 +115,31 @@ func (tm *TimerManager) trackPreprepareRequest(msg core.ClientMsgSignature) {
 	}
 }
 
-func (tm *TimerManager) onRequestExecuted(msg core.ClientMsg) {
-	key := makeClientRequestKey(msg)
+func (tm *TimerManager) forceResetPBFTTimer() {
+	tm.lock.Lock()
+	defer tm.lock.Unlock()
 
-	tm.pendingClientReqMu.Lock()
-	if _, exists := tm.pendingClientReq[key]; !exists {
-		tm.log.Warn("Executed request not found in pending requests; key: %v", key)
-		// tm.pendingClientReqMu.Unlock()
-		// return
+	if tm.pbftTimerInitiated {
+		tm.log.Info("Force resetting PBFT timer")
+		tm.resetPBFTTimerLocked()
 	}
-	defer tm.pendingClientReqMu.Unlock()
-	delete(tm.pendingClientReq, key)
+}
 
-	if len(tm.pendingClientReq) == 0 { // imp in case gap in client req then for new req premature timeout
+func (tm *TimerManager) onRequestExecuted(msg core.ClientMsg, n *Node) {
+
+	if n.pool.PendingRequests() == 0 { // imp in case gap in client req then for new req premature timeout
 		tm.log.Info("No more pending requests; stopping PBFT timer at execute")
+		tm.lock.Lock()
 		tm.stopPBFTTimerLocked()
+		tm.lock.Unlock()
 		return
 	}
+	tm.lock.Lock()
 	if tm.pbftTimerInitiated {
 		// tm.log.Info("Resetting PBFT timer at execute with pending requests remaining")
 		tm.resetPBFTTimerLocked()
 	}
+	tm.lock.Unlock()
 }
 
 func (tm *TimerManager) startPBFTTimerLocked() {
@@ -147,7 +152,7 @@ func (tm *TimerManager) startPBFTTimerLocked() {
 		default:
 		}
 	}
-	tm.pbftTimer.Reset(tm.pbftTimeout)
+	tm.pbftTimer.Reset(tm.nextPBFTTimeoutLocked())
 	tm.pbftTimerInitiated = true
 }
 
@@ -161,8 +166,32 @@ func (tm *TimerManager) resetPBFTTimerLocked() {
 		default:
 		}
 	}
-	tm.pbftTimer.Reset(tm.pbftTimeout)
+	tm.pbftTimer.Reset(tm.nextPBFTTimeoutLocked())
 	tm.pbftTimerInitiated = true
+}
+
+func (tm *TimerManager) nextPBFTTimeoutLocked() time.Duration {
+
+	if tm.node_ref.split {
+		tm.log.Info("Node is in split mode; using base PBFT timeout without jitter")
+		return tm.pbftTimeout
+	}
+	if tm.pbftTimeoutJitterMax <= 0 {
+		return tm.pbftTimeout
+	}
+
+	maxJitterNs := tm.pbftTimeoutJitterMax.Nanoseconds()
+	if maxJitterNs <= 0 {
+		return tm.pbftTimeout
+	}
+
+	jitterNs := rand.Int64N(maxJitterNs + 1)
+	timeout := tm.pbftTimeout + time.Duration(jitterNs)
+	if timeout < tm.pbftTimeout {
+		return tm.pbftTimeout
+	}
+	// tm.log.Info("Timeout value is %v (base %v + jitter %v)", timeout, tm.pbftTimeout, time.Duration(jitterNs))
+	return timeout
 }
 
 func (tm *TimerManager) stopPBFTTimerLocked() {
@@ -183,23 +212,24 @@ func (tm *TimerManager) handlePBFTTimerExpiry(n *Node) {
 	tm.log.Info("PBFT timer expired; checking pending requests")
 	shouldTriggerViewChange := false
 
-	tm.pendingClientReqMu.Lock()
-	if len(tm.pendingClientReq) > 0 {
+	tm.lock.Lock()
+	lenOfPending := n.pool.PendingRequests()
+	if lenOfPending > 0 {
 		n.viewMu.Lock()
 		defer n.viewMu.Unlock()
-		// n.viewChangeRunning = true
+		n.viewChangeRunning = true
 
-		tm.log.Info(" remaining request count: %d; triggering dummy view-change", len(tm.pendingClientReq))
+		tm.log.Info(" remaining request count: %d; triggering dummy view-change", lenOfPending)
 		shouldTriggerViewChange = true
 	} else {
 		tm.log.Info("No pending requests at timer expiry; no dummy trigger needed")
 		tm.stopPBFTTimerLocked()
 	}
 	tm.pbftTimerInitiated = false
-	tm.pendingClientReqMu.Unlock()
+	tm.lock.Unlock()
 
 	if shouldTriggerViewChange {
 		tm.viewChangeTimeoutDummyCount.Add(1)
-		// n.handleViewChangeTimeoutDummy()
+		n.handleViewChangeTimeoutDummy()
 	}
 }
