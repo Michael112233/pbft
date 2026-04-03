@@ -12,6 +12,7 @@ import (
 	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/crypto"
+	"github.com/michael112233/pbft/execution"
 	"github.com/michael112233/pbft/logger"
 	"github.com/michael112233/pbft/transportpb"
 	"google.golang.org/protobuf/proto"
@@ -44,18 +45,24 @@ type Node struct {
 	leaderId                  int
 	forView                   int64
 	votedFor                  int
-	consensusLog              *ConsensusLog
+	consensusLog              ConsensusLog
 	viewChangeRunning         bool
 	viewMu                    sync.RWMutex
+	vcType                    core.VCType
 	fNodes                    int
 	verificationWorkerStarted atomic.Bool
 
 	pbftTimerManager *TimerManager
 
 	viewChangeMsgsLog map[int64][]*core.ViewChangeMsgSig
-	voteLog           map[int64][]core.GrantVoteMsgSig
+	voteLog           map[int64][]int
 
 	pool *Pool
+
+	executionMachine  execution.StateMachine
+	executionMu       sync.Mutex
+	lastExecuted      int64
+	pendingExecutions map[int64]pendingExecution
 
 	dead  bool
 	split bool
@@ -78,6 +85,7 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		preprepareSeqNumber:      atomic.Int64{},
 		view:                     1,
 		forView:                  1,
+		vcType:                   core.VCTypeElection,
 		leaderId:                 1,
 		consensusLog:             NewConsensusLog(),
 		viewChangeRunning:        false,
@@ -86,6 +94,8 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		viewChangeMsgsLog:        make(map[int64][]*core.ViewChangeMsgSig),
 		voteLog:                  make(map[int64][]core.GrantVoteMsgSig),
 		pool:                     NewPool(),
+		executionMachine:         execution.NewAccountStateMachine(),
+		pendingExecutions:        make(map[int64]pendingExecution),
 	}
 }
 
@@ -334,19 +344,23 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 		// ideally sign preprepare with digest so less costly and piggy back client messages, but for simplicity we sign whole preprepare message here
 	}
 
-	pbMsg := transportpb.PreprepareToPB(preprepareMsg)
-	payloadBytes, err := marshalDeterministic(preprepareSignPayload(pbMsg))
+	// pbMsg := transportpb.PreprepareToPB(preprepareMsg)
+	payloadBytes, err := marshalDeterministic(preprepareSignPayload(view, seqNum, digestClientMsg[:]))
 	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
 
 	slot := n.consensusLog.getOrCreateLog(seqNum, view)
 	slot.mu.Lock()
 	slot.prePrepare = &preprepareMsg
-	slot.digest = digestClientMsg
+	slot.missingData = false
+	// slot.prePrepare.
+	// slot.digest = digestClientMsg
 	slot.prePrepareSig = signature
 	slot.prepareSent = true
 	slot.mu.Unlock()
 	// n.viewMu.RUnlock()
 
+	n.pool.Add(digestClientMsg, batch)
+	n.pbftTimerManager.trackPreprepareRequest()
 	go func() {
 		for _, othersIp := range config.NodeAddr {
 			if othersIp == n.GetAddr() {
@@ -408,16 +422,16 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 	slot := n.consensusLog.getOrCreateLog(preprepareMsg.SeqNum, view)
 	slot.mu.Lock()
 
-	// View comparison on the log entry itself
-	if preprepareMsg.View < slot.view {
-		// Stale PrePrepare from an older view — ignore
-		slot.mu.Unlock()
-		return
-	}
-	if preprepareMsg.View > slot.view {
-		// New view for this seq — wipe old state
-		slot.resetForView(preprepareMsg.View)
-	}
+	// // View comparison on the log entry itself
+	// if preprepareMsg.View < slot.view {
+	// 	// Stale PrePrepare from an older view — ignore
+	// 	slot.mu.Unlock()
+	// 	return
+	// }
+	// if preprepareMsg.View > slot.view {
+	// 	// New view for this seq — wipe old state
+	// 	slot.resetForView(preprepareMsg.View)
+	// }
 
 	// Already have a PrePrepare for this (view, seq)? Reject duplicate / conflicting.
 	if slot.prePrepare != nil {
@@ -427,10 +441,11 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 
 	slot.prePrepare = &preprepareMsg
 	slot.prePrepareSig = signature
-	slot.digest = digestClientMsg
+	slot.missingData = false
+	// slot.digest = digestClientMsg
 	accepted := true
 	if accepted {
-		n.pool.Add(preprepareMsg.ClientMsg)
+		n.pool.Add(digestClientMsg, preprepareMsg.ClientMsg)
 		n.pbftTimerManager.trackPreprepareRequest()
 	}
 	if !slot.prepareSent {
@@ -484,7 +499,7 @@ func (n *Node) HandlePrePrepareNewView(preprepareMsg core.PreprepareMsgMini, sig
 	// 	return
 	// }
 
-	payloadBytes, err := marshalDeterministic(preprepareSignPayload(transportpb.PreprepareMiniToPB2(preprepareMsg)))
+	payloadBytes, err := marshalDeterministic(preprepareSignPayload(preprepareMsg.View, preprepareMsg.SeqNum, preprepareMsg.DigestClientMsg[:]))
 	if err != nil {
 		n.log.Error("Failed to marshal preprepare mini message for signature verification: %v", err)
 		return false
@@ -500,12 +515,8 @@ func (n *Node) HandlePrePrepareNewView(preprepareMsg core.PreprepareMsgMini, sig
 		return false
 	}
 
-	slot, slotExists := n.consensusLog.getSlot(preprepareMsg.SeqNum)
-
-	if !slotExists {
-		return false
-	}
-
+	slot := n.consensusLog.getOrCreateLog(preprepareMsg.SeqNum, preprepareMsg.View)
+	missingSlot := false
 	slot.mu.Lock()
 
 	// if preprepareMsg.View < slot.view {
@@ -513,23 +524,34 @@ func (n *Node) HandlePrePrepareNewView(preprepareMsg core.PreprepareMsgMini, sig
 	// 	slot.mu.Unlock()
 	// 	return
 	// } // already did match O this is not possible
-	if preprepareMsg.View > slot.view {
-		// New view for this seq — wipe old state
-		n.log.Info("Resetting slot for new view %d seq %d due to PrePrepareMini", preprepareMsg.View, preprepareMsg.SeqNum)
-		disgestMismatch := slot.resetForNewView(preprepareMsg.View, preprepareMsg.DigestClientMsg)
-		if disgestMismatch { // only possible in equivocation
-			n.log.Error("Digest mismatch when resetting slot for new view %d seq %d", preprepareMsg.View, preprepareMsg.SeqNum)
-			slot.mu.Unlock()
-			return false
-		}
-	} // should always run
+	// if preprepareMsg.View > slot.view {
+	// 	// New view for this seq — wipe old state
+	// 	n.log.Info("Resetting slot for new view %d seq %d due to PrePrepareMini", preprepareMsg.View, preprepareMsg.SeqNum)
+	// 	disgestMismatch := slot.resetForNewView(preprepareMsg.View, preprepareMsg.DigestClientMsg)
+	// 	if disgestMismatch { // only possible in equivocation
+	// 		n.log.Error("Digest mismatch when resetting slot for new view %d seq %d", preprepareMsg.View, preprepareMsg.SeqNum)
+	// 		slot.mu.Unlock()
+	// 		return false
+	// 	}
+	// } // should always run
 
 	slot.prePrepare.SeqNum = preprepareMsg.SeqNum
 	slot.prePrepare.View = preprepareMsg.View
 	slot.prePrepareSig = signature
-	clientMsg := slot.prePrepare.ClientMsg
-
-	accepted := true
+	slot.prePrepare.DigestClientMsg = preprepareMsg.DigestClientMsg
+	if preprepareMsg.DigestClientMsg != [32]byte{} {
+		clientMsg, exists, executed := n.pool.Get(preprepareMsg.DigestClientMsg)
+		if exists {
+			slot.prePrepare.ClientMsg = clientMsg
+			slot.missingData = false
+		} else if !exists && !executed {
+			missingSlot = true
+			slot.missingData = true
+		} else if !exists && executed {
+			slot.missingData = false
+			n.log.Info("PrePrepareMini for already executed client message, view %d seq %d", preprepareMsg.View, preprepareMsg.SeqNum)
+		}
+	}
 
 	if !slot.prepareSent {
 
@@ -557,14 +579,12 @@ func (n *Node) HandlePrePrepareNewView(preprepareMsg core.PreprepareMsgMini, sig
 		n.log.Info("Sending broadcast prepare from newview")
 		go n.broadcastPrepare(msg, signature)
 
-	} else { //redundant else ?
-		slot.mu.Unlock()
 	}
-	if accepted {
-		n.pool.Add(clientMsg)
-		// n.pbftTimerManager.trackPreprepareRequest()
-	}
-	return true
+	// if accepted {
+	// 	n.pool.Add(clientMsg)
+	// 	// n.pbftTimerManager.trackPreprepareRequest()
+	// }
+	return missingSlot
 
 }
 
@@ -592,19 +612,19 @@ func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 	slot.mu.Lock()
 
 	// View check on the log entry
-	if prepareMsg.View < slot.view {
-		slot.mu.Unlock()
-		return
-	}
-	if prepareMsg.View > slot.view {
-		// Prepare arrived before its PrePrepare in a new view — reset and buffer
-		n.log.Info("Resetting slot for new view %d seq %d due to Prepare", prepareMsg.View, prepareMsg.SeqNum)
-		slot.resetForView(prepareMsg.View)
-	}
+	// if prepareMsg.View < slot.view {
+	// 	slot.mu.Unlock()
+	// 	return
+	// }
+	// if prepareMsg.View > slot.view {
+	// 	// Prepare arrived before its PrePrepare in a new view — reset and buffer
+	// 	n.log.Info("Resetting slot for new view %d seq %d due to Prepare", prepareMsg.View, prepareMsg.SeqNum)
+	// 	slot.resetForView(prepareMsg.View)
+	// }
 
 	// Digest check: if we have the PrePrepare, the digest must match.
 	// If we don't have it yet, store the prepare anyway (out-of-order).
-	if slot.digest != [32]byte{} && slot.digest != prepareMsg.Digest {
+	if slot.prePrepare != nil && slot.prePrepare.DigestClientMsg != prepareMsg.Digest {
 		slot.mu.Unlock()
 		return
 	}
@@ -642,16 +662,16 @@ func (n *Node) HandleCommit(commitMsg core.CommitMsg) {
 	slot.mu.Lock()
 
 	// View check on the log entry
-	if commitMsg.View < slot.view {
-		slot.mu.Unlock()
-		return
-	}
-	if commitMsg.View > slot.view {
-		// Commit arrived before its PrePrepare in a new view — reset and buffer
-		slot.resetForView(commitMsg.View)
-	}
+	// if commitMsg.View < slot.view {
+	// 	slot.mu.Unlock()
+	// 	return
+	// }
+	// if commitMsg.View > slot.view {
+	// 	// Commit arrived before its PrePrepare in a new view — reset and buffer
+	// 	slot.resetForView(commitMsg.View)
+	// }
 
-	if slot.digest != [32]byte{} && slot.digest != commitMsg.Digest {
+	if slot.prePrepare != nil && slot.prePrepare.DigestClientMsg != commitMsg.Digest {
 		slot.mu.Unlock()
 		return
 	} // msybe not needed here
@@ -669,22 +689,22 @@ func (n *Node) tryAdvancePrepare(slot *consensusSlot, view, seq int64, digest [3
 	if slot.commitSent {
 		return // already advanced past prepare
 	}
-	if slot.prePrepare == nil || slot.digest == [32]byte{} {
+	if slot.prePrepare == nil {
 		return // can't be prepared without PrePrepare
 	}
 	// Need 2f prepares matching our accepted digest.
 	// Leader's PrePrepare is its implicit prepare-phase vote.
-	if len(slot.prepares) < 2*n.fNodes || matchingVotes(slot.prepares, slot.digest) < 2*n.fNodes {
+	if len(slot.prepares) < 2*n.fNodes || matchingVotes(slot.prepares, slot.prePrepare.DigestClientMsg) < 2*n.fNodes {
 		return
 	}
 
 	slot.commitSent = true
 	// Add own commit vote with digest before releasing lock
-	slot.commits[n.GetNodeID()] = slot.digest
+	slot.commits[n.GetNodeID()] = slot.prePrepare.DigestClientMsg
 
 	// Broadcast Commit (release lock first to avoid holding during I/O)
 	go func() {
-		n.broadcastCommit(view, seq, slot.digest)
+		n.broadcastCommit(view, seq, slot.prePrepare.DigestClientMsg)
 		// Commits may already be buffered from peers before we flip commitSent.
 		// Re-check execute to avoid leaving executable slots stuck.
 
@@ -693,12 +713,10 @@ func (n *Node) tryAdvancePrepare(slot *consensusSlot, view, seq int64, digest [3
 }
 
 func (n *Node) tryExecute(slot *consensusSlot, seq int64) {
-	_ = seq
 	var executedMsg core.ClientMsg
-	shouldExecute := false
 
 	slot.mu.Lock()
-	if slot.executed {
+	if slot.executed || slot.executionPending {
 		slot.mu.Unlock()
 		return
 	}
@@ -715,34 +733,35 @@ func (n *Node) tryExecute(slot *consensusSlot, seq int64) {
 		return
 	}
 	// Committed-local: 2f+1 matching commits
-	if len(slot.commits) < 2*n.fNodes+1 || matchingVotesC(slot.commits, slot.digest) < 2*n.fNodes+1 {
+	if len(slot.commits) < 2*n.fNodes+1 || matchingVotesC(slot.commits, slot.prePrepare.DigestClientMsg) < 2*n.fNodes+1 {
 		slot.mu.Unlock()
 		return
 	}
 
-	slot.executed = true
-	executedMsg = slot.prePrepare.ClientMsg.Data
-	shouldExecute = true
+	slot.executionPending = true
+	noOp := slot.prePrepare.DigestClientMsg == [32]byte{}
+	missingData := slot.missingData
+
+	if !noOp && !missingData {
+		executedMsg = slot.prePrepare.ClientMsg.Data
+	}
+
+	// digest := slot.prePrepare.DigestClientMsg
 	slot.mu.Unlock()
 
-	if !shouldExecute {
-		return
-	}
-	n.log.Info("Executing request for view %d seq %d", slot.prePrepare.View, slot.prePrepare.SeqNum)
-	go n.sendReply(executedMsg)
-	n.pool.Delete(executedMsg)
-	n.pbftTimerManager.onRequestExecuted(executedMsg, n)
-	// slot.prePrepare.ClientMsg.
-	// Deliver to application layer.
-	// Execute in order — hand off to an ordered executor (you'll wire this up).
-	// go n.executeRequest(seq, cl.prePrepare.Data.ClientMsg)
+	n.queueCommittedExecution(seq, slot, executedMsg, noOp, missingData)
 }
 
-func (n *Node) sendReply(clientMsg core.ClientMsg) {
+func (n *Node) sendReply(clientMsg core.ClientMsg, result execution.Result, seq int64) {
 	replyMsg := core.ReplyMessage{
 		From:      n.GetAddr(),
 		To:        config.ClientAddr,
 		ClientMsg: clientMsg,
+		Result: core.ExecutionResult{
+			Success:        result.Success,
+			Error:          result.Error,
+			ExecutedSeqNum: seq,
+		},
 	}
 	n.messageHub.Send(core.MsgReplyMessage, config.ClientAddr, replyMsg, nil)
 }
@@ -777,12 +796,12 @@ func (n *Node) verifyPreprepare(preprepareMsg core.PreprepareMsgSig) (bool, int6
 		n.log.Error("public key not found for preprepare sender node ID: %d", from)
 		return false, 0, 0, [32]byte{}
 	}
-
-	payload := &transportpb.PreprepareSignPayload{
-		View:            view,
-		SeqNum:          seq,
-		DigestClientMsg: digest[:],
-	}
+	payload := preprepareSignPayload(preprepareMsg.PreprepareMsgMini.View, preprepareMsg.PreprepareMsgMini.SeqNum, preprepareMsg.PreprepareMsgMini.DigestClientMsg[:])
+	// payload := &transportpb.PreprepareSignPayload{
+	// 	View:            view,
+	// 	SeqNum:          seq,
+	// 	DigestClientMsg: digest[:],
+	// }
 	payloadBytes, err := marshalDeterministic(payload)
 	if err != nil {
 		n.log.Error("preprepare payload marshal failed: err=%v", err)
@@ -953,6 +972,11 @@ func (n *Node) HandleViewChange(viewChange core.ViewChangeMsg, signature []byte)
 	} else if n.forView < viewChange.ViewNumber {
 		n.log.Info("Received view change for view %d which is higher than my for view %d, ", viewChange.ViewNumber, n.forView)
 	} else {
+		if viewChange.ViewNumber == n.forView+1 && len(n.viewChangeMsgsLog[viewChange.ViewNumber]) >= n.fNodes+1 {
+			n.pbftTimerManager.forceStopPBFTTimer()
+			n.pbftTimerManager.stopNewViewTimer()
+			n.handleViewChangeTimeoutDummy()
+		}
 		n.log.Info("Received view change for view %d which is lower than my for view %d, just adding to log", viewChange.ViewNumber, n.forView)
 	}
 
@@ -1085,8 +1109,8 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 		n.log.Info("Received new view message for view %d which is less than my for view %d, ignoring", newViewMsg.NewViewNumber, n.forView)
 		// return
 	}
-	n.pbftTimerManager.stopNewViewTimer()
-	return
+	// n.pbftTimerManager.stopNewViewTimer()
+	// return
 	verifiedNewView := n.verifyNewView(newViewMsg)
 	if !verifiedNewView {
 		return
@@ -1132,8 +1156,8 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64) ([]core.P
 	for seq := minS; seq <= maxS; seq++ {
 		if preprepare, exists := preprepareLog[seq]; exists {
 			preprepare.PreprepareMsgMini.View = view
-			pbMsg := transportpb.PreprepareMiniToPB2(preprepare.PreprepareMsgMini)
-			payloadBytes, err := marshalDeterministic(preprepareSignPayload(pbMsg))
+			// pbMsg := transportpb.PreprepareMiniToPB2(preprepare.PreprepareMsgMini)
+			payloadBytes, err := marshalDeterministic(preprepareSignPayload(preprepare.PreprepareMsgMini.View, preprepare.PreprepareMsgMini.SeqNum, preprepare.PreprepareMsgMini.DigestClientMsg[:]))
 			if err != nil {
 				// handle error, maybe skip this preprepare
 				continue
@@ -1151,8 +1175,8 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64) ([]core.P
 				SeqNum:          seq,
 				DigestClientMsg: [32]byte{},
 			}
-			pbMsg := transportpb.PreprepareMiniToPB2(dummyPreprepare)
-			payloadBytes, err := marshalDeterministic(preprepareSignPayload(pbMsg))
+			// pbMsg := transportpb.PreprepareMiniToPB2(dummyPreprepare)
+			payloadBytes, err := marshalDeterministic(preprepareSignPayload(dummyPreprepare.View, dummyPreprepare.SeqNum, dummyPreprepare.DigestClientMsg[:]))
 			if err != nil {
 				// handle error, maybe skip this preprepare
 				continue
@@ -1228,7 +1252,7 @@ func (n *Node) broadcastNewView(newViewMsg core.NewViewMsg, signature []byte) {
 }
 
 func (n *Node) newView() {
-	oldView := n.view
+	// oldView := n.view
 	n.view = n.forView
 	n.leaderId = n.GetNodeID()
 	n.viewChangeRunning = false
@@ -1238,25 +1262,32 @@ func (n *Node) newView() {
 	n.preprepareSeqNumber.Store(maxSeq)
 
 	for _, preprepareMsg := range O {
-		slot := n.consensusLog.getOrCreateLog(preprepareMsg.PreprepareMsgMini.SeqNum, oldView)
+		slot := n.consensusLog.getOrCreateLog(preprepareMsg.PreprepareMsgMini.SeqNum, preprepareMsg.PreprepareMsgMini.View)
 		slot.mu.Lock()
-		if preprepareMsg.PreprepareMsgMini.View > slot.view {
-			n.log.Info("at LeaderResetting slot for new view %d seq %d due to new view creation", preprepareMsg.PreprepareMsgMini.View, preprepareMsg.PreprepareMsgMini.SeqNum)
-			disgestMismatch := slot.resetForNewView(preprepareMsg.PreprepareMsgMini.View, preprepareMsg.PreprepareMsgMini.DigestClientMsg)
-			if disgestMismatch { // only possible in equivocation
-				n.log.Error("at leader Digest mismatch when resetting slot for new view %d seq %d during new view creation", preprepareMsg.PreprepareMsgMini.View, preprepareMsg.PreprepareMsgMini.SeqNum)
-				slot.mu.Unlock()
-				continue
-			}
-		} else {
-			n.log.Error("at leader This should not happen in new view at leader")
-		}
+		// if preprepareMsg.PreprepareMsgMini.View > slot.view {
+		// 	n.log.Info("at LeaderResetting slot for new view %d seq %d due to new view creation", preprepareMsg.PreprepareMsgMini.View, preprepareMsg.PreprepareMsgMini.SeqNum)
+		// 	disgestMismatch := slot.resetForNewView(preprepareMsg.PreprepareMsgMini.View, preprepareMsg.PreprepareMsgMini.DigestClientMsg)
+		// 	if disgestMismatch { // only possible in equivocation
+		// 		n.log.Error("at leader Digest mismatch when resetting slot for new view %d seq %d during new view creation", preprepareMsg.PreprepareMsgMini.View, preprepareMsg.PreprepareMsgMini.SeqNum)
+		// 		slot.mu.Unlock()
+		// 		continue
+		// 	}
+		// } else {
+		// 	n.log.Error("at leader This should not happen in new view at leader")
+		// }
 		slot.prePrepare.SeqNum = preprepareMsg.PreprepareMsgMini.SeqNum
 		slot.prePrepare.View = preprepareMsg.PreprepareMsgMini.View
 		slot.prePrepareSig = preprepareMsg.Signature
-		clientMsg := slot.prePrepare.ClientMsg
-		n.pool.Add(clientMsg)
-		slot.mu.Unlock()
+		slot.prePrepare.DigestClientMsg = preprepareMsg.PreprepareMsgMini.DigestClientMsg
+		clientMsg, exists, executed := n.pool.Get(preprepareMsg.PreprepareMsgMini.DigestClientMsg)
+		if exists {
+			slot.prePrepare.ClientMsg = clientMsg
+			slot.missingData = false
+		} else if !exists && !executed {
+			slot.missingData = true
+		} else if !exists && executed {
+			slot.missingData = false
+		}
 	}
 
 	if n.split {
@@ -1285,7 +1316,56 @@ func (n *Node) newView() {
 
 func (n *Node) handleViewChangeTimeoutDummy() {
 	n.forView = n.forView + 1
+	if n.vcType == core.VCTypeElection {
+		n.electionVCTimeout()
+	}
 
+}
+
+func (n *Node) createVCContent() map[int64]*core.PreparedCert {
+	preparedCerts := make(map[int64]*core.PreparedCert)
+	n.consensusLog.slotsMu.RLock()
+	// we go over slots after stable checkpoint
+	for _, slot := range n.consensusLog.slots {
+
+		slot.mu.Lock()
+		if slot.prePrepare == nil || !slot.commitSent {
+			slot.mu.Unlock()
+			continue
+		}
+
+		preprepareV := core.PreprepareMsgSig{
+
+			PreprepareMsgMini: core.PreprepareMsgMini{
+				View:            slot.prePrepare.View,
+				SeqNum:          slot.prePrepare.SeqNum,
+				DigestClientMsg: slot.prePrepare.DigestClientMsg,
+			},
+			Signature: slot.prePrepareSig,
+		}
+
+		prepareLog := slot.prepares
+		// for from, prepare := range slot.prepares {
+		// 	if prepare == nil {
+		// 		continue
+		// 	}
+		// 	prepareCopy := *prepare
+		// 	prepareCopy.Signature = append([]byte(nil), prepare.Signature...)
+		// 	prepareLog[from] = &prepareCopy
+		// }
+		slot.mu.Unlock()
+
+		preparedCerts[slot.prePrepare.SeqNum] = &core.PreparedCert{
+			PreprepareMsg: preprepareV,
+			PrepareLog:    prepareLog,
+		}
+
+	}
+	n.consensusLog.slotsMu.RUnlock()
+	return preparedCerts
+}
+
+func (n *Node) electionVCTimeout() {
 	reqVote := false
 
 	if len(n.viewChangeMsgsLog[n.forView]) == 0 || n.split {
@@ -1349,49 +1429,7 @@ func (n *Node) handleViewChangeTimeoutDummy() {
 		}
 
 	}
-
-	preparedCerts := make(map[int64]*core.PreparedCert)
-
-	n.consensusLog.slots.Range(func(_, value any) bool {
-		slot, ok := value.(*consensusSlot)
-		if !ok || slot == nil {
-			return true
-		}
-
-		slot.mu.Lock()
-		if slot.view != n.view || slot.prePrepare == nil || !slot.commitSent {
-			slot.mu.Unlock()
-			return true
-		}
-
-		preprepareV := core.PreprepareMsgSig{
-
-			PreprepareMsgMini: core.PreprepareMsgMini{
-				View:            slot.prePrepare.View,
-				SeqNum:          slot.prePrepare.SeqNum,
-				DigestClientMsg: slot.prePrepare.DigestClientMsg,
-			},
-			Signature: slot.prePrepareSig,
-		}
-
-		prepareLog := slot.prepares
-		// for from, prepare := range slot.prepares {
-		// 	if prepare == nil {
-		// 		continue
-		// 	}
-		// 	prepareCopy := *prepare
-		// 	prepareCopy.Signature = append([]byte(nil), prepare.Signature...)
-		// 	prepareLog[from] = &prepareCopy
-		// }
-		slot.mu.Unlock()
-
-		preparedCerts[slot.prePrepare.SeqNum] = &core.PreparedCert{
-			PreprepareMsg: preprepareV,
-			PrepareLog:    prepareLog,
-		}
-		return true
-	})
-
+	preparedCerts := n.createVCContent()
 	vcPayload := core.ViewChangeMsg{
 		ViewNumber:          n.forView,
 		CheckpointSeqNumber: 0,
@@ -1420,5 +1458,4 @@ func (n *Node) handleViewChangeTimeoutDummy() {
 		n.log.Info("Starting new view timer from timeout dummy %d", n.forView)
 		n.pbftTimerManager.startNewViewTimer(n)
 	}
-
 }

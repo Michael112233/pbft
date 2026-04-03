@@ -24,13 +24,18 @@ func (n *Node) HandleRequestMessage(data core.RequestMessage) {
 		// 	n.log.Error(fmt.Sprintf("Dropped the batch"))
 		// }
 		for _, clientMsgSig := range data.Txs {
-			n.pool.Add(clientMsgSig)
-			n.pbftTimerManager.trackPreprepareRequest()
+			// n.pool.Add(clientMsgSig)
+			// n.pbftTimerManager.trackPreprepareRequest()
 			n.verifiedClientMsgsChan <- clientMsgSig
 		}
 	} else {
 		for _, clienMsgSig := range data.Txs {
-			n.pool.Add(clienMsgSig)
+			digest, err := ComputeBatchDigest(clienMsgSig.Data)
+			if err != nil {
+				n.log.Error(fmt.Sprintf("Error computing batch digest: %v", err))
+				continue
+			}
+			n.pool.Add(digest, clienMsgSig)
 			n.pbftTimerManager.trackPreprepareRequest()
 
 		}

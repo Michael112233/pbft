@@ -124,7 +124,15 @@ func (tm *TimerManager) forceResetPBFTTimer() {
 		tm.resetPBFTTimerLocked()
 	}
 }
+func (tm *TimerManager) forceStopPBFTTimer() {
+	tm.lock.Lock()
+	defer tm.lock.Unlock()
 
+	if tm.pbftTimerInitiated {
+		tm.log.Info("Force stopping PBFT timer")
+		tm.stopPBFTTimerLocked()
+	}
+}
 func (tm *TimerManager) onRequestExecuted(msg core.ClientMsg, n *Node) {
 
 	if n.pool.PendingRequests() == 0 { // imp in case gap in client req then for new req premature timeout

@@ -165,12 +165,12 @@ func (tm *TransactionManager) AddTransaction(batch []core.ClientMsgSignature) {
 
 // right now for each reply will spawn a go routine
 // can have a channel and batch for few second and then process the batch of reply messages
-func (tm *TransactionManager) ReplyTxn(msg core.ClientMsg) {
-	s := tm.getShard(msg.Id)
+func (tm *TransactionManager) ReplyTxn(reply core.ReplyMessage) {
+	s := tm.getShard(reply.ClientMsg.Id)
 
 	// Short shard lock just to grab the txn pointer
 	s.mu.RLock()
-	txn, ok := s.txns[msg.Id]
+	txn, ok := s.txns[reply.ClientMsg.Id]
 	s.mu.RUnlock()
 	if !ok {
 		return
@@ -181,6 +181,9 @@ func (tm *TransactionManager) ReplyTxn(msg core.ClientMsg) {
 	defer txn.mu.Unlock()
 	if txn.done {
 		return
+	}
+	if !reply.Result.Success {
+		fmt.Printf("transaction %d rejected: %s\n", reply.ClientMsg.Id, reply.Result.Error)
 	}
 	txn.finishTimestamp = time.Now().UnixNano()
 	txn.latency = txn.finishTimestamp - txn.startTimestamp

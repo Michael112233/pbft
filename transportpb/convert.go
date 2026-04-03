@@ -229,9 +229,12 @@ func CommitFromPB(msg *CommitMsg) (core.CommitMsg, error) {
 
 func ReplyToPB(msg core.ReplyMessage) *ReplyMessage {
 	return &ReplyMessage{
-		To:        msg.To,
-		From:      msg.From,
-		ClientMsg: ClientMsgToPB(msg.ClientMsg),
+		To:             msg.To,
+		From:           msg.From,
+		ClientMsg:      ClientMsgToPB(msg.ClientMsg),
+		Success:        msg.Result.Success,
+		Error:          msg.Result.Error,
+		ExecutedSeqNum: msg.Result.ExecutedSeqNum,
 	}
 }
 
@@ -247,6 +250,11 @@ func ReplyFromPB(msg *ReplyMessage) (core.ReplyMessage, error) {
 		To:        msg.To,
 		From:      msg.From,
 		ClientMsg: clientMsg,
+		Result: core.ExecutionResult{
+			Success:        msg.Success,
+			Error:          msg.Error,
+			ExecutedSeqNum: msg.ExecutedSeqNum,
+		},
 	}, nil
 }
 
@@ -376,7 +384,7 @@ func ViewChangeToPB(msg core.ViewChangeMsg) *ViewChangeMsg {
 		CheckpointSeqNumber: msg.CheckpointSeqNumber,
 		From:                int32(msg.From),
 		PreparedCerts:       make(map[int64]*PreparedCert, len(msg.PreparedCerts)),
-		ReqVote:             msg.ReqVote,
+		VcType:              ViewChangeMsg_VCType(msg.Type),
 	}
 	for k, v := range msg.PreparedCerts {
 		if v == nil {
@@ -385,6 +393,27 @@ func ViewChangeToPB(msg core.ViewChangeMsg) *ViewChangeMsg {
 		}
 		out.PreparedCerts[k] = PreparedCertToPB(*v)
 	}
+
+	switch msg.Type {
+	case core.VCTypeElection:
+		if msg.ElectionData != nil {
+			out.VcData = &ViewChangeMsg_Election{
+				Election: &ElectionVCData{
+					ReqVote:   msg.ElectionData.ReqVote,
+					GrantVote: msg.ElectionData.GrantVote,
+				},
+			}
+		}
+	case core.VCTypeRoundRobin:
+		if msg.RoundRobinData != nil {
+			out.VcData = &ViewChangeMsg_RoundRobin{
+				RoundRobin: &RoundRobinVCData{
+					GrantVote: msg.RoundRobinData.GrantVote,
+				},
+			}
+		}
+	}
+
 	return out
 }
 
@@ -397,7 +426,7 @@ func ViewChangeFromPB(msg *ViewChangeMsg) (core.ViewChangeMsg, error) {
 		CheckpointSeqNumber: msg.CheckpointSeqNumber,
 		From:                int(msg.From),
 		PreparedCerts:       make(map[int64]*core.PreparedCert, len(msg.PreparedCerts)),
-		ReqVote:             msg.ReqVote,
+		Type:                core.VCType(msg.VcType),
 	}
 	for k, v := range msg.PreparedCerts {
 		if v == nil {
@@ -410,6 +439,22 @@ func ViewChangeFromPB(msg *ViewChangeMsg) (core.ViewChangeMsg, error) {
 		}
 		out.PreparedCerts[k] = &cert
 	}
+
+	switch data := msg.VcData.(type) {
+	case *ViewChangeMsg_Election:
+		out.ElectionData = &core.ElectionVCData{
+			ReqVote:   data.Election.ReqVote,
+			GrantVote: data.Election.GrantVote,
+		}
+	case *ViewChangeMsg_RoundRobin:
+		out.RoundRobinData = &core.RoundRobinVCData{
+			GrantVote: data.RoundRobin.GrantVote,
+		}
+	case nil:
+	default:
+		return core.ViewChangeMsg{}, fmt.Errorf("unknown view change data type %T", data)
+	}
+
 	return out, nil
 }
 

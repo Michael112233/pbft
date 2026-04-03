@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.1
 // - protoc             v6.33.4
-// source: pbft_transport.proto
+// source: proto/pbft_transport.proto
 
 package transportpb
 
@@ -150,5 +150,5 @@ var PBFTTransport_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "pbft_transport.proto",
+	Metadata: "proto/pbft_transport.proto",
 }

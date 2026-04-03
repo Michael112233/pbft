@@ -128,14 +128,12 @@ func errUnknownMessageType(msgType string) error {
 	return fmt.Errorf("unknown message type %s", msgType)
 }
 
-func preprepareSignPayload(msg *transportpb.PreprepareMsg) *transportpb.PreprepareSignPayload {
-	if msg == nil {
-		return nil
-	}
+func preprepareSignPayload(view, seq int64, digest []byte) *transportpb.PreprepareSignPayload {
+
 	return &transportpb.PreprepareSignPayload{
-		View:            msg.View,
-		SeqNum:          msg.SeqNum,
-		DigestClientMsg: msg.DigestClientMsg,
+		View:            view,
+		SeqNum:          seq,
+		DigestClientMsg: digest,
 	}
 }
 
@@ -251,7 +249,7 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		if preprepare == nil {
 			return &transportpb.Ack{Ok: false, Error: "missing preprepare body"}, nil
 		}
-		if !hub.verifySignature(int(env.From), env.Signature, preprepareSignPayload(preprepare)) {
+		if !hub.verifySignature(int(env.From), env.Signature, preprepareSignPayload(preprepare.View, preprepare.SeqNum, preprepare.DigestClientMsg)) {
 			// hub.log.Error("Signature verification failed for PrePrepare message from node ID: %d", env.From)
 			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
 		}

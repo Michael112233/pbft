@@ -15,40 +15,48 @@ import (
 
 type Pool struct {
 	lock      sync.RWMutex
-	existsMap map[clientRequestKey]core.ClientMsgSignature
-	delMap    map[clientRequestKey]struct{}
+	existsMap map[[32]byte]core.ClientMsgSignature
+	delMap    map[[32]byte]struct{}
 }
 
 func NewPool() *Pool {
 	return &Pool{
-		existsMap: make(map[clientRequestKey]core.ClientMsgSignature),
-		delMap:    make(map[clientRequestKey]struct{}),
+		existsMap: make(map[[32]byte]core.ClientMsgSignature),
+		delMap:    make(map[[32]byte]struct{}),
 	}
 }
 
-func (p *Pool) Add(msg core.ClientMsgSignature) bool {
+func (p *Pool) Add(digest [32]byte, msg core.ClientMsgSignature) bool {
 	p.lock.Lock()
 	defer p.lock.Unlock()
-	key := makeClientRequestKey(msg.Data)
-	if _, exists := p.existsMap[key]; !exists {
-		if _, deleted := p.delMap[key]; !deleted {
-			p.existsMap[key] = msg
+	if _, exists := p.existsMap[digest]; !exists {
+		if _, deleted := p.delMap[digest]; !deleted {
+			p.existsMap[digest] = msg
 			return true
 		}
 	}
 	return false
 }
 
-func (p *Pool) Delete(msg core.ClientMsg) {
+func (p *Pool) Delete(digest [32]byte) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
-	key := makeClientRequestKey(msg)
-	delete(p.existsMap, key)
-	p.delMap[key] = struct{}{}
+	// key := makeClientRequestKey(msg)
+	delete(p.existsMap, digest)
+	p.delMap[digest] = struct{}{}
 }
 
 func (p *Pool) PendingRequests() int {
 	p.lock.RLock()
 	defer p.lock.RUnlock()
 	return len(p.existsMap)
+}
+
+func (p *Pool) Get(digest [32]byte) (core.ClientMsgSignature, bool, bool) {
+	p.lock.RLock()
+	defer p.lock.RUnlock()
+	msg, exists := p.existsMap[digest]
+
+	_, executed := p.delMap[digest]
+	return msg, exists, executed
 }

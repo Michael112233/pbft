@@ -28,6 +28,7 @@ type ReplyMessage struct {
 	From string
 
 	ClientMsg ClientMsg
+	Result    ExecutionResult
 }
 
 type CloseMessage struct {
@@ -48,7 +49,7 @@ type PreprepareMsgMini struct {
 	SeqNum          int64
 	DigestClientMsg [32]byte
 }
-type PreprepareMsgSig struct {
+type PreprepareMsgSig struct { // used in VC
 	PreprepareMsgMini PreprepareMsgMini
 	Signature         []byte
 }
@@ -75,12 +76,31 @@ type PreparedCert struct {
 	PreprepareMsg PreprepareMsgSig
 	PrepareLog    map[int]*PrepareMsgSig
 }
+
+type VCType int
+
+const (
+	VCTypeElection VCType = iota + 1
+	VCTypeRoundRobin
+)
+
+type ElectionVCData struct {
+	ReqVote   bool
+	GrantVote bool
+}
+
+type RoundRobinVCData struct {
+	GrantVote bool
+}
+
 type ViewChangeMsg struct {
 	ViewNumber          int64
 	CheckpointSeqNumber int64
 	From                int
 	PreparedCerts       map[int64]*PreparedCert
-	ReqVote             bool
+	Type                VCType
+	ElectionData        *ElectionVCData
+	RoundRobinData      *RoundRobinVCData
 }
 
 type ViewChangeMsgSig struct {

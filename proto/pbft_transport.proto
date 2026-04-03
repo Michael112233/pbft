@@ -79,12 +79,32 @@ message PreparedCert {
   map<int32, PrepareMsgSig> prepare_log = 2;
 }
 
+message ElectionVCData {
+  bool req_vote = 1;
+  bool grant_vote = 2;
+}
+
+message RoundRobinVCData {
+  bool grant_vote = 1;
+}
+
 message ViewChangeMsg {
   int64 view_number = 1;
   int64 checkpoint_seq_number = 2;
   int32 from = 3;
   map<int64, PreparedCert> prepared_certs = 4;
-  bool req_vote = 5;
+  enum VCType {
+    VC_TYPE_UNSPECIFIED = 0;
+    VC_TYPE_ELECTION = 1;
+    VC_TYPE_ROUND_ROBIN = 2;
+  }
+
+  VCType vc_type = 5;
+
+  oneof vc_data {
+    ElectionVCData election = 6;
+    RoundRobinVCData round_robin = 7;
+  }
 }
 
 message ViewChangeMsgSig {
@@ -118,6 +138,9 @@ message ReplyMessage {
   string to = 1;
   string from = 2;
   ClientMsg client_msg = 3;
+  bool success = 4;
+  string error = 5;
+  int64 executed_seq_num = 6;
 }
 
 message CloseMessage {
