@@ -82,7 +82,7 @@ func (c *Client) InjectTxs() {
 			}
 			c.log.Info(fmt.Sprintf("Send request message to %s with %d transactions", leader, int64(i)))
 
-			c.messageHub.Send(core.MsgRequestMessage, c.addr, leader, msg, nil)
+			c.messageHub.Send(core.MsgRequestMessage, c.addr, leader, msg, nil) // couuld be go as stream locked
 			// if ((i+1)*c.config.InjectSpeed)%c.injectSpeed == 0 {
 			time.Sleep(1 * time.Second)
 			// }

@@ -49,50 +49,65 @@ func NewConsensusLog() ConsensusLog {
 	}
 }
 
-func (log *ConsensusLog) PrintSlot(seqNum int64) {
-	if v, ok := log.slots.Load(seqNum); ok {
-		slot := v.(*consensusSlot)
-		fmt.Printf("SeqNum: %d, View: %d, Digest: %x, PrepareVotes: %d, CommitVotes: %d, PrepareSent: %t, CommitSent: %t, Executed: %t\n",
-			seqNum, slot.view, slot.digest, len(slot.prepares), len(slot.commits), slot.prepareSent, slot.commitSent, slot.executed)
-		fmt.Printf("Message details %d\n, data %v", slot.prePrepare.ClientMsg.Data.Id, slot.prePrepare.ClientMsg.Data)
+func (log *ConsensusLog) PrintSlot(randSeqs []int64, view int64) {
+	for _, seqNum := range randSeqs {
+		if key, val := log.slots[slotKey{View: view, SeqNum: seqNum}]; val {
+			slot := key
+			fmt.Printf("SeqNum: %d, View: %d, PrepareVotes: %d, CommitVotes: %d, PrepareSent: %t, CommitSent: %t, ExecutionPending: %t, Executed: %t, MissingData: %t\n",
+				seqNum, slot.view, len(slot.prepares), len(slot.commits), slot.prepareSent, slot.commitSent, slot.executionPending, slot.executed, slot.missingData)
+			fmt.Printf("Message details %d\n, data %v", slot.prePrepare.ClientMsg.Data.Id, slot.prePrepare.ClientMsg.Data)
+		} else {
+			fmt.Printf("No slot found for SeqNum %d in view %d\n", seqNum, view)
+		}
 	}
+
 }
 
-func (log *ConsensusLog) PrintDetails() {
-	newmap := make(map[int]*consensusSlot)
-	log.slots.Range(func(key, value any) bool {
-		seqNum := key.(int64)
-		slot := value.(*consensusSlot)
-		// log.log.Info(fmt.Sprintf("SeqNum: %d, View: %d, Digest: %x, PrepareVotes: %d, CommitVotes: %d, PrepareSent: %t, CommitSent: %t, Executed: %t",
-		// 	seqNum, slot.view, slot.digest, len(slot.prepares), len(slot.commits), slot.prepareSent, slot.commitSent, slot.executed))
-
-		// for nodeID, prepareDigest := range slot.prepares {
-		// 	log.log.Info(fmt.Sprintf("  Prepare Vote from Node %d: Digest %x", nodeID, prepareDigest))
-		// }
-		// for nodeID, commitDigest := range slot.commits {
-		// 	log.log.Info(fmt.Sprintf("  Commit Vote from Node %d: Digest %x", nodeID, commitDigest))
-		// }
-		// return true
-		newmap[int(seqNum)] = slot
-		return true
-	})
-	// sort the map by seqNum
-	sortedSeqNums := make([]int, 0, len(newmap))
-	for seqNum := range newmap {
-		sortedSeqNums = append(sortedSeqNums, int(seqNum))
-	}
-	slices.Sort(sortedSeqNums)
-	fmt.Printf("Total lenght of log: %d\n", len(sortedSeqNums))
-	for _, seqNum := range sortedSeqNums {
-		slot := newmap[seqNum]
-		if !slot.executed || seqNum == 300 || seqNum == 14356 || seqNum == 10234 {
-			fmt.Printf("SeqNum: %d, View: %d, Data ID: %d, PrepareVotes: %d, CommitVotes: %d, PrepareSent: %t, CommitSent: %t, Executed: %t\n",
-				seqNum, slot.view, slot.prePrepare.ClientMsg.Data.Id, len(slot.prepares), len(slot.commits), slot.prepareSent, slot.commitSent, slot.executed)
-			for nodeID, prepareDigest := range slot.prepares {
-				fmt.Printf("  Prepare Vote from Node %d: Digest %x\n", nodeID, prepareDigest)
+func (log *ConsensusLog) PrintDetails(view int64) {
+	for i := int64(1); i <= view; i++ {
+		fmt.Printf("-----------------------------------\n\n")
+		fmt.Printf("View %d:\n", i)
+		newmap := make(map[int64]*consensusSlot)
+		for key, value := range log.slots {
+			if key.View != i {
+				continue
 			}
-			for nodeID, commitDigest := range slot.commits {
-				fmt.Printf("  Commit Vote from Node %d: Digest %x\n", nodeID, commitDigest)
+			seqNum := key.SeqNum
+			slot := value
+			if key.View != slot.view {
+				fmt.Printf("Inconsistent view for seq %d: key view %d, slot view %d", seqNum, key.View, slot.view)
+			}
+			// log.log.Info(fmt.Sprintf("SeqNum: %d, View: %d, Digest: %x, PrepareVotes: %d, CommitVotes: %d, PrepareSent: %t, CommitSent: %t, Executed: %t",
+			// 	seqNum, slot.view, slot.digest, len(slot.prepares), len(slot.commits), slot.prepareSent, slot.commitSent, slot.executed))
+
+			// for nodeID, prepareDigest := range slot.prepares {
+			// 	log.log.Info(fmt.Sprintf("  Prepare Vote from Node %d: Digest %x", nodeID, prepareDigest))
+			// }
+			// for nodeID, commitDigest := range slot.commits {
+			// 	log.log.Info(fmt.Sprintf("  Commit Vote from Node %d: Digest %x", nodeID, commitDigest))
+			// }
+			// return true
+			newmap[seqNum] = slot
+
+		}
+		// sort the map by seqNum
+		sortedSeqNums := make([]int64, 0, len(newmap))
+		for seqNum := range newmap {
+			sortedSeqNums = append(sortedSeqNums, seqNum)
+		}
+		slices.Sort(sortedSeqNums)
+		// fmt.Printf("Total lenght of log: %d\n", len(sortedSeqNums))
+		for _, seqNum := range sortedSeqNums {
+			slot := newmap[seqNum]
+			if !slot.executed || !slot.executionPending {
+				fmt.Printf("SeqNum: %d, View: %d, Data ID: %d, PrepareVotes: %d, CommitVotes: %d, PrepareSent: %t, CommitSent: %t, ExecutionPending: %t, Executed: %t, MissingData: %t\n",
+					seqNum, slot.view, slot.prePrepare.ClientMsg.Data.Id, len(slot.prepares), len(slot.commits), slot.prepareSent, slot.commitSent, slot.executionPending, slot.executed, slot.missingData)
+				for nodeID, prepareDigest := range slot.prepares {
+					fmt.Printf("  Prepare Vote from Node %d: Digest %x\n", nodeID, prepareDigest)
+				}
+				for nodeID, commitDigest := range slot.commits {
+					fmt.Printf("  Commit Vote from Node %d: Digest %x\n", nodeID, commitDigest)
+				}
 			}
 		}
 	}
@@ -119,7 +134,7 @@ func (log *ConsensusLog) getOrCreateLog(seq int64, view int64) *consensusSlot {
 		return slot
 	}
 	slot := &consensusSlot{
-		digest:   [32]byte{},
+
 		view:     view,
 		prepares: make(map[int]*core.PrepareMsgSig),
 		commits:  make(map[int][32]byte),

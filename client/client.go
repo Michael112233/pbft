@@ -7,7 +7,7 @@ import (
 	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/crypto"
-	"github.com/michael112233/pbft/leader_election"
+
 	"github.com/michael112233/pbft/logger"
 )
 
@@ -21,7 +21,6 @@ type Client struct {
 
 	WaitGroup sync.WaitGroup
 
-	leaderElection     *leader_election.LeaderElection
 	log                *logger.Logger
 	messageHub         *ClientMessageHub
 	privateKey         ed25519.PrivateKey

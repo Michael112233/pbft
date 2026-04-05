@@ -6,6 +6,7 @@ const (
 	MsgPrepareMessage    string = "MsgPrepareMessage"
 	MsgCommitMessage     string = "MsgCommitMessage"
 	MsgReplyMessage      string = "MsgReplyMessage"
+	MsgCommitTpsMessage  string = "MsgCommitTpsMessage"
 	MsgCloseMessage      string = "MsgCloseMessage"
 	MsgViewChangeMessage string = "MsgViewChangeMessage"
 	MsgCheckpointMessage string = "MsgCheckpointMessage"

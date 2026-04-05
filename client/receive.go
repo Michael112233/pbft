@@ -13,3 +13,8 @@ func (c *Client) HandleReplyMessage(data core.ReplyMessage) {
 	// core.Chain.AddBlock(Block)
 	go c.TransactionManager.ReplyTxn(data)
 }
+
+func (c *Client) HandleCommitTpsMessage(data core.CommitTps) {
+	c.log.Info(fmt.Sprintf("Received commit tps message from %s, client message id %d", data.From, data.ClientMsg.Id))
+	go c.TransactionManager.CommitTps(data)
+}

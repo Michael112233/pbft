@@ -31,6 +31,12 @@ type ReplyMessage struct {
 	Result    ExecutionResult
 }
 
+type CommitTps struct {
+	To        string
+	From      string
+	ClientMsg ClientMsg
+}
+
 type CloseMessage struct {
 	Timestamp int64
 	From      string
@@ -72,6 +78,17 @@ type CommitMsg struct {
 	From   int
 }
 
+type CheckpointMsg struct {
+	SeqNum int64
+	Digest [32]byte
+	From   int
+}
+
+type CheckpointMsgSig struct {
+	CheckpointMsg CheckpointMsg
+	Signature     []byte
+}
+
 type PreparedCert struct {
 	PreprepareMsg PreprepareMsgSig
 	PrepareLog    map[int]*PrepareMsgSig
@@ -87,6 +104,7 @@ const (
 type ElectionVCData struct {
 	ReqVote   bool
 	GrantVote bool
+	GrantTo   int
 }
 
 type RoundRobinVCData struct {

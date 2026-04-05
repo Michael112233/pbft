@@ -227,6 +227,29 @@ func CommitFromPB(msg *CommitMsg) (core.CommitMsg, error) {
 	}, nil
 }
 
+func CheckpointToPB(msg core.CheckpointMsg) *CheckpointMsg {
+	return &CheckpointMsg{
+		SeqNum: msg.SeqNum,
+		Digest: digestToPB(msg.Digest),
+		From:   int32(msg.From),
+	}
+}
+
+func CheckpointFromPB(msg *CheckpointMsg) (core.CheckpointMsg, error) {
+	if msg == nil {
+		return core.CheckpointMsg{}, nil
+	}
+	digest, err := digestFromPB(msg.Digest)
+	if err != nil {
+		return core.CheckpointMsg{}, err
+	}
+	return core.CheckpointMsg{
+		SeqNum: msg.SeqNum,
+		Digest: digest,
+		From:   int(msg.From),
+	}, nil
+}
+
 func ReplyToPB(msg core.ReplyMessage) *ReplyMessage {
 	return &ReplyMessage{
 		To:             msg.To,
@@ -255,6 +278,29 @@ func ReplyFromPB(msg *ReplyMessage) (core.ReplyMessage, error) {
 			Error:          msg.Error,
 			ExecutedSeqNum: msg.ExecutedSeqNum,
 		},
+	}, nil
+}
+
+func CommitTpsToPB(msg core.CommitTps) *CommitTps {
+	return &CommitTps{
+		To:        msg.To,
+		From:      msg.From,
+		ClientMsg: ClientMsgToPB(msg.ClientMsg),
+	}
+}
+
+func CommitTpsFromPB(msg *CommitTps) (core.CommitTps, error) {
+	if msg == nil {
+		return core.CommitTps{}, nil
+	}
+	clientMsg, err := ClientMsgFromPB(msg.ClientMsg)
+	if err != nil {
+		return core.CommitTps{}, err
+	}
+	return core.CommitTps{
+		To:        msg.To,
+		From:      msg.From,
+		ClientMsg: clientMsg,
 	}, nil
 }
 
@@ -345,6 +391,27 @@ func PrepareMsgSigFromPB(msg *PrepareMsgSig) (*core.PrepareMsgSig, error) {
 	}, nil
 }
 
+func CheckpointMsgSigToPB(msg core.CheckpointMsgSig) *CheckpointMsgSig {
+	return &CheckpointMsgSig{
+		CheckpointMsg: CheckpointToPB(msg.CheckpointMsg),
+		Signature:     append([]byte(nil), msg.Signature...),
+	}
+}
+
+func CheckpointMsgSigFromPB(msg *CheckpointMsgSig) (core.CheckpointMsgSig, error) {
+	if msg == nil {
+		return core.CheckpointMsgSig{}, nil
+	}
+	checkpointMsg, err := CheckpointFromPB(msg.CheckpointMsg)
+	if err != nil {
+		return core.CheckpointMsgSig{}, err
+	}
+	return core.CheckpointMsgSig{
+		CheckpointMsg: checkpointMsg,
+		Signature:     append([]byte(nil), msg.Signature...),
+	}, nil
+}
+
 func PreparedCertToPB(msg core.PreparedCert) *PreparedCert {
 	out := &PreparedCert{
 		PreprepareMsg: PreprepareMsgSigToPB(msg.PreprepareMsg),
@@ -401,6 +468,7 @@ func ViewChangeToPB(msg core.ViewChangeMsg) *ViewChangeMsg {
 				Election: &ElectionVCData{
 					ReqVote:   msg.ElectionData.ReqVote,
 					GrantVote: msg.ElectionData.GrantVote,
+					GrantTo:   int32(msg.ElectionData.GrantTo),
 				},
 			}
 		}
@@ -445,6 +513,7 @@ func ViewChangeFromPB(msg *ViewChangeMsg) (core.ViewChangeMsg, error) {
 		out.ElectionData = &core.ElectionVCData{
 			ReqVote:   data.Election.ReqVote,
 			GrantVote: data.Election.GrantVote,
+			GrantTo:   int(data.Election.GrantTo),
 		}
 	case *ViewChangeMsg_RoundRobin:
 		out.RoundRobinData = &core.RoundRobinVCData{

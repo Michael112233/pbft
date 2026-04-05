@@ -29,15 +29,15 @@ func (n *Node) HandleRequestMessage(data core.RequestMessage) {
 			n.verifiedClientMsgsChan <- clientMsgSig
 		}
 	} else {
-		for _, clienMsgSig := range data.Txs {
-			digest, err := ComputeBatchDigest(clienMsgSig.Data)
-			if err != nil {
-				n.log.Error(fmt.Sprintf("Error computing batch digest: %v", err))
-				continue
-			}
-			n.pool.Add(digest, clienMsgSig)
-			n.pbftTimerManager.trackPreprepareRequest()
+		// for _, clienMsgSig := range data.Txs {
+		// 	digest, err := ComputeBatchDigest(clienMsgSig.Data)
+		// 	if err != nil {
+		// 		n.log.Error(fmt.Sprintf("Error computing batch digest: %v", err))
+		// 		continue
+		// 	}
+		// 	n.pool.Add(digest, clienMsgSig)
+		// 	n.pbftTimerManager.trackPreprepareRequest()
 
-		}
+		// }
 	}
 }

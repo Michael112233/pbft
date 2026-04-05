@@ -169,18 +169,12 @@ func (hub *NodeMessageHub) clearClientStream(s *clientStreamState) {
 	hub.clientStreamMu.Unlock()
 }
 
-func (hub *NodeMessageHub) sendReplyOverClientStream(reply core.ReplyMessage) error {
+func (hub *NodeMessageHub) sendEnvelopeOverClientStream(env *transportpb.Envelope) error {
 	hub.clientStreamMu.RLock()
 	streamState := hub.clientStream
 	hub.clientStreamMu.RUnlock()
 	if streamState == nil {
 		return errors.New("client stream is not connected")
-	}
-	env := &transportpb.Envelope{
-		MsgType: core.MsgReplyMessage,
-		Body: &transportpb.Envelope_Reply{
-			Reply: transportpb.ReplyToPB(reply),
-		},
 	}
 	streamState.sendMu.Lock()
 	defer streamState.sendMu.Unlock()
@@ -291,6 +285,24 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		}
 		go hub.node_ref.HandleCommit(data)
 		return &transportpb.Ack{Ok: true}, nil
+
+	case core.MsgCheckpointMessage:
+		checkpoint := env.GetCheckpoint()
+		if checkpoint == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing checkpoint body"}, nil
+		}
+		if int(checkpoint.From) != int(env.From) {
+			return &transportpb.Ack{Ok: false, Error: "checkpoint sender mismatch"}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, checkpoint) {
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.CheckpointFromPB(checkpoint)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		go hub.node_ref.HandleCheckpoint(data)
+		return &transportpb.Ack{Ok: true}, nil
 	case core.MsgViewChangeMessage:
 		viewChange := env.GetViewChange()
 		if viewChange == nil {
@@ -307,20 +319,20 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		go hub.node_ref.HandleViewChange(data, env.Signature)
 		return &transportpb.Ack{Ok: true}, nil
 
-	case core.MsgGrantVoteMessage:
-		grantVote := env.GetGrantVote()
-		if grantVote == nil {
-			return &transportpb.Ack{Ok: false, Error: "missing grant vote body"}, nil
-		}
-		if !hub.verifySignature(int(env.From), env.Signature, grantVote) {
-			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
-		}
-		data, err := transportpb.GrantVoteFromPB(grantVote)
-		if err != nil {
-			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
-		}
-		go hub.node_ref.HandleGrantVote(data, env.Signature)
-		return &transportpb.Ack{Ok: true}, nil
+	// case core.MsgGrantVoteMessage:
+	// 	// grantVote := env.GetGrantVote()
+	// 	// if grantVote == nil {
+	// 	// 	return &transportpb.Ack{Ok: false, Error: "missing grant vote body"}, nil
+	// 	// }
+	// 	// if !hub.verifySignature(int(env.From), env.Signature, grantVote) {
+	// 	// 	return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+	// 	// }
+	// 	// data, err := transportpb.GrantVoteFromPB(grantVote)
+	// 	// if err != nil {
+	// 	// 	return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+	// 	// }
+	// 	// go hub.node_ref.HandleGrantVote(data, env.Signature)
+	// 	// return &transportpb.Ack{Ok: true}, nil
 
 	case core.MsgNewViewMessage:
 		newView := env.GetNewView()
@@ -447,6 +459,15 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}, signat
 		env.Body = &transportpb.Envelope_Commit{Commit: pbMsg}
 		env.From = int32(hub.node_ref.GetNodeID())
 		// env.Signature = crypto.SignMessageEd25519(payloadBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey())
+
+	case core.MsgCheckpointMessage:
+		checkpoint, ok := msg.(core.CheckpointMsg)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		pbMsg := transportpb.CheckpointToPB(checkpoint)
+		env.Body = &transportpb.Envelope_Checkpoint{Checkpoint: pbMsg}
+		env.From = int32(hub.node_ref.GetNodeID())
 	case core.MsgViewChangeMessage:
 		viewChange, ok := msg.(core.ViewChangeMsg)
 		if !ok {
@@ -481,6 +502,13 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}, signat
 		}
 		env.Body = &transportpb.Envelope_Reply{Reply: transportpb.ReplyToPB(reply)}
 
+	case core.MsgCommitTpsMessage:
+		commitTps, ok := msg.(core.CommitTps)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_CommitTps{CommitTps: transportpb.CommitTpsToPB(commitTps)}
+
 	case core.MsgCloseMessage:
 		closeMsg, ok := msg.(core.CloseMessage)
 		if !ok {
@@ -496,13 +524,13 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}, signat
 }
 
 func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, signature []byte) {
-	if msgType == core.MsgReplyMessage {
-		reply, ok := msg.(core.ReplyMessage)
-		if !ok {
-			hub.log.Error("build envelope failed. msgType=%s err=%v", msgType, errInvalidPayloadType(msgType, msg))
+	if msgType == core.MsgReplyMessage || msgType == core.MsgCommitTpsMessage {
+		env, err := hub.buildEnvelope(msgType, msg, signature)
+		if err != nil {
+			hub.log.Error("build envelope failed. msgType=%s err=%v", msgType, err)
 			return
 		}
-		if err := hub.sendReplyOverClientStream(reply); err != nil {
+		if err := hub.sendEnvelopeOverClientStream(env); err != nil {
 			hub.log.Error("stream deliver failed. msgType=%s target=%s err=%v", msgType, ip, err)
 			return
 		}

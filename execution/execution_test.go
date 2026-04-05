@@ -34,6 +34,17 @@ func TestAccountStateMachineApplyAndCheckpointMaterialAreDeterministic(t *testin
 	if string(material1) != string(material2) {
 		t.Fatalf("checkpoint material changed between calls: %q != %q", material1, material2)
 	}
+	digest1, err := sm.CheckpointDigest()
+	if err != nil {
+		t.Fatalf("checkpoint digest failed: %v", err)
+	}
+	digest2, err := sm.CheckpointDigest()
+	if err != nil {
+		t.Fatalf("checkpoint digest failed on repeat call: %v", err)
+	}
+	if digest1 != digest2 {
+		t.Fatalf("checkpoint digest changed between calls: %x != %x", digest1, digest2)
+	}
 
 	var sm2 execution.StateMachine = execution.NewAccountStateMachine()
 	for _, msg := range msgs {
@@ -48,6 +59,13 @@ func TestAccountStateMachineApplyAndCheckpointMaterialAreDeterministic(t *testin
 	}
 	if string(material1) != string(material3) {
 		t.Fatalf("checkpoint material mismatch across identical state: %q != %q", material1, material3)
+	}
+	digest3, err := sm2.CheckpointDigest()
+	if err != nil {
+		t.Fatalf("checkpoint digest failed on second machine: %v", err)
+	}
+	if digest1 != digest3 {
+		t.Fatalf("checkpoint digest mismatch across identical state: %x != %x", digest1, digest3)
 	}
 }
 

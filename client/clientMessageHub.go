@@ -207,6 +207,19 @@ func (hub *ClientMessageHub) recvLoop(addr string, state *nodeStreamState) error
 				continue
 			}
 			go hub.client_ref.HandleReplyMessage(data)
+
+		case core.MsgCommitTpsMessage:
+			commitTps := env.GetCommitTps()
+			if commitTps == nil {
+				hub.log.Error("stream commitTps missing body. target=%s", addr)
+				continue
+			}
+			data, err := transportpb.CommitTpsFromPB(commitTps)
+			if err != nil {
+				hub.log.Error("stream commitTps decode failed. target=%s err=%v", addr, err)
+				continue
+			}
+			go hub.client_ref.HandleCommitTpsMessage(data)
 		default:
 			hub.log.Error("Unknown stream message type received: msgType=%s target=%s", env.MsgType, addr)
 		}

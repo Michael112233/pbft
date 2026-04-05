@@ -31,8 +31,8 @@ message PreprepareMsg {
   int64 view = 1;
   int64 seq_num = 2;
   ClientMsgSignature client_msg = 3;
-  bytes digest_client_msg = 5;
   reserved 4;
+  bytes digest_client_msg = 5;
 }
 
 message PreprepareSignPayload {
@@ -58,6 +58,12 @@ message CommitMsg {
   reserved 5;
 }
 
+message CheckpointMsg {
+  int64 seq_num = 1;
+  bytes digest = 2;
+  int32 from = 3;
+}
+
 message PreprepareMsgMini {
   int64 view = 1;
   int64 seq_num = 2;
@@ -74,6 +80,11 @@ message PrepareMsgSig {
   bytes signature = 2;
 }
 
+message CheckpointMsgSig {
+  CheckpointMsg checkpoint_msg = 1;
+  bytes signature = 2;
+}
+
 message PreparedCert {
   PreprepareMsgSig preprepare_msg = 1;
   map<int32, PrepareMsgSig> prepare_log = 2;
@@ -82,6 +93,7 @@ message PreparedCert {
 message ElectionVCData {
   bool req_vote = 1;
   bool grant_vote = 2;
+  int32 grant_to = 3;
 }
 
 message RoundRobinVCData {
@@ -89,16 +101,16 @@ message RoundRobinVCData {
 }
 
 message ViewChangeMsg {
-  int64 view_number = 1;
-  int64 checkpoint_seq_number = 2;
-  int32 from = 3;
-  map<int64, PreparedCert> prepared_certs = 4;
   enum VCType {
     VC_TYPE_UNSPECIFIED = 0;
     VC_TYPE_ELECTION = 1;
     VC_TYPE_ROUND_ROBIN = 2;
   }
 
+  int64 view_number = 1;
+  int64 checkpoint_seq_number = 2;
+  int32 from = 3;
+  map<int64, PreparedCert> prepared_certs = 4;
   VCType vc_type = 5;
 
   oneof vc_data {
@@ -143,6 +155,12 @@ message ReplyMessage {
   int64 executed_seq_num = 6;
 }
 
+message CommitTps {
+  string to = 1;
+  string from = 2;
+  ClientMsg client_msg = 3;
+}
+
 message CloseMessage {
   int64 timestamp = 1;
   string from = 2;
@@ -153,6 +171,7 @@ message Envelope {
   string msg_type = 1;
   int32 from = 2;
   bytes signature = 3;
+
   oneof body {
     RequestMessage request = 10;
     PreprepareMsg preprepare = 11;
@@ -163,6 +182,8 @@ message Envelope {
     ViewChangeMsg view_change = 16;
     GrantVoteMsg grant_vote = 17;
     NewViewMsg new_view = 18;
+    CheckpointMsg checkpoint = 19;
+    CommitTps commit_tps = 20;
   }
 }
 

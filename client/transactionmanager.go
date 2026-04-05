@@ -19,6 +19,7 @@ type transactionDetails struct {
 	finishTimestamp int64
 	latency         int64
 	done            bool
+	committed       bool
 }
 
 type shard struct {
@@ -185,9 +186,31 @@ func (tm *TransactionManager) ReplyTxn(reply core.ReplyMessage) {
 	if !reply.Result.Success {
 		fmt.Printf("transaction %d rejected: %s\n", reply.ClientMsg.Id, reply.Result.Error)
 	}
+	txn.done = true
+
+}
+
+func (tm *TransactionManager) CommitTps(reply core.CommitTps) {
+	s := tm.getShard(reply.ClientMsg.Id)
+
+	// Short shard lock just to grab the txn pointer
+	s.mu.RLock()
+	txn, ok := s.txns[reply.ClientMsg.Id]
+	s.mu.RUnlock()
+	if !ok {
+		return
+	}
+
+	// Per-txn lock for longer operations - doesn't block other txns in shard
+	txn.mu.Lock()
+	defer txn.mu.Unlock()
+	if txn.done || txn.committed {
+		return
+	}
+
 	txn.finishTimestamp = time.Now().UnixNano()
 	txn.latency = txn.finishTimestamp - txn.startTimestamp
-	txn.done = true
+	txn.committed = true
 	txnsCommitted := tm.txnCommited.Add(1)
 
 	// Set start time on first commit (CompareAndSwap ensures only first call succeeds)

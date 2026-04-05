@@ -1,24 +1,17 @@
 {
-  "data_dir": "data/len3_data.csv",
   "max_tx_num": 1000000,
   "inject_speed": 20000,
   "max_block_size": 1,
-
-  "experiment_mode": "local",
-
-  "node_num": 10,
-  "run_time": 20,
-
-  "election_method": "raft",
-
-  "expire_time": 5,
-  "seq_number_upper_bound": 200000,
-  "seq_number_lower_bound": 1000,
-  "checkpoint_interval": 100,
-
-  "tcp_read_buffer_size": 0,
-  "tcp_write_buffer_size": 0,
-
-  "raft_timeout": 5000,
-  "raft_interval": 10000
+  "node_num": 7,
+  "nodes_alive": {
+    "1": false,
+    "2": false,
+    "3": true,
+    "4": false,
+    "5": true,
+    "6": false,
+    "7": false
+  },
+  "periodic": false,
+  "peak_tps_test": false
 }
