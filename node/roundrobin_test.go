@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/michael112233/pbft/config"
+	"github.com/michael112233/pbft/logger"
 )
 
 func TestPrimaryForViewUsesOneBasedNodeIDs(t *testing.T) {
@@ -67,5 +68,45 @@ func TestRoundRobinLeaderSelectionDoesNotTreatNodeOneAsLeaderForViewFour(t *test
 	}
 	if expectedLeader == n.GetNodeID() {
 		t.Fatalf("node %d should not be treated as the leader for view %d", n.GetNodeID(), n.forView)
+	}
+}
+
+func TestPrimaryForViewUsesStableCheckpointVotesWhenActiveLEnabled(t *testing.T) {
+	n := &Node{
+		cfg: &config.Config{
+			NodeNum: 4,
+			ActiveL: true,
+		},
+		fNodes: 1,
+		log:    logger.NewLogger(1, "node"),
+		checkpoints: map[checkpoint]checkpointVotes{
+			{seq: 20}: {
+				3: {},
+				1: {},
+				2: {},
+			},
+		},
+		lastStableCheckpoint: checkpoint{seq: 20},
+	}
+
+	if got := n.primaryForView(7); got != 1 {
+		t.Fatalf("primaryForView(%d) = %d, want 1 from stable checkpoint voters", 7, got)
+	}
+}
+
+func TestPrimaryForViewFallsBackToRoundRobinWhenActiveLHasNoVotes(t *testing.T) {
+	n := &Node{
+		cfg: &config.Config{
+			NodeNum: 4,
+			ActiveL: true,
+		},
+		fNodes:               1,
+		log:                  logger.NewLogger(1, "node"),
+		checkpoints:          make(map[checkpoint]checkpointVotes),
+		lastStableCheckpoint: checkpoint{seq: 20},
+	}
+
+	if got := n.primaryForView(6); got != 2 {
+		t.Fatalf("primaryForView(%d) = %d, want round-robin fallback 2", 6, got)
 	}
 }

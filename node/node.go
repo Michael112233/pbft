@@ -4,6 +4,7 @@ import (
 	"bytes"
 
 	"crypto/sha256"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -862,7 +863,38 @@ func (n *Node) primaryForView(view int64) int {
 	if n.cfg == nil || n.cfg.NodeNum <= 0 || view <= 0 {
 		return 0
 	}
+	if n.cfg.ActiveL {
+		if leaderID := n.primaryFromStableCheckpointVotes(); leaderID != 0 {
+			return leaderID
+		}
+	}
 	return int((view-1)%n.cfg.NodeNum) + 1
+}
+
+func (n *Node) primaryFromStableCheckpointVotes() int {
+	n.checkpointMu.Lock()
+	defer n.checkpointMu.Unlock()
+
+	votes, exists := n.checkpoints[n.lastStableCheckpoint]
+	if !exists || len(votes) == 0 {
+		n.log.Warn("ActiveL enabled but no stable checkpoint votes found for seq=%d", n.lastStableCheckpoint.seq)
+		return 0
+	}
+
+	voters := make([]int, 0, len(votes))
+	for nodeID := range votes {
+		voters = append(voters, nodeID)
+	}
+	sort.Ints(voters)
+
+	if len(voters) != 2*n.fNodes+1 {
+		n.log.Warn("ActiveL stable checkpoint voter count mismatch for seq=%d: got=%d want=%d voters=%v", n.lastStableCheckpoint.seq, len(voters), 2*n.fNodes+1, voters)
+	}
+	if voters[0] != 1 {
+		n.log.Warn("ActiveL stable checkpoint lowest voter is not node 1 for seq=%d: got=%d voters=%v", n.lastStableCheckpoint.seq, voters[0], voters)
+	}
+
+	return voters[0]
 }
 
 func (n *Node) leaderForView(view int64) int {

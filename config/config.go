@@ -22,6 +22,7 @@ type Config struct {
 	FarNodeID      int          `json:"far_node_id"`
 	FarNodeDelayMs int64        `json:"far_node_delay_ms"`
 	LeaderTypeEnum core.VCType
+	ActiveL        bool `json:"active_l"`
 }
 
 func ReadCfg(filename string) *Config {
