@@ -54,3 +54,28 @@ func TestHandleIncomingEnvelopeDispatchesLeaderUpdate(t *testing.T) {
 	client.leaderMu.RUnlock()
 	t.Fatalf("leader address was not updated: got %q want %q", leaderAddr, "localhost:28200")
 }
+
+func TestInjectArtificialLatencyForFarNodeRequest(t *testing.T) {
+	oldNodeAddr := config.NodeAddr
+	config.NodeAddr = map[int]string{
+		4: "localhost:28400",
+	}
+	defer func() {
+		config.NodeAddr = oldNodeAddr
+	}()
+
+	client := &Client{
+		log:    logger.NewLogger(0, "client"),
+		config: &config.Config{FarNodeID: 4, FarNodeDelayMs: 20},
+	}
+	hub := &ClientMessageHub{
+		client_ref: client,
+		log:        client.log,
+	}
+
+	start := time.Now()
+	hub.injectArtificialLatency(core.MsgRequestMessage, "localhost:20000", "localhost:28400")
+	if elapsed := time.Since(start); elapsed < 15*time.Millisecond {
+		t.Fatalf("injectArtificialLatency() elapsed = %s, want at least %s", elapsed, 15*time.Millisecond)
+	}
+}

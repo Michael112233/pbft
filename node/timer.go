@@ -79,8 +79,8 @@ func (tm *TimerManager) startNewViewTimer(n *Node) {
 		tm.newViewTimerOn.Store(false)
 
 		n.viewMu.Lock()
-		tm.log.Info("New-view timer expired for view %d; triggering dummy view-change", n.forView)
-		if !n.peakTpsTest {
+		tm.log.Error("New-view timer expired for view %d; triggering dummy view-change", n.forView)
+		if !n.peakTpsTest || true {
 			tm.log.Info("Triggering dummy view-change due to new-view timer expiry")
 			n.handleViewChangeTimeoutDummy()
 		}
@@ -220,7 +220,7 @@ func (tm *TimerManager) stopPBFTTimerLocked() {
 }
 
 func (tm *TimerManager) handlePBFTTimerExpiry(n *Node) {
-	tm.log.Info("PBFT timer expired; checking pending requests")
+	tm.log.Error("PBFT timer expired; checking pending requests")
 
 	tm.lock.Lock()
 	lenOfPending := n.pool.PendingRequests()

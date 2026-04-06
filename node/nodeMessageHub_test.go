@@ -2,8 +2,11 @@ package node
 
 import (
 	"testing"
+	"time"
 
+	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
+	"github.com/michael112233/pbft/logger"
 	"github.com/michael112233/pbft/transportpb"
 )
 
@@ -38,5 +41,33 @@ func TestBuildEnvelopeLeaderIdUpdate(t *testing.T) {
 	}
 	if data.From != "localhost:28100" {
 		t.Fatalf("From = %q, want %q", data.From, "localhost:28100")
+	}
+}
+
+func TestInjectArtificialLatencyForFarNodeSend(t *testing.T) {
+	oldNodeAddr := config.NodeAddr
+	oldClientAddr := config.ClientAddr
+	config.NodeAddr = map[int]string{
+		1: "localhost:28100",
+		4: "localhost:28400",
+	}
+	config.ClientAddr = "localhost:20000"
+	defer func() {
+		config.NodeAddr = oldNodeAddr
+		config.ClientAddr = oldClientAddr
+	}()
+
+	hub := &NodeMessageHub{
+		node_ref: &Node{
+			NodeID: 1,
+			cfg:    &config.Config{FarNodeID: 4, FarNodeDelayMs: 20},
+		},
+		log: logger.NewLogger(1, "node"),
+	}
+
+	start := time.Now()
+	hub.injectArtificialLatency(core.MsgPrepareMessage, "localhost:28400")
+	if elapsed := time.Since(start); elapsed < 15*time.Millisecond {
+		t.Fatalf("injectArtificialLatency() elapsed = %s, want at least %s", elapsed, 15*time.Millisecond)
 	}
 }

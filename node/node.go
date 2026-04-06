@@ -20,7 +20,7 @@ import (
 const (
 	defaultPBFTRequestTimeout          = 5 * time.Second
 	defaultPBFTRequestTimeoutJitterMax = 500 * time.Millisecond
-	CHECKPOINT_INTERVAL                = 128 * 4
+	CHECKPOINT_INTERVAL                = 20
 )
 
 type clientRequestKey struct {
@@ -276,7 +276,7 @@ func (n *Node) broadcastPrepare(msg core.PrepareMsg, signature []byte) {
 		if othersIp == n.GetAddr() {
 			continue
 		}
-		n.messageHub.Send(core.MsgPrepareMessage, othersIp, msg, signature)
+		go n.messageHub.Send(core.MsgPrepareMessage, othersIp, msg, signature)
 	}
 }
 func (n *Node) broadcastViewChange(msg core.ViewChangeMsg, signature []byte) {
@@ -284,7 +284,7 @@ func (n *Node) broadcastViewChange(msg core.ViewChangeMsg, signature []byte) {
 		if othersIp == n.GetAddr() {
 			continue
 		}
-		n.messageHub.Send(core.MsgViewChangeMessage, othersIp, msg, signature)
+		go n.messageHub.Send(core.MsgViewChangeMessage, othersIp, msg, signature)
 	}
 }
 
@@ -321,7 +321,7 @@ func (n *Node) broadcastCommit(view, seq int64, digest [32]byte) {
 			continue
 		}
 		// msg.To = othersIp
-		n.messageHub.Send(core.MsgCommitMessage, othersIp, msg, signature)
+		go n.messageHub.Send(core.MsgCommitMessage, othersIp, msg, signature)
 	}
 }
 func (n *Node) preprepare(batch core.ClientMsgSignature) {
@@ -375,7 +375,7 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 				continue
 			}
 			// preprepareMsg.To = othersIp
-			n.messageHub.Send(core.MsgPreprepareMessage, othersIp, preprepareMsg, signature) // cant do go in current state race
+			go n.messageHub.Send(core.MsgPreprepareMessage, othersIp, preprepareMsg, signature) // cant do go in current state race
 		}
 	}()
 
@@ -839,7 +839,7 @@ func (n *Node) sendCommitTps(clientMsg core.ClientMsg) {
 		To:        config.ClientAddr,
 		ClientMsg: clientMsg,
 	}
-	n.messageHub.Send(core.MsgCommitTpsMessage, config.ClientAddr, commitTpsMsg, nil)
+	go n.messageHub.Send(core.MsgCommitTpsMessage, config.ClientAddr, commitTpsMsg, nil)
 }
 
 func (n *Node) sendLeaderIdUpdate(newLeaderID int) {
@@ -848,7 +848,7 @@ func (n *Node) sendLeaderIdUpdate(newLeaderID int) {
 		To:          config.ClientAddr,
 		NewLeaderId: newLeaderID,
 	}
-	n.messageHub.Send(core.MsgLeaderIdUpdateMessage, config.ClientAddr, leaderUpdateMsg, nil)
+	go n.messageHub.Send(core.MsgLeaderIdUpdateMessage, config.ClientAddr, leaderUpdateMsg, nil)
 }
 
 func makeClientRequestKey(msg core.ClientMsg) clientRequestKey {
@@ -1264,7 +1264,7 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView i
 		}
 	}
 	n.checkpointMu.Unlock()
-	maxS := minS
+	maxS := minS - 1
 	for _, viewChangeMsg := range vcMsgSigs {
 		for seqNumber, pm := range viewChangeMsg.ViewChangeMsg.PreparedCerts {
 			if seqNumber > maxS {
@@ -1278,8 +1278,9 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView i
 
 		}
 	}
-	if minS == maxS {
+	if maxS < minS {
 		n.log.Error("no suffix at o primary")
+		return O, minS - 1
 	}
 	for seq := minS; seq <= maxS; seq++ {
 		if preprepare, exists := preprepareLog[seq]; exists {
@@ -1332,7 +1333,7 @@ func (n *Node) createOReplica(vcMsgSigs []*core.ViewChangeMsgSig, view int64) (m
 		}
 	}
 	n.checkpointMu.Unlock()
-	maxS := minS
+	maxS := minS - 1
 	// maxS := minS
 	for _, viewChangeMsg := range vcMsgSigs {
 		for seqNumber, pm := range viewChangeMsg.ViewChangeMsg.PreparedCerts {
@@ -1348,8 +1349,9 @@ func (n *Node) createOReplica(vcMsgSigs []*core.ViewChangeMsgSig, view int64) (m
 		}
 	}
 
-	if minS == maxS {
+	if maxS < minS {
 		n.log.Error("no suffix o at replica")
+		return preprepareLog, minS - 1
 	}
 	for seq := minS; seq <= maxS; seq++ {
 		if preprepare, exists := preprepareLog[seq]; exists {
@@ -1391,7 +1393,7 @@ func (n *Node) broadcastNewView(newViewMsg core.NewViewMsg, signature []byte) {
 		if othersIp == n.GetAddr() {
 			continue
 		}
-		n.messageHub.Send(core.MsgNewViewMessage, othersIp, newViewMsg, signature)
+		go n.messageHub.Send(core.MsgNewViewMessage, othersIp, newViewMsg, signature)
 	}
 }
 
@@ -1405,7 +1407,9 @@ func (n *Node) newView() {
 
 	O, maxSeq := n.createO(n.viewChangeMsgsLog[n.view], n.view, oldView)
 	n.preprepareSeqNumber.Store(maxSeq)
-
+	if len(O) == 0 {
+		n.log.Info("O is empty for new view %d at primary, maxSeq is %d", n.view, maxSeq)
+	}
 	for _, preprepareMsg := range O {
 		slot := n.consensusLog.getOrCreateLog(preprepareMsg.PreprepareMsgMini.SeqNum, preprepareMsg.PreprepareMsgMini.View)
 		slot.mu.Lock()
@@ -1490,28 +1494,30 @@ func (n *Node) createVCContent(stableCheckpointSeq int64) map[int64]*core.Prepar
 		if slot.prePrepare.View < n.view {
 			n.log.Error("Sending a prepare for a view lower than n.view where my n.view is %d and prepare is for view %d and checkpoint is %d", n.view, slot.prePrepare.View, stableCheckpointSeq)
 		}
+		seqNum := slot.prePrepare.SeqNum
 		preprepareV := core.PreprepareMsgSig{
 
 			PreprepareMsgMini: core.PreprepareMsgMini{
 				View:            slot.prePrepare.View,
-				SeqNum:          slot.prePrepare.SeqNum,
+				SeqNum:          seqNum,
 				DigestClientMsg: slot.prePrepare.DigestClientMsg,
 			},
-			Signature: slot.prePrepareSig,
+			Signature: append([]byte(nil), slot.prePrepareSig...),
 		}
 
-		prepareLog := slot.prepares
-		// for from, prepare := range slot.prepares {
-		// 	if prepare == nil {
-		// 		continue
-		// 	}
-		// 	prepareCopy := *prepare
-		// 	prepareCopy.Signature = append([]byte(nil), prepare.Signature...)
-		// 	prepareLog[from] = &prepareCopy
-		// }
+		prepareLog := make(map[int]*core.PrepareMsgSig, len(slot.prepares))
+		for from, prepare := range slot.prepares {
+			if prepare == nil {
+				prepareLog[from] = nil
+				continue
+			}
+			prepareCopy := *prepare
+			prepareCopy.Signature = append([]byte(nil), prepare.Signature...)
+			prepareLog[from] = &prepareCopy
+		}
 		slot.mu.Unlock()
 
-		preparedCerts[slot.prePrepare.SeqNum] = &core.PreparedCert{
+		preparedCerts[seqNum] = &core.PreparedCert{
 			PreprepareMsg: preprepareV,
 			PrepareLog:    prepareLog,
 		}

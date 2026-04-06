@@ -19,6 +19,8 @@ type Config struct {
 	Period         int64        `json:"period"`
 	PeakTpsTest    bool         `json:"peak_tps_test"`
 	LeaderType     string       `json:"leader_type"`
+	FarNodeID      int          `json:"far_node_id"`
+	FarNodeDelayMs int64        `json:"far_node_delay_ms"`
 	LeaderTypeEnum core.VCType
 }
 

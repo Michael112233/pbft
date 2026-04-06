@@ -12,11 +12,7 @@ import (
 )
 
 func TestNewNodeInitializesLeaderForViewOne(t *testing.T) {
-	n := NewNode(1, &config.Config{
-		NodeNum:        4,
-		NodesDead:      map[int]bool{},
-		LeaderTypeEnum: core.VCTypeRoundRobin,
-	})
+	n, _ := newTestNodeWithKeys(t, 1, 4)
 
 	if n.view != 1 {
 		t.Fatalf("view = %d, want 1", n.view)
@@ -86,6 +82,7 @@ func newTestNodeWithKeys(t *testing.T, nodeID int, nodeNum int64) (*Node, map[in
 	}
 	hub.node_ref = n
 	hub.log = log
+	n.pbftTimerManager.node_ref = n
 	return n, privateKeys
 }
 

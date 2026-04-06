@@ -38,7 +38,7 @@ func (n *Node) queueCommittedExecution(seq int64, slot *consensusSlot, msg core.
 	}
 	if checkpointTrigger {
 		n.log.Info("Checkpoint trigger for seq %d with digest %x", checkpointSeq, checkpointDigest)
-		// go n.checkpointVC(checkpointSeq, checkpointDigest)
+		go n.checkpointVC(checkpointSeq, checkpointDigest)
 	}
 
 }
@@ -75,7 +75,7 @@ func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.C
 		if !pending.noOp {
 			result = n.executionMachine.Apply(pending.msg)
 		} else {
-			n.log.Info("noop in execution for seq %d messes up periodic trigger", nextSeq)
+			n.log.Error("noop in execution for seq %d messes up periodic trigger", nextSeq)
 		}
 
 		pending.slot.mu.Lock()

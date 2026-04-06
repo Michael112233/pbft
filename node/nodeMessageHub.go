@@ -181,6 +181,19 @@ func (hub *NodeMessageHub) sendEnvelopeOverClientStream(env *transportpb.Envelop
 	return streamState.stream.Send(env)
 }
 
+func (hub *NodeMessageHub) injectArtificialLatency(msgType, targetAddr string) {
+	if hub == nil || hub.node_ref == nil || hub.node_ref.cfg == nil {
+		return
+	}
+	fromAddr := hub.node_ref.GetAddr()
+	delay := hub.node_ref.cfg.ArtificialLatency(fromAddr, targetAddr)
+	if delay <= 0 {
+		return
+	}
+	hub.log.Info("Injecting artificial latency. msgType=%s from=%s to=%s delay=%s", msgType, fromAddr, targetAddr, delay)
+	time.Sleep(delay)
+}
+
 func (hub *NodeMessageHub) ClientNodeChannel(stream transportpb.PBFTTransport_ClientNodeChannelServer) error {
 	streamState := &clientStreamState{stream: stream}
 	hub.setClientStream(streamState)
@@ -537,6 +550,7 @@ func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, sign
 			hub.log.Error("build envelope failed. msgType=%s err=%v", msgType, err)
 			return
 		}
+		hub.injectArtificialLatency(msgType, ip)
 		if err := hub.sendEnvelopeOverClientStream(env); err != nil {
 			hub.log.Error("stream deliver failed. msgType=%s target=%s err=%v", msgType, ip, err)
 			return
@@ -550,6 +564,8 @@ func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, sign
 		hub.log.Error("build envelope failed. msgType=%s err=%v", msgType, err)
 		return
 	}
+
+	hub.injectArtificialLatency(msgType, ip)
 
 	client, err := hub.getOrCreateClient(ip)
 	if err != nil {

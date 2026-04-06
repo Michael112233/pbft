@@ -9,10 +9,6 @@ var (
 	NodeAddr   map[int]string
 )
 
-const (
-	PeriodicInterval = 4000
-)
-
 func GenerateLocalNetwork(nodeNum int) {
 	localIp := "localhost:"
 	ClientAddr = localIp + "20000"

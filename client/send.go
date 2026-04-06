@@ -29,7 +29,7 @@ func (c *Client) InjectTxs() {
 		defer c.WaitGroup.Done()
 
 		// Create signed ClientMsgSignature array for all transactions
-		txns := GenerateDummyTxs(int(c.config.Period) * 2)
+		txns := GenerateDummyTxs(int(c.config.Period) * 4)
 		signedMsgs := make([]core.ClientMsgSignature, len(txns))
 		for i, tx := range txns {
 			clientMsg := core.ClientMsg{
@@ -89,6 +89,7 @@ func (c *Client) InjectTxs() {
 				if !lastWave {
 					<-c.cchan
 				}
+				time.Sleep(1 * time.Second) // small sleep to allow system to stabilize after leader change before next wave
 			} else {
 				time.Sleep(1 * time.Second)
 

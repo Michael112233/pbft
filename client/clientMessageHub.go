@@ -296,12 +296,26 @@ func (hub *ClientMessageHub) buildEnvelope(msgType string, msg interface{}) (*tr
 	return env, nil
 }
 
+func (hub *ClientMessageHub) injectArtificialLatency(msgType, from, to string) {
+	if hub == nil || hub.client_ref == nil || hub.client_ref.config == nil {
+		return
+	}
+	delay := hub.client_ref.config.ArtificialLatency(from, to)
+	if delay <= 0 {
+		return
+	}
+	hub.log.Info("Injecting artificial latency. msgType=%s from=%s to=%s delay=%s", msgType, from, to, delay)
+	time.Sleep(delay)
+}
+
 func (hub *ClientMessageHub) Send(msgType string, from string, to string, msg interface{}, callback func(...interface{})) {
 	env, err := hub.buildEnvelope(msgType, msg)
 	if err != nil {
 		hub.log.Error("build envelope failed. msgType=%s err=%v", msgType, err)
 		return
 	}
+
+	hub.injectArtificialLatency(msgType, from, to)
 
 	if err := hub.sendToNodeStream(to, env); err != nil {
 		hub.log.Error("stream send failed. msgType=%s target=%s err=%v", msgType, to, err)

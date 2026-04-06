@@ -15,10 +15,8 @@ func TestTryAdvancePrepareReturnsAfterQuorum(t *testing.T) {
 		config.NodeAddr = oldNodeAddr
 	}()
 
-	n := &Node{
-		NodeID: 1,
-		fNodes: 1,
-	}
+	n, _ := newTestNodeWithKeys(t, 1, 4)
+	n.fNodes = 1
 
 	slot := &consensusSlot{
 		view: 1,

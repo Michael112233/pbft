@@ -6,11 +6,13 @@
   "nodes_dead": {
     "1": false,
     "2": false,
-    "3": false,
+    "3": true,
     "4": false
   },
   "periodic": true,
-  "period": 4000,
+  "period": 100,
   "peak_tps_test": true,
+  "far_node_id": 4,
+  "far_node_delay_ms": 100,
   "leader_type": "roundrobin"
 }
