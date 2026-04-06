@@ -74,6 +74,8 @@ func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.C
 		result := execution.Result{}
 		if !pending.noOp {
 			result = n.executionMachine.Apply(pending.msg)
+		} else {
+			n.log.Info("noop in execution for seq %d messes up periodic trigger", nextSeq)
 		}
 
 		pending.slot.mu.Lock()
@@ -84,7 +86,7 @@ func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.C
 
 		n.lastExecuted = nextSeq
 		// period := int64(9*CHECKPOINT_INTERVAL) / 2
-		if n.lastExecuted%20 == 0 {
+		if n.lastExecuted%n.cfg.Period == 0 {
 			periodicTrigger = true
 		}
 

@@ -29,7 +29,7 @@ func (c *Client) InjectTxs() {
 		defer c.WaitGroup.Done()
 
 		// Create signed ClientMsgSignature array for all transactions
-		txns := GenerateDummyTxs(30)
+		txns := GenerateDummyTxs(int(c.config.Period) * 2)
 		signedMsgs := make([]core.ClientMsgSignature, len(txns))
 		for i, tx := range txns {
 			clientMsg := core.ClientMsg{
@@ -56,9 +56,9 @@ func (c *Client) InjectTxs() {
 		var injectTxs []core.ClientMsgSignature
 		c.TransactionManager.Start()
 
-		for i := int64(0); (i+1)*30 <= int64(len(txns)); i++ {
+		for i := int64(0); (i+1)*int64(c.config.Period) <= int64(len(txns)); i++ {
 
-			injectTxs = signedMsgs[i*30 : (i+1)*30] //c.txs[i*c.config.InjectSpeed : (i+1)*c.config.InjectSpeed]
+			injectTxs = signedMsgs[i*int64(c.config.Period) : (i+1)*int64(c.config.Period)] //c.txs[i*c.config.InjectSpeed : (i+1)*c.config.InjectSpeed]
 
 			c.leaderMu.RLock()
 			leader := c.leaderAddr
@@ -82,8 +82,17 @@ func (c *Client) InjectTxs() {
 			c.log.Info(fmt.Sprintf("Send request message to %s with %d transactions", leader, int64(i)))
 
 			c.messageHub.Send(core.MsgRequestMessage, c.addr, leader, msg, nil) // couuld be go as stream locked
-			// if ((i+1)*c.config.InjectSpeed)%c.injectSpeed == 0 {
-			time.Sleep(1 * time.Second)
+
+			// Wait for the next leader update before sending the next periodic wave.
+			if c.config.Periodic {
+				lastWave := (i+1)*int64(c.config.Period) >= int64(len(txns))
+				if !lastWave {
+					<-c.cchan
+				}
+			} else {
+				time.Sleep(1 * time.Second)
+
+			}
 			// }
 
 		}

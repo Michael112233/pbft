@@ -16,6 +16,7 @@ type Config struct {
 	NodeNum        int64        `json:"node_num"`
 	NodesDead      map[int]bool `json:"nodes_dead"`
 	Periodic       bool         `json:"periodic"`
+	Period         int64        `json:"period"`
 	PeakTpsTest    bool         `json:"peak_tps_test"`
 	LeaderType     string       `json:"leader_type"`
 	LeaderTypeEnum core.VCType

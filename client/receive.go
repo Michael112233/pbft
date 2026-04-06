@@ -26,4 +26,6 @@ func (c *Client) HandleLeaderUpdate(data core.LeaderIdUpdate) {
 	c.leaderAddr = config.NodeAddr[data.NewLeaderId]
 	c.leaderMu.Unlock()
 	c.log.Info(fmt.Sprintf("Received leader update message, new leader id %d, new leader addr %s", data.NewLeaderId, c.leaderAddr))
+	c.cchan <- struct{}{}
+	c.log.Info(fmt.Sprintf(" send to chan Received leader update message, new leader id %d, new leader addr %s", data.NewLeaderId, c.leaderAddr))
 }

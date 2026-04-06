@@ -10,6 +10,7 @@
     "4": false
   },
   "periodic": true,
+  "period": 4000,
   "peak_tps_test": true,
   "leader_type": "roundrobin"
 }

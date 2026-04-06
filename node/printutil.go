@@ -174,7 +174,7 @@ func (n *Node) PrintDetails() {
 	}
 	fmt.Printf("------------------ LOG DETAILS ------------------\n")
 	n.viewMu.RUnlock()
-	n.consensusLog.PrintDetails(currentView)
+	// n.consensusLog.PrintDetails(currentView)
 }
 
 func (n *Node) PrintSlot(seqNum int64) {

@@ -27,6 +27,7 @@ type Client struct {
 	TransactionManager *TransactionManager
 	leaderMu           sync.RWMutex
 	leaderAddr         string
+	cchan              chan struct{}
 }
 
 func NewClient(addr string, name string, config *config.Config, leaderAddr string) *Client {
@@ -49,6 +50,7 @@ func NewClient(addr string, name string, config *config.Config, leaderAddr strin
 		messageHub:         NewClientMessageHub(),
 		privateKey:         privKey,
 		TransactionManager: NewTransactionManager(),
+		cchan:              make(chan struct{}),
 	}
 }
 

@@ -35,6 +35,23 @@ type checkpoint struct {
 
 type checkpointVotes map[int]struct{}
 
+type bufferedConsensusMessageKind uint8
+
+const (
+	bufferedPrePrepare bufferedConsensusMessageKind = iota + 1
+	bufferedPrepare
+	bufferedCommit
+)
+
+type bufferedConsensusMessage struct {
+	kind       bufferedConsensusMessageKind
+	view       int64
+	preprepare core.PreprepareMsg
+	prepare    core.PrepareMsg
+	commit     core.CommitMsg
+	signature  []byte
+}
+
 type Node struct {
 	NodeID int
 
@@ -50,11 +67,14 @@ type Node struct {
 	preprepareSeqNumber       atomic.Int64
 	view                      int64
 	leaderId                  int
+	leaderIdForView           map[int64]int
 	forView                   int64
 	votedFor                  int
 	consensusLog              ConsensusLog
 	viewChangeRunning         bool
 	viewMu                    sync.RWMutex
+	bufferedMsgsMu            sync.Mutex
+	bufferedMsgs              []bufferedConsensusMessage
 	vcType                    core.VCType
 	fNodes                    int
 	verificationWorkerStarted atomic.Bool
@@ -100,8 +120,10 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		forView:                  1,
 		vcType:                   cfg.LeaderTypeEnum,
 		leaderId:                 1,
+		leaderIdForView:          map[int64]int{1: 1},
 		consensusLog:             NewConsensusLog(),
 		viewChangeRunning:        false,
+		bufferedMsgs:             make([]bufferedConsensusMessage, 0),
 		fNodes:                   (int(cfg.NodeNum) - 1) / 3,
 		pbftTimerManager:         NewTimerManager(log),
 		viewChangeMsgsLog:        make(map[int64][]*core.ViewChangeMsgSig),
@@ -361,15 +383,26 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 
 func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []byte) {
 	n.viewMu.RLock()
-	defer n.viewMu.RUnlock()
+	view := n.view
+	viewChangeRunning := n.viewChangeRunning
+	n.viewMu.RUnlock()
 
-	if n.viewChangeRunning {
+	if viewChangeRunning {
+		if preprepareMsg.View > view {
+			n.bufferConsensusMessage(bufferedConsensusMessage{
+				kind:       bufferedPrePrepare,
+				view:       preprepareMsg.View,
+				preprepare: preprepareMsg,
+				signature:  append([]byte(nil), signature...),
+			})
+			n.log.Info("Buffered PrePrepare for future view %d seq %d while current view is %d", preprepareMsg.View, preprepareMsg.SeqNum, view)
+			return
+		}
 		// n.viewMu.RUnlock()
 		n.log.Test("Received PrePrepare for view %d seq %d but currently in view change, ignoring", preprepareMsg.View, preprepareMsg.SeqNum)
 		return
 	}
 	n.log.Test("Received PrePrepare for view %d seq %d", preprepareMsg.View, preprepareMsg.SeqNum)
-	view := n.view
 	// n.viewMu.RUnlock()
 
 	// --- Validation ---
@@ -589,14 +622,25 @@ func (n *Node) HandlePrePrepareNewView(preprepareMsg core.PreprepareMsgMini, sig
 
 func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 	n.viewMu.RLock()
-	defer n.viewMu.RUnlock()
-	if n.viewChangeRunning {
+	view := n.view
+	viewChangeRunning := n.viewChangeRunning
+	n.viewMu.RUnlock()
+	if viewChangeRunning {
+		if prepareMsg.View > view {
+			n.bufferConsensusMessage(bufferedConsensusMessage{
+				kind:      bufferedPrepare,
+				view:      prepareMsg.View,
+				prepare:   prepareMsg,
+				signature: append([]byte(nil), signature...),
+			})
+			n.log.Info("Buffered Prepare for future view %d seq %d while current view is %d", prepareMsg.View, prepareMsg.SeqNum, view)
+			return
+		}
 		// n.viewMu.RUnlock()
 		n.log.Test("Received Prepare for view %d seq %d but currently in view change, ignoring", prepareMsg.View, prepareMsg.SeqNum)
 		return
 	}
 	n.log.Test("Received Prepare for view %d seq %d", prepareMsg.View, prepareMsg.SeqNum)
-	view := n.view
 	// n.viewMu.RUnlock()
 
 	if prepareMsg.View != view {
@@ -641,14 +685,24 @@ func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 
 func (n *Node) HandleCommit(commitMsg core.CommitMsg) {
 	n.viewMu.RLock()
-	defer n.viewMu.RUnlock()
-	if n.viewChangeRunning {
+	view := n.view
+	viewChangeRunning := n.viewChangeRunning
+	n.viewMu.RUnlock()
+	if viewChangeRunning {
+		if commitMsg.View > view {
+			n.bufferConsensusMessage(bufferedConsensusMessage{
+				kind:   bufferedCommit,
+				view:   commitMsg.View,
+				commit: commitMsg,
+			})
+			n.log.Info("Buffered Commit for future view %d seq %d while current view is %d", commitMsg.View, commitMsg.SeqNum, view)
+			return
+		}
 		// n.viewMu.RUnlock()
 		n.log.Test("Received Commit for view %d seq %d but currently in view change, ignoring", commitMsg.View, commitMsg.SeqNum)
 		return
 	}
 	n.log.Test("Received Commit for view %d seq %d", commitMsg.View, commitMsg.SeqNum)
-	view := n.view
 	// n.viewMu.RUnlock()
 
 	if commitMsg.View != view {
@@ -811,14 +865,77 @@ func (n *Node) primaryForView(view int64) int {
 	return int((view-1)%n.cfg.NodeNum) + 1
 }
 
+func (n *Node) leaderForView(view int64) int {
+	if view <= 0 {
+		return 0
+	}
+	if leaderID, exists := n.leaderIdForView[view]; exists {
+		return leaderID
+	}
+	if n.vcType == core.VCTypeRoundRobin {
+		return n.primaryForView(view)
+	}
+	return 0
+}
+
+func (n *Node) bufferConsensusMessage(msg bufferedConsensusMessage) {
+	n.bufferedMsgsMu.Lock()
+	n.bufferedMsgs = append(n.bufferedMsgs, msg)
+	n.bufferedMsgsMu.Unlock()
+}
+
+func (n *Node) drainBufferedMessagesForView(view int64) []bufferedConsensusMessage {
+	n.bufferedMsgsMu.Lock()
+	defer n.bufferedMsgsMu.Unlock()
+
+	if len(n.bufferedMsgs) == 0 {
+		return nil
+	}
+
+	replay := make([]bufferedConsensusMessage, 0)
+	remaining := n.bufferedMsgs[:0]
+	for _, msg := range n.bufferedMsgs {
+		if msg.view == view {
+			replay = append(replay, msg)
+			continue
+		}
+		remaining = append(remaining, msg)
+	}
+	if len(remaining) > 0 {
+		n.log.Info("Still have %d buffered consensus messages for future views after draining for view %d", len(remaining), view)
+	}
+	n.bufferedMsgs = remaining
+	return replay
+}
+
+func (n *Node) replayBufferedMessagesForView(view int64) {
+	buffered := n.drainBufferedMessagesForView(view)
+	if len(buffered) == 0 {
+		n.log.Info("No buffered consensus messages to replay for view %d", view)
+		return
+	}
+
+	n.log.Info("Replaying %d buffered consensus messages for view %d", len(buffered), view)
+	for _, msg := range buffered {
+		switch msg.kind {
+		case bufferedPrePrepare: //maybe async them
+			n.HandlePrePrepare(msg.preprepare, msg.signature)
+		case bufferedPrepare:
+			n.HandlePrepare(msg.prepare, msg.signature)
+		case bufferedCommit:
+			n.HandleCommit(msg.commit)
+		}
+	}
+}
+
 func (n *Node) verifyPreprepare(preprepareMsg core.PreprepareMsgSig) (bool, int64, int64, [32]byte) {
 	view := preprepareMsg.PreprepareMsgMini.View
 	seq := preprepareMsg.PreprepareMsgMini.SeqNum
 	digest := preprepareMsg.PreprepareMsgMini.DigestClientMsg
 
-	from := n.leaderId
+	from := n.leaderForView(view)
 	if from == 0 {
-		n.log.Error("invalid view/cluster config for preprepare verification: view=%d", view)
+		n.log.Error("leader not found for preprepare verification: view=%d", view)
 		return false, 0, 0, [32]byte{}
 	}
 
@@ -1088,10 +1205,10 @@ func verifyOSet(Ocreated map[int64]core.PreprepareMsgSig, Oreceived []core.Prepr
 
 func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	n.viewMu.Lock()
-	defer n.viewMu.Unlock()
 	n.log.Test("Received new view message for view %d from leader %d and my current view is %d and my for view is %d", newViewMsg.NewViewNumber, newViewMsg.From, n.view, n.forView)
 
 	if newViewMsg.NewViewNumber < n.view {
+		n.viewMu.Unlock()
 		return
 	}
 	if newViewMsg.NewViewNumber < n.forView {
@@ -1102,17 +1219,20 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	// return
 	verifiedNewView := n.verifyNewView(newViewMsg)
 	if !verifiedNewView {
+		n.viewMu.Unlock()
 		return
 	}
 	Oset, _ := n.createOReplica(newViewMsg.ViewChangeLog, newViewMsg.NewViewNumber)
 	verifiedOsets := verifyOSet(Oset, newViewMsg.PreprepareLog)
 	if !verifiedOsets {
 		n.log.Error("O set verification failed for new view message for view %d", newViewMsg.NewViewNumber)
+		n.viewMu.Unlock()
 		return
 	}
 	n.view = newViewMsg.NewViewNumber
 	n.forView = newViewMsg.NewViewNumber
 	n.leaderId = newViewMsg.From
+	n.leaderIdForView[newViewMsg.NewViewNumber] = newViewMsg.From
 	n.viewChangeRunning = false
 	n.pbftTimerManager.stopNewViewTimer()
 	n.log.Info("Transitioned to new view %d with leader %d", n.view, n.leaderId)
@@ -1124,7 +1244,11 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 		}
 
 	}
+	replayView := n.view
+	n.viewMu.Unlock()
+
 	n.pbftTimerManager.forceResetPBFTTimer()
+	n.replayBufferedMessagesForView(replayView)
 }
 
 func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView int64) ([]core.PreprepareMsgSig, int64) {
@@ -1275,6 +1399,7 @@ func (n *Node) newView() {
 	oldView := n.view
 	n.view = n.forView
 	n.leaderId = n.GetNodeID()
+	n.leaderIdForView[n.view] = n.leaderId
 	n.viewChangeRunning = false
 	n.pbftTimerManager.stopNewViewTimer()
 
@@ -1332,6 +1457,8 @@ func (n *Node) newView() {
 	// should strart pbft timer
 	go n.sendLeaderIdUpdate(n.leaderId)
 	go n.broadcastNewView(newViewMsg, signature)
+	n.log.Info("Entering replay from primary might not need at primary")
+	go n.replayBufferedMessagesForView(n.view)
 
 }
 
