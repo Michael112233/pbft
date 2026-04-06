@@ -37,6 +37,12 @@ type CommitTps struct {
 	ClientMsg ClientMsg
 }
 
+type LeaderIdUpdate struct {
+	To          string
+	From        string
+	NewLeaderId int
+}
+
 type CloseMessage struct {
 	Timestamp int64
 	From      string

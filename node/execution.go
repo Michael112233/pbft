@@ -23,9 +23,9 @@ type executionPostAction struct {
 func (n *Node) queueCommittedExecution(seq int64, slot *consensusSlot, msg core.ClientMsg, noOp bool, missingData bool) {
 	postActions, periodicTrigger, checkpointTrigger, checkpointDigest, checkpointSeq := n.collectReadyExecutions(seq, slot, msg, noOp, missingData)
 	for _, action := range postActions {
-		n.log.Info("Executed request for seq %d success=%t", action.seq, action.result.Success)
+		n.log.Test("Executed request for seq %d success=%t", action.seq, action.result.Success)
 		if !action.noOp {
-			go n.sendReply(action.msg, action.result, action.seq)
+			// go n.sendReply(action.msg, action.result, action.seq)
 			n.pool.Delete(action.digest)
 			n.pbftTimerManager.onRequestExecuted(action.msg, n) // resets timer and periodic vc stop timer
 		}
@@ -37,7 +37,8 @@ func (n *Node) queueCommittedExecution(seq int64, slot *consensusSlot, msg core.
 		go n.periodicVC()
 	}
 	if checkpointTrigger {
-		go n.checkpointVC(checkpointSeq, checkpointDigest)
+		n.log.Info("Checkpoint trigger for seq %d with digest %x", checkpointSeq, checkpointDigest)
+		// go n.checkpointVC(checkpointSeq, checkpointDigest)
 	}
 
 }
@@ -82,8 +83,8 @@ func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.C
 		pending.slot.mu.Unlock()
 
 		n.lastExecuted = nextSeq
-		period := int64(9*CHECKPOINT_INTERVAL) / 2
-		if n.lastExecuted%period == 0 {
+		// period := int64(9*CHECKPOINT_INTERVAL) / 2
+		if n.lastExecuted%20 == 0 {
 			periodicTrigger = true
 		}
 

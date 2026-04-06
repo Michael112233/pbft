@@ -63,6 +63,139 @@ func (log *ConsensusLog) PrintSlot(randSeqs []int64, view int64) {
 
 }
 
+func (log *ConsensusLog) PrintExecutedSlots(currView int64) {
+	type executedSlotSnapshot struct {
+		seq              int64
+		view             int64
+		digest           [32]byte
+		dataID           int64
+		hasClientData    bool
+		prepareVotes     int
+		commitVotes      int
+		prepareSent      bool
+		commitSent       bool
+		executionPending bool
+		executed         bool
+		missingData      bool
+	}
+
+	warningSeqs := make(map[int64]struct{})
+	warningCount := 0
+	recordWarning := func(seq int64, format string, args ...interface{}) {
+		fmt.Printf(format, args...)
+		warningCount++
+		warningSeqs[seq] = struct{}{}
+	}
+
+	log.slotsMu.RLock()
+	candidates := make([]executedSlotSnapshot, 0, len(log.slots))
+	for key, slot := range log.slots {
+		if key.View < 1 || key.View > currView || slot == nil {
+			continue
+		}
+
+		slot.mu.Lock()
+		if !slot.executed {
+			slot.mu.Unlock()
+			continue
+		}
+
+		snapshot := executedSlotSnapshot{
+			seq:              key.SeqNum,
+			view:             slot.view,
+			prepareVotes:     len(slot.prepares),
+			commitVotes:      len(slot.commits),
+			prepareSent:      slot.prepareSent,
+			commitSent:       slot.commitSent,
+			executionPending: slot.executionPending,
+			executed:         slot.executed,
+			missingData:      slot.missingData,
+		}
+		if slot.prePrepare != nil {
+			snapshot.digest = slot.prePrepare.DigestClientMsg
+			snapshot.dataID = slot.prePrepare.ClientMsg.Data.Id
+			snapshot.hasClientData = slot.prePrepare.DigestClientMsg != [32]byte{} || !slot.missingData
+		}
+		slot.mu.Unlock()
+
+		if snapshot.view != key.View {
+			recordWarning(key.SeqNum, "Warning: inconsistent view for seq %d: key view %d, slot view %d\n", key.SeqNum, key.View, snapshot.view)
+		}
+		candidates = append(candidates, snapshot)
+	}
+	log.slotsMu.RUnlock()
+
+	slices.SortFunc(candidates, func(a, b executedSlotSnapshot) int {
+		if a.view != b.view {
+			if a.view < b.view {
+				return -1
+			}
+			return 1
+		}
+		if a.seq < b.seq {
+			return -1
+		}
+		if a.seq > b.seq {
+			return 1
+		}
+		return 0
+	})
+
+	collected := make(map[int64]executedSlotSnapshot, len(candidates))
+	for _, candidate := range candidates {
+		existing, exists := collected[candidate.seq]
+		if !exists {
+			collected[candidate.seq] = candidate
+			continue
+		}
+		if existing.digest != candidate.digest {
+			recordWarning(candidate.seq, "Warning: executed seq %d appears in multiple views with different digests: kept view %d digest %x, skipped view %d digest %x\n",
+				candidate.seq, existing.view, existing.digest, candidate.view, candidate.digest)
+			continue
+		}
+	}
+
+	if len(collected) == 0 {
+		fmt.Printf("No executed slots found up to view %d\n", currView)
+		fmt.Printf("Total warnings: %d, SeqNums: []\n", warningCount)
+		fmt.Printf("Total executed slots: 0\n")
+		return
+	}
+
+	sortedSeqNums := make([]int64, 0, len(collected))
+	for seq := range collected {
+		sortedSeqNums = append(sortedSeqNums, seq)
+	}
+	slices.Sort(sortedSeqNums)
+
+	var prevSeq int64
+	for i, seq := range sortedSeqNums {
+		slot := collected[seq]
+		if i > 0 && seq != prevSeq+1 {
+			recordWarning(prevSeq, "Warning: missing executed slots between seq %d and seq %d\n", prevSeq, seq)
+			warningSeqs[seq] = struct{}{}
+		}
+
+		if slot.hasClientData {
+			fmt.Printf("SeqNum: %d, View: %d, Data ID: %d, Digest: %x, PrepareVotes: %d, CommitVotes: %d, PrepareSent: %t, CommitSent: %t, ExecutionPending: %t, Executed: %t, MissingData: %t\n",
+				slot.seq, slot.view, slot.dataID, slot.digest, slot.prepareVotes, slot.commitVotes, slot.prepareSent, slot.commitSent, slot.executionPending, slot.executed, slot.missingData)
+		} else {
+			fmt.Printf("SeqNum: %d, View: %d, Data ID: <unavailable>, Digest: %x, PrepareVotes: %d, CommitVotes: %d, PrepareSent: %t, CommitSent: %t, ExecutionPending: %t, Executed: %t, MissingData: %t\n",
+				slot.seq, slot.view, slot.digest, slot.prepareVotes, slot.commitVotes, slot.prepareSent, slot.commitSent, slot.executionPending, slot.executed, slot.missingData)
+		}
+		prevSeq = seq
+	}
+
+	warningSeqList := make([]int64, 0, len(warningSeqs))
+	for seq := range warningSeqs {
+		warningSeqList = append(warningSeqList, seq)
+	}
+	slices.Sort(warningSeqList)
+
+	fmt.Printf("Total warnings: %d, SeqNums: %v\n", warningCount, warningSeqList)
+	fmt.Printf("Total executed slots: %d\n", len(sortedSeqNums))
+}
+
 func (log *ConsensusLog) PrintDetails(view int64) {
 	for i := int64(1); i <= view; i++ {
 		fmt.Printf("-----------------------------------\n\n")

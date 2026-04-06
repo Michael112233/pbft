@@ -304,6 +304,25 @@ func CommitTpsFromPB(msg *CommitTps) (core.CommitTps, error) {
 	}, nil
 }
 
+func LeaderIdUpdateToPB(msg core.LeaderIdUpdate) *LeaderIdUpdate {
+	return &LeaderIdUpdate{
+		To:          msg.To,
+		From:        msg.From,
+		NewLeaderId: int32(msg.NewLeaderId),
+	}
+}
+
+func LeaderIdUpdateFromPB(msg *LeaderIdUpdate) (core.LeaderIdUpdate, error) {
+	if msg == nil {
+		return core.LeaderIdUpdate{}, nil
+	}
+	return core.LeaderIdUpdate{
+		To:          msg.To,
+		From:        msg.From,
+		NewLeaderId: int(msg.NewLeaderId),
+	}, nil
+}
+
 func CloseToPB(msg core.CloseMessage) *CloseMessage {
 	return &CloseMessage{
 		Timestamp: msg.Timestamp,

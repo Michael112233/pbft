@@ -161,6 +161,12 @@ message CommitTps {
   ClientMsg client_msg = 3;
 }
 
+message LeaderIdUpdate {
+  string to = 1;
+  string from = 2;
+  int32 new_leader_id = 3;
+}
+
 message CloseMessage {
   int64 timestamp = 1;
   string from = 2;
@@ -184,6 +190,7 @@ message Envelope {
     NewViewMsg new_view = 18;
     CheckpointMsg checkpoint = 19;
     CommitTps commit_tps = 20;
+    LeaderIdUpdate leader_id_update = 21;
   }
 }
 

@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	cfgPath = "config/run.json"
+	cfgPath = "config/run2.json"
 )
 
 type Args struct {

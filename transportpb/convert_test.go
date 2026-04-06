@@ -52,3 +52,27 @@ func TestCommitTpsRoundTrip(t *testing.T) {
 		t.Fatalf("ClientMsg.Txn.Amount mismatch: got %s want %s", out.ClientMsg.Txn.Amount.String(), in.ClientMsg.Txn.Amount.String())
 	}
 }
+
+func TestLeaderIdUpdateRoundTrip(t *testing.T) {
+	in := core.LeaderIdUpdate{
+		To:          "client-1",
+		From:        "node-3",
+		NewLeaderId: 4,
+	}
+
+	pb := LeaderIdUpdateToPB(in)
+	out, err := LeaderIdUpdateFromPB(pb)
+	if err != nil {
+		t.Fatalf("LeaderIdUpdateFromPB returned error: %v", err)
+	}
+
+	if out.To != in.To {
+		t.Fatalf("To mismatch: got %q want %q", out.To, in.To)
+	}
+	if out.From != in.From {
+		t.Fatalf("From mismatch: got %q want %q", out.From, in.From)
+	}
+	if out.NewLeaderId != in.NewLeaderId {
+		t.Fatalf("NewLeaderId mismatch: got %d want %d", out.NewLeaderId, in.NewLeaderId)
+	}
+}

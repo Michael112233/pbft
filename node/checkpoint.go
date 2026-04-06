@@ -22,7 +22,7 @@ func (n *Node) checkpointVC(seq int64, digest [32]byte) {
 		return
 	}
 	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
-
+	n.log.Test("Broadcasting checkpoint message for seq %d with digest %x", seq, digest)
 	for _, otherIP := range config.NodeAddr {
 		if otherIP == n.GetAddr() {
 			continue
@@ -35,6 +35,7 @@ func (n *Node) HandleCheckpoint(checkpointMsg core.CheckpointMsg) {
 	if checkpointMsg.SeqNum == 0 || checkpointMsg.SeqNum%CHECKPOINT_INTERVAL != 0 {
 		return
 	}
+	n.log.Test("Received checkpoint message from node %d for seq %d with digest %x", checkpointMsg.From, checkpointMsg.SeqNum, checkpointMsg.Digest)
 
 	n.executionMu.Lock()
 	localExecuted := checkpointMsg.SeqNum <= n.lastExecuted // in future replace by catching up with cp

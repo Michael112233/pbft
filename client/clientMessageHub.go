@@ -193,36 +193,53 @@ func (hub *ClientMessageHub) recvLoop(addr string, state *nodeStreamState) error
 			hub.log.Debug("stream check recv error. target=%s err=%v", addr, err)
 			return err
 		}
+		hub.handleIncomingEnvelope(addr, env)
+	}
+}
 
-		switch env.MsgType {
-		case core.MsgReplyMessage:
-			reply := env.GetReply()
-			if reply == nil {
-				hub.log.Error("stream reply missing body. target=%s", addr)
-				continue
-			}
-			data, err := transportpb.ReplyFromPB(reply)
-			if err != nil {
-				hub.log.Error("stream reply decode failed. target=%s err=%v", addr, err)
-				continue
-			}
-			go hub.client_ref.HandleReplyMessage(data)
-
-		case core.MsgCommitTpsMessage:
-			commitTps := env.GetCommitTps()
-			if commitTps == nil {
-				hub.log.Error("stream commitTps missing body. target=%s", addr)
-				continue
-			}
-			data, err := transportpb.CommitTpsFromPB(commitTps)
-			if err != nil {
-				hub.log.Error("stream commitTps decode failed. target=%s err=%v", addr, err)
-				continue
-			}
-			go hub.client_ref.HandleCommitTpsMessage(data)
-		default:
-			hub.log.Error("Unknown stream message type received: msgType=%s target=%s", env.MsgType, addr)
+func (hub *ClientMessageHub) handleIncomingEnvelope(addr string, env *transportpb.Envelope) {
+	switch env.MsgType {
+	case core.MsgReplyMessage:
+		reply := env.GetReply()
+		if reply == nil {
+			hub.log.Error("stream reply missing body. target=%s", addr)
+			return
 		}
+		data, err := transportpb.ReplyFromPB(reply)
+		if err != nil {
+			hub.log.Error("stream reply decode failed. target=%s err=%v", addr, err)
+			return
+		}
+		go hub.client_ref.HandleReplyMessage(data)
+
+	case core.MsgCommitTpsMessage:
+		commitTps := env.GetCommitTps()
+		if commitTps == nil {
+			hub.log.Error("stream commitTps missing body. target=%s", addr)
+			return
+		}
+		data, err := transportpb.CommitTpsFromPB(commitTps)
+		if err != nil {
+			hub.log.Error("stream commitTps decode failed. target=%s err=%v", addr, err)
+			return
+		}
+		go hub.client_ref.HandleCommitTpsMessage(data)
+
+	case core.MsgLeaderIdUpdateMessage:
+		leaderUpdate := env.GetLeaderIdUpdate()
+		if leaderUpdate == nil {
+			hub.log.Error("stream leaderIdUpdate missing body. target=%s", addr)
+			return
+		}
+		data, err := transportpb.LeaderIdUpdateFromPB(leaderUpdate)
+		if err != nil {
+			hub.log.Error("stream leaderIdUpdate decode failed. target=%s err=%v", addr, err)
+			return
+		}
+		go hub.client_ref.HandleLeaderUpdate(data)
+
+	default:
+		hub.log.Error("Unknown stream message type received: msgType=%s target=%s", env.MsgType, addr)
 	}
 }
 

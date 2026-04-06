@@ -81,6 +81,7 @@ func (tm *TimerManager) startNewViewTimer(n *Node) {
 		n.viewMu.Lock()
 		tm.log.Info("New-view timer expired for view %d; triggering dummy view-change", n.forView)
 		if !n.peakTpsTest {
+			tm.log.Info("Triggering dummy view-change due to new-view timer expiry")
 			n.handleViewChangeTimeoutDummy()
 		}
 		n.viewMu.Unlock()
@@ -182,8 +183,8 @@ func (tm *TimerManager) resetPBFTTimerLocked() {
 
 func (tm *TimerManager) nextPBFTTimeoutLocked() time.Duration {
 
-	if tm.node_ref.split {
-		tm.log.Info("Node is in split mode; using base PBFT timeout without jitter")
+	if tm.node_ref.split || tm.node_ref.vcType == core.VCTypeRoundRobin {
+		// tm.log.Info("Node is in split mode/ roundrobin; using base PBFT timeout without jitter")
 		return tm.pbftTimeout
 	}
 	if tm.pbftTimeoutJitterMax <= 0 {
@@ -220,27 +221,27 @@ func (tm *TimerManager) stopPBFTTimerLocked() {
 
 func (tm *TimerManager) handlePBFTTimerExpiry(n *Node) {
 	tm.log.Info("PBFT timer expired; checking pending requests")
-	shouldTriggerViewChange := false
 
 	tm.lock.Lock()
 	lenOfPending := n.pool.PendingRequests()
-	if lenOfPending > 0 {
-		n.viewMu.Lock()
-		defer n.viewMu.Unlock()
-		n.viewChangeRunning = true
-
-		tm.log.Info(" remaining request count: %d; triggering dummy view-change", lenOfPending)
-		shouldTriggerViewChange = true
-	} else {
+	if lenOfPending == 0 {
 		tm.log.Info("No pending requests at timer expiry; no dummy trigger needed")
 		tm.stopPBFTTimerLocked()
+		tm.lock.Unlock()
+		return
 	}
 	tm.pbftTimerInitiated = false
 	tm.lock.Unlock()
+	tm.log.Info("Pending requests found at timer expiry: %d; triggering dummy view-change", lenOfPending)
+	n.viewMu.Lock()
+	if !n.viewChangeRunning {
 
-	if shouldTriggerViewChange {
 		if !n.peakTpsTest {
+			n.log.Info("Triggering dummy view-change due to PBFT timer expiry")
 			n.handleViewChangeTimeoutDummy()
 		}
+	} else {
+		tm.log.Info("View change already running at timer expiry; not triggering another dummy view-change")
 	}
+	n.viewMu.Unlock()
 }

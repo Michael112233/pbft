@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	rpcTimeout      = 60 * time.Second
+	rpcTimeout      = 120 * time.Second
 	maxGRPCMsgBytes = 32 * 1024 * 1024
 )
 
@@ -509,6 +509,13 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}, signat
 		}
 		env.Body = &transportpb.Envelope_CommitTps{CommitTps: transportpb.CommitTpsToPB(commitTps)}
 
+	case core.MsgLeaderIdUpdateMessage:
+		leaderUpdate, ok := msg.(core.LeaderIdUpdate)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_LeaderIdUpdate{LeaderIdUpdate: transportpb.LeaderIdUpdateToPB(leaderUpdate)}
+
 	case core.MsgCloseMessage:
 		closeMsg, ok := msg.(core.CloseMessage)
 		if !ok {
@@ -524,7 +531,7 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}, signat
 }
 
 func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, signature []byte) {
-	if msgType == core.MsgReplyMessage || msgType == core.MsgCommitTpsMessage {
+	if msgType == core.MsgReplyMessage || msgType == core.MsgCommitTpsMessage || msgType == core.MsgLeaderIdUpdateMessage {
 		env, err := hub.buildEnvelope(msgType, msg, signature)
 		if err != nil {
 			hub.log.Error("build envelope failed. msgType=%s err=%v", msgType, err)

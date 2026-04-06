@@ -25,21 +25,24 @@ type Client struct {
 	messageHub         *ClientMessageHub
 	privateKey         ed25519.PrivateKey
 	TransactionManager *TransactionManager
+	leaderMu           sync.RWMutex
+	leaderAddr         string
 }
 
-func NewClient(addr string, name string, config *config.Config) *Client {
+func NewClient(addr string, name string, config *config.Config, leaderAddr string) *Client {
 	privKey, err := crypto.ReadEd25519PrivateKey("keys/client_priv.pem")
 	if err != nil {
 		panic("Error reading client private key: " + err.Error())
 	}
-
+	// leaderid := config.NodeAddr[1]
 	return &Client{
 		addr:        addr,
 		name:        name,
 		currentView: 0,
 		config:      config,
 
-		WaitGroup: sync.WaitGroup{},
+		WaitGroup:  sync.WaitGroup{},
+		leaderAddr: leaderAddr,
 
 		// leaderElection:     leader_election.NewLeaderElection(config),
 		log:                logger.NewLogger(0, "client"),

@@ -1540,6 +1540,66 @@ func (x *CommitTps) GetClientMsg() *ClientMsg {
 	return nil
 }
 
+type LeaderIdUpdate struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	To            string                 `protobuf:"bytes,1,opt,name=to,proto3" json:"to,omitempty"`
+	From          string                 `protobuf:"bytes,2,opt,name=from,proto3" json:"from,omitempty"`
+	NewLeaderId   int32                  `protobuf:"varint,3,opt,name=new_leader_id,json=newLeaderId,proto3" json:"new_leader_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LeaderIdUpdate) Reset() {
+	*x = LeaderIdUpdate{}
+	mi := &file_proto_pbft_transport_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LeaderIdUpdate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LeaderIdUpdate) ProtoMessage() {}
+
+func (x *LeaderIdUpdate) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_pbft_transport_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LeaderIdUpdate.ProtoReflect.Descriptor instead.
+func (*LeaderIdUpdate) Descriptor() ([]byte, []int) {
+	return file_proto_pbft_transport_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *LeaderIdUpdate) GetTo() string {
+	if x != nil {
+		return x.To
+	}
+	return ""
+}
+
+func (x *LeaderIdUpdate) GetFrom() string {
+	if x != nil {
+		return x.From
+	}
+	return ""
+}
+
+func (x *LeaderIdUpdate) GetNewLeaderId() int32 {
+	if x != nil {
+		return x.NewLeaderId
+	}
+	return 0
+}
+
 type CloseMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Timestamp     int64                  `protobuf:"varint,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
@@ -1551,7 +1611,7 @@ type CloseMessage struct {
 
 func (x *CloseMessage) Reset() {
 	*x = CloseMessage{}
-	mi := &file_proto_pbft_transport_proto_msgTypes[24]
+	mi := &file_proto_pbft_transport_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1563,7 +1623,7 @@ func (x *CloseMessage) String() string {
 func (*CloseMessage) ProtoMessage() {}
 
 func (x *CloseMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_pbft_transport_proto_msgTypes[24]
+	mi := &file_proto_pbft_transport_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1576,7 +1636,7 @@ func (x *CloseMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloseMessage.ProtoReflect.Descriptor instead.
 func (*CloseMessage) Descriptor() ([]byte, []int) {
-	return file_proto_pbft_transport_proto_rawDescGZIP(), []int{24}
+	return file_proto_pbft_transport_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *CloseMessage) GetTimestamp() int64 {
@@ -1618,6 +1678,7 @@ type Envelope struct {
 	//	*Envelope_NewView
 	//	*Envelope_Checkpoint
 	//	*Envelope_CommitTps
+	//	*Envelope_LeaderIdUpdate
 	Body          isEnvelope_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1625,7 +1686,7 @@ type Envelope struct {
 
 func (x *Envelope) Reset() {
 	*x = Envelope{}
-	mi := &file_proto_pbft_transport_proto_msgTypes[25]
+	mi := &file_proto_pbft_transport_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1637,7 +1698,7 @@ func (x *Envelope) String() string {
 func (*Envelope) ProtoMessage() {}
 
 func (x *Envelope) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_pbft_transport_proto_msgTypes[25]
+	mi := &file_proto_pbft_transport_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1650,7 +1711,7 @@ func (x *Envelope) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Envelope.ProtoReflect.Descriptor instead.
 func (*Envelope) Descriptor() ([]byte, []int) {
-	return file_proto_pbft_transport_proto_rawDescGZIP(), []int{25}
+	return file_proto_pbft_transport_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *Envelope) GetMsgType() string {
@@ -1780,6 +1841,15 @@ func (x *Envelope) GetCommitTps() *CommitTps {
 	return nil
 }
 
+func (x *Envelope) GetLeaderIdUpdate() *LeaderIdUpdate {
+	if x != nil {
+		if x, ok := x.Body.(*Envelope_LeaderIdUpdate); ok {
+			return x.LeaderIdUpdate
+		}
+	}
+	return nil
+}
+
 type isEnvelope_Body interface {
 	isEnvelope_Body()
 }
@@ -1828,6 +1898,10 @@ type Envelope_CommitTps struct {
 	CommitTps *CommitTps `protobuf:"bytes,20,opt,name=commit_tps,json=commitTps,proto3,oneof"`
 }
 
+type Envelope_LeaderIdUpdate struct {
+	LeaderIdUpdate *LeaderIdUpdate `protobuf:"bytes,21,opt,name=leader_id_update,json=leaderIdUpdate,proto3,oneof"`
+}
+
 func (*Envelope_Request) isEnvelope_Body() {}
 
 func (*Envelope_Preprepare) isEnvelope_Body() {}
@@ -1850,6 +1924,8 @@ func (*Envelope_Checkpoint) isEnvelope_Body() {}
 
 func (*Envelope_CommitTps) isEnvelope_Body() {}
 
+func (*Envelope_LeaderIdUpdate) isEnvelope_Body() {}
+
 type Ack struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
@@ -1860,7 +1936,7 @@ type Ack struct {
 
 func (x *Ack) Reset() {
 	*x = Ack{}
-	mi := &file_proto_pbft_transport_proto_msgTypes[26]
+	mi := &file_proto_pbft_transport_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1872,7 +1948,7 @@ func (x *Ack) String() string {
 func (*Ack) ProtoMessage() {}
 
 func (x *Ack) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_pbft_transport_proto_msgTypes[26]
+	mi := &file_proto_pbft_transport_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1885,7 +1961,7 @@ func (x *Ack) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Ack.ProtoReflect.Descriptor instead.
 func (*Ack) Descriptor() ([]byte, []int) {
-	return file_proto_pbft_transport_proto_rawDescGZIP(), []int{26}
+	return file_proto_pbft_transport_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *Ack) GetOk() bool {
@@ -2027,11 +2103,15 @@ const file_proto_pbft_transport_proto_rawDesc = "" +
 	"\x02to\x18\x01 \x01(\tR\x02to\x12\x12\n" +
 	"\x04from\x18\x02 \x01(\tR\x04from\x12;\n" +
 	"\n" +
-	"client_msg\x18\x03 \x01(\v2\x1c.pbft.transport.v1.ClientMsgR\tclientMsg\"P\n" +
+	"client_msg\x18\x03 \x01(\v2\x1c.pbft.transport.v1.ClientMsgR\tclientMsg\"X\n" +
+	"\x0eLeaderIdUpdate\x12\x0e\n" +
+	"\x02to\x18\x01 \x01(\tR\x02to\x12\x12\n" +
+	"\x04from\x18\x02 \x01(\tR\x04from\x12\"\n" +
+	"\rnew_leader_id\x18\x03 \x01(\x05R\vnewLeaderId\"P\n" +
 	"\fCloseMessage\x12\x1c\n" +
 	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\x12\x12\n" +
 	"\x04from\x18\x02 \x01(\tR\x04from\x12\x0e\n" +
-	"\x02to\x18\x03 \x01(\tR\x02to\"\x8d\x06\n" +
+	"\x02to\x18\x03 \x01(\tR\x02to\"\xdc\x06\n" +
 	"\bEnvelope\x12\x19\n" +
 	"\bmsg_type\x18\x01 \x01(\tR\amsgType\x12\x12\n" +
 	"\x04from\x18\x02 \x01(\x05R\x04from\x12\x1c\n" +
@@ -2054,7 +2134,8 @@ const file_proto_pbft_transport_proto_rawDesc = "" +
 	"checkpoint\x18\x13 \x01(\v2 .pbft.transport.v1.CheckpointMsgH\x00R\n" +
 	"checkpoint\x12=\n" +
 	"\n" +
-	"commit_tps\x18\x14 \x01(\v2\x1c.pbft.transport.v1.CommitTpsH\x00R\tcommitTpsB\x06\n" +
+	"commit_tps\x18\x14 \x01(\v2\x1c.pbft.transport.v1.CommitTpsH\x00R\tcommitTps\x12M\n" +
+	"\x10leader_id_update\x18\x15 \x01(\v2!.pbft.transport.v1.LeaderIdUpdateH\x00R\x0eleaderIdUpdateB\x06\n" +
 	"\x04body\"+\n" +
 	"\x03Ack\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x14\n" +
@@ -2076,7 +2157,7 @@ func file_proto_pbft_transport_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_pbft_transport_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_pbft_transport_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
+var file_proto_pbft_transport_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
 var file_proto_pbft_transport_proto_goTypes = []any{
 	(ViewChangeMsg_VCType)(0),     // 0: pbft.transport.v1.ViewChangeMsg.VCType
 	(*Transaction)(nil),           // 1: pbft.transport.v1.Transaction
@@ -2103,11 +2184,12 @@ var file_proto_pbft_transport_proto_goTypes = []any{
 	(*NewViewMsgSig)(nil),         // 22: pbft.transport.v1.NewViewMsgSig
 	(*ReplyMessage)(nil),          // 23: pbft.transport.v1.ReplyMessage
 	(*CommitTps)(nil),             // 24: pbft.transport.v1.CommitTps
-	(*CloseMessage)(nil),          // 25: pbft.transport.v1.CloseMessage
-	(*Envelope)(nil),              // 26: pbft.transport.v1.Envelope
-	(*Ack)(nil),                   // 27: pbft.transport.v1.Ack
-	nil,                           // 28: pbft.transport.v1.PreparedCert.PrepareLogEntry
-	nil,                           // 29: pbft.transport.v1.ViewChangeMsg.PreparedCertsEntry
+	(*LeaderIdUpdate)(nil),        // 25: pbft.transport.v1.LeaderIdUpdate
+	(*CloseMessage)(nil),          // 26: pbft.transport.v1.CloseMessage
+	(*Envelope)(nil),              // 27: pbft.transport.v1.Envelope
+	(*Ack)(nil),                   // 28: pbft.transport.v1.Ack
+	nil,                           // 29: pbft.transport.v1.PreparedCert.PrepareLogEntry
+	nil,                           // 30: pbft.transport.v1.ViewChangeMsg.PreparedCertsEntry
 }
 var file_proto_pbft_transport_proto_depIdxs = []int32{
 	1,  // 0: pbft.transport.v1.ClientMsg.txn:type_name -> pbft.transport.v1.Transaction
@@ -2118,8 +2200,8 @@ var file_proto_pbft_transport_proto_depIdxs = []int32{
 	7,  // 5: pbft.transport.v1.PrepareMsgSig.prepare_msg:type_name -> pbft.transport.v1.PrepareMsg
 	9,  // 6: pbft.transport.v1.CheckpointMsgSig.checkpoint_msg:type_name -> pbft.transport.v1.CheckpointMsg
 	11, // 7: pbft.transport.v1.PreparedCert.preprepare_msg:type_name -> pbft.transport.v1.PreprepareMsgSig
-	28, // 8: pbft.transport.v1.PreparedCert.prepare_log:type_name -> pbft.transport.v1.PreparedCert.PrepareLogEntry
-	29, // 9: pbft.transport.v1.ViewChangeMsg.prepared_certs:type_name -> pbft.transport.v1.ViewChangeMsg.PreparedCertsEntry
+	29, // 8: pbft.transport.v1.PreparedCert.prepare_log:type_name -> pbft.transport.v1.PreparedCert.PrepareLogEntry
+	30, // 9: pbft.transport.v1.ViewChangeMsg.prepared_certs:type_name -> pbft.transport.v1.ViewChangeMsg.PreparedCertsEntry
 	0,  // 10: pbft.transport.v1.ViewChangeMsg.vc_type:type_name -> pbft.transport.v1.ViewChangeMsg.VCType
 	15, // 11: pbft.transport.v1.ViewChangeMsg.election:type_name -> pbft.transport.v1.ElectionVCData
 	16, // 12: pbft.transport.v1.ViewChangeMsg.round_robin:type_name -> pbft.transport.v1.RoundRobinVCData
@@ -2135,23 +2217,24 @@ var file_proto_pbft_transport_proto_depIdxs = []int32{
 	7,  // 22: pbft.transport.v1.Envelope.prepare:type_name -> pbft.transport.v1.PrepareMsg
 	8,  // 23: pbft.transport.v1.Envelope.commit:type_name -> pbft.transport.v1.CommitMsg
 	23, // 24: pbft.transport.v1.Envelope.reply:type_name -> pbft.transport.v1.ReplyMessage
-	25, // 25: pbft.transport.v1.Envelope.close:type_name -> pbft.transport.v1.CloseMessage
+	26, // 25: pbft.transport.v1.Envelope.close:type_name -> pbft.transport.v1.CloseMessage
 	17, // 26: pbft.transport.v1.Envelope.view_change:type_name -> pbft.transport.v1.ViewChangeMsg
 	19, // 27: pbft.transport.v1.Envelope.grant_vote:type_name -> pbft.transport.v1.GrantVoteMsg
 	21, // 28: pbft.transport.v1.Envelope.new_view:type_name -> pbft.transport.v1.NewViewMsg
 	9,  // 29: pbft.transport.v1.Envelope.checkpoint:type_name -> pbft.transport.v1.CheckpointMsg
 	24, // 30: pbft.transport.v1.Envelope.commit_tps:type_name -> pbft.transport.v1.CommitTps
-	12, // 31: pbft.transport.v1.PreparedCert.PrepareLogEntry.value:type_name -> pbft.transport.v1.PrepareMsgSig
-	14, // 32: pbft.transport.v1.ViewChangeMsg.PreparedCertsEntry.value:type_name -> pbft.transport.v1.PreparedCert
-	26, // 33: pbft.transport.v1.PBFTTransport.Deliver:input_type -> pbft.transport.v1.Envelope
-	26, // 34: pbft.transport.v1.PBFTTransport.ClientNodeChannel:input_type -> pbft.transport.v1.Envelope
-	27, // 35: pbft.transport.v1.PBFTTransport.Deliver:output_type -> pbft.transport.v1.Ack
-	26, // 36: pbft.transport.v1.PBFTTransport.ClientNodeChannel:output_type -> pbft.transport.v1.Envelope
-	35, // [35:37] is the sub-list for method output_type
-	33, // [33:35] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	25, // 31: pbft.transport.v1.Envelope.leader_id_update:type_name -> pbft.transport.v1.LeaderIdUpdate
+	12, // 32: pbft.transport.v1.PreparedCert.PrepareLogEntry.value:type_name -> pbft.transport.v1.PrepareMsgSig
+	14, // 33: pbft.transport.v1.ViewChangeMsg.PreparedCertsEntry.value:type_name -> pbft.transport.v1.PreparedCert
+	27, // 34: pbft.transport.v1.PBFTTransport.Deliver:input_type -> pbft.transport.v1.Envelope
+	27, // 35: pbft.transport.v1.PBFTTransport.ClientNodeChannel:input_type -> pbft.transport.v1.Envelope
+	28, // 36: pbft.transport.v1.PBFTTransport.Deliver:output_type -> pbft.transport.v1.Ack
+	27, // 37: pbft.transport.v1.PBFTTransport.ClientNodeChannel:output_type -> pbft.transport.v1.Envelope
+	36, // [36:38] is the sub-list for method output_type
+	34, // [34:36] is the sub-list for method input_type
+	34, // [34:34] is the sub-list for extension type_name
+	34, // [34:34] is the sub-list for extension extendee
+	0,  // [0:34] is the sub-list for field type_name
 }
 
 func init() { file_proto_pbft_transport_proto_init() }
@@ -2163,7 +2246,7 @@ func file_proto_pbft_transport_proto_init() {
 		(*ViewChangeMsg_Election)(nil),
 		(*ViewChangeMsg_RoundRobin)(nil),
 	}
-	file_proto_pbft_transport_proto_msgTypes[25].OneofWrappers = []any{
+	file_proto_pbft_transport_proto_msgTypes[26].OneofWrappers = []any{
 		(*Envelope_Request)(nil),
 		(*Envelope_Preprepare)(nil),
 		(*Envelope_Prepare)(nil),
@@ -2175,6 +2258,7 @@ func file_proto_pbft_transport_proto_init() {
 		(*Envelope_NewView)(nil),
 		(*Envelope_Checkpoint)(nil),
 		(*Envelope_CommitTps)(nil),
+		(*Envelope_LeaderIdUpdate)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -2182,7 +2266,7 @@ func file_proto_pbft_transport_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_pbft_transport_proto_rawDesc), len(file_proto_pbft_transport_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   29,
+			NumMessages:   30,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

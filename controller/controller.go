@@ -9,7 +9,7 @@ import (
 
 	"github.com/michael112233/pbft/client"
 	"github.com/michael112233/pbft/config"
-	"github.com/michael112233/pbft/data"
+
 	"github.com/michael112233/pbft/logger"
 	"github.com/michael112233/pbft/node"
 )
@@ -18,15 +18,11 @@ var log = logger.NewLogger(0, "controller")
 
 func runNode(nodeID int64, cfg *config.Config) {
 	Node := node.NewNode(int(nodeID), cfg)
+	Node.PrintDetails()
 
 	defer Node.Stop()
 
 	Node.Start()
-
-	if nodeID == 2 || nodeID == 3 {
-		fmt.Println("Node split activated")
-		Node.Split()
-	}
 
 	// time.Sleep(time.Duration(cfg.RunTime+20) * time.Second)
 	scanner := bufio.NewScanner(os.Stdin)
@@ -53,7 +49,7 @@ func runNode(nodeID int64, cfg *config.Config) {
 		} else if input[0] == 'd' {
 			Node.Dead()
 		} else if input[0] == 'e' {
-			Node.Split()
+			Node.PrintExecutedSlots()
 		}
 
 	}
@@ -67,9 +63,10 @@ func runClient(cfg *config.Config) {
 	// }()
 
 	// core.NewBlockchain(cfg)
-	client := client.NewClient(config.ClientAddr, "client", cfg)
-	txs := data.ReadData(cfg.MaxTxNum)
-	client.AddTxs(txs)
+	leaderAddr := config.NodeAddr[1]
+	client := client.NewClient(config.ClientAddr, "client", cfg, leaderAddr)
+	// txs := data.ReadData(cfg.MaxTxNum)
+	// client.AddTxs(txs)
 	client.Start()
 
 	// time.Sleep(time.Duration(cfg.RunTime+20) * time.Second)

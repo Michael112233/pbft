@@ -204,7 +204,7 @@ func (tm *TransactionManager) CommitTps(reply core.CommitTps) {
 	// Per-txn lock for longer operations - doesn't block other txns in shard
 	txn.mu.Lock()
 	defer txn.mu.Unlock()
-	if txn.done || txn.committed {
+	if txn.committed {
 		return
 	}
 

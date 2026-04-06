@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+
+	"github.com/michael112233/pbft/core"
 )
 
 type Config struct {
@@ -11,10 +13,12 @@ type Config struct {
 	InjectSpeed  int64 `json:"inject_speed"`
 	MaxBlockSize int64 `json:"max_block_size"`
 
-	NodeNum     int64        `json:"node_num"`
-	NodesDead   map[int]bool `json:"nodes_alive"`
-	Periodic    bool         `json:"periodic"`
-	PeakTpsTest bool         `json:"peak_tps_test"`
+	NodeNum        int64        `json:"node_num"`
+	NodesDead      map[int]bool `json:"nodes_dead"`
+	Periodic       bool         `json:"periodic"`
+	PeakTpsTest    bool         `json:"peak_tps_test"`
+	LeaderType     string       `json:"leader_type"`
+	LeaderTypeEnum core.VCType
 }
 
 func ReadCfg(filename string) *Config {
@@ -29,6 +33,14 @@ func ReadCfg(filename string) *Config {
 	err = json.Unmarshal(jsonData, config)
 	if err != nil {
 		fmt.Printf("error unmarshaling json: %v\n", err)
+		os.Exit(1)
+	}
+	if config.LeaderType == "roundrobin" {
+		config.LeaderTypeEnum = core.VCTypeRoundRobin
+	} else if config.LeaderType == "election" {
+		config.LeaderTypeEnum = core.VCTypeElection
+	} else {
+		fmt.Printf("Invalid leader type in config: %s\n", config.LeaderType)
 		os.Exit(1)
 	}
 

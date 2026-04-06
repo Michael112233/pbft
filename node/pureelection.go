@@ -132,12 +132,14 @@ func (n *Node) HandleViewChangeElection(viewChange core.ViewChangeMsg, signature
 
 	} else if n.forView < viewChange.ViewNumber {
 		n.log.Info("Received view change for view %d which is higher than my for view %d, ", viewChange.ViewNumber, n.forView)
-	} else {
 		if viewChange.ViewNumber == n.forView+1 && len(n.viewChangeMsgsLog[viewChange.ViewNumber]) >= n.fNodes+1 {
 			n.pbftTimerManager.forceStopPBFTTimer()
 			n.pbftTimerManager.stopNewViewTimer()
+			n.log.Info(" Election Triggering dummy view-change due to receiving higher view change message for view %d", viewChange.ViewNumber)
 			n.handleViewChangeTimeoutDummy()
 		}
+	} else {
+
 		n.log.Info("Received view change for view %d which is lower than my for view %d, just adding to log", viewChange.ViewNumber, n.forView)
 	}
 

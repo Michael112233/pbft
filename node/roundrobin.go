@@ -79,8 +79,9 @@ func (n *Node) roundRobinVCTimeout() {
 		// timer start
 		n.log.Info("Starting new view timer from timeout dummy %d", n.forView)
 		n.pbftTimerManager.startNewViewTimer(n)
-		if n.forView%int64(3*n.fNodes+1) == int64(n.GetNodeID()) {
-			n.log.Info("I am the new leader for view %d in round robin vc, starting new view immediately", n.forView)
+		expectedLeader := n.primaryForView(n.forView)
+		if expectedLeader == n.GetNodeID() {
+			n.log.Info("I am the new leader for view %d in round robin vc, starting new view immediately (leader=%d)", n.forView, expectedLeader)
 			n.newView()
 		}
 	}
@@ -93,6 +94,7 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 	if viewChange.ViewNumber <= n.view {
 		return
 	}
+	n.log.Info("verifying vc in round robin vc handler")
 	verifiedVC := n.verifyVC(viewChange)
 	if !verifiedVC {
 		return
@@ -108,10 +110,12 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 	if n.forView == viewChange.ViewNumber {
 		if len(n.viewChangeMsgsLog[viewChange.ViewNumber]) == 2*n.fNodes+1 {
 
-			// 	n.log.Info("Starting new view timer for view CHANGE %d", viewChange.ViewNumber)
+			n.log.Info("Starting new view timer for view CHANGE %d", viewChange.ViewNumber)
 			n.pbftTimerManager.startNewViewTimer(n)
 		}
-		if n.forView%int64(3*n.fNodes+1) == int64(n.GetNodeID()) {
+		expectedLeader := n.primaryForView(n.forView)
+		if len(n.viewChangeMsgsLog[viewChange.ViewNumber]) == 2*n.fNodes+1 && expectedLeader == n.GetNodeID() {
+			n.log.Info("Node %d is the round robin leader for view %d; starting new view immediately", expectedLeader, n.forView)
 
 			n.newView()
 
@@ -129,12 +133,14 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 
 	} else if n.forView < viewChange.ViewNumber {
 		n.log.Info("Received view change for view %d which is higher than my for view %d, ", viewChange.ViewNumber, n.forView)
-	} else {
 		if viewChange.ViewNumber == n.forView+1 && len(n.viewChangeMsgsLog[viewChange.ViewNumber]) >= n.fNodes+1 {
 			n.pbftTimerManager.forceStopPBFTTimer()
 			n.pbftTimerManager.stopNewViewTimer()
+			n.log.Info(" Round Robin Triggering dummy view-change due to receiving higher view change message for view %d", viewChange.ViewNumber)
 			n.handleViewChangeTimeoutDummy()
 		}
+	} else {
+
 		n.log.Info("Received view change for view %d which is lower than my for view %d, just adding to log", viewChange.ViewNumber, n.forView)
 	}
 

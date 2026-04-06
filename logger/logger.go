@@ -16,18 +16,25 @@ type Logger struct {
 	timestampFormat string
 }
 
+const (
+	LOGOFF = false
+)
+
 // Init 初始化日志系统，为每个节点创建日志文件
 func NewLogger(nodeID int, role string) *Logger {
 	// 创建logs目录
 	os.MkdirAll("logs", 0755)
 	logFile := ""
+	testLogFile := ""
 
 	// 生成日志文件名
 	switch role {
 	case "node":
 		logFile = fmt.Sprintf("logs/node_%d.log", nodeID)
+		testLogFile = fmt.Sprintf("logs/node_%d_test.log", nodeID)
 	case "client":
 		logFile = "logs/client.log"
+		testLogFile = "logs/client_test.log"
 	case "blockchain":
 		logFile = "logs/blockchain.log"
 	case "result":
@@ -41,6 +48,14 @@ func NewLogger(nodeID int, role string) *Logger {
 	if err != nil {
 		log.Fatal("Failed to open log file:", err)
 	}
+	testFile := &os.File{}
+
+	if role == "client" || role == "node" {
+		testFile, err = os.OpenFile(testLogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		if err != nil {
+			log.Fatal("Failed to open test log file:", err)
+		}
+	}
 
 	// 创建自定义时间戳格式，包含微秒精度
 	timestampFormat := "2006-01-02 15:04:05.000000"
@@ -50,7 +65,7 @@ func NewLogger(nodeID int, role string) *Logger {
 		debugLogger: log.New(file, "[DEBUG] ", 0),
 		warnLogger:  log.New(file, "[WARN] ", 0),
 		errorLogger: log.New(file, "[ERROR] ", 0),
-		testLogger:  log.New(file, "[TEST] ", 0),
+		testLogger:  log.New(testFile, "[TEST] ", 0),
 	}
 
 	// 设置自定义时间戳格式
@@ -104,6 +119,9 @@ func (l *Logger) Error(format string, args ...interface{}) {
 
 // Test 记录测试日志
 func (l *Logger) Test(format string, args ...interface{}) {
+	if LOGOFF {
+		return
+	}
 	if l.testLogger != nil {
 		message := l.formatLogMessage("[TEST]", format, args...)
 		l.testLogger.Print(message)

@@ -57,23 +57,23 @@ osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && 
 # Start Node 3
 osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 4\""
 
-# Start Node 4
-osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 5\""
+# # Start Node 4
+# osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 5\""
 
-# Start Node 5
-osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 6\""
+# # Start Node 5
+# osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 6\""
 
-# Start Node 6
-osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 7\""
+# # Start Node 6
+# osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 7\""
 
-# Start Node 7
-osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 8\""
+# # Start Node 7
+# osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 8\""
 
-# Start Node 8
-osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 9\""
+# # Start Node 8
+# osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 9\""
 
-# Start Node 9
-osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 10\""
+# # Start Node 9
+# osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 10\""
 
 # Sleep for 5 seconds
 sleep 5

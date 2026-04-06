@@ -182,6 +182,10 @@ func (n *Node) PrintSlot(seqNum int64) {
 	n.consensusLog.PrintSlot([]int64{seqNum}, n.view)
 }
 
+func (n *Node) PrintExecutedSlots() {
+
+	n.consensusLog.PrintExecutedSlots(n.view)
+}
 func vcTypeString(vcType core.VCType) string {
 	switch vcType {
 	case core.VCTypeElection:

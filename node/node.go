@@ -20,7 +20,7 @@ import (
 const (
 	defaultPBFTRequestTimeout          = 5 * time.Second
 	defaultPBFTRequestTimeoutJitterMax = 500 * time.Millisecond
-	CHECKPOINT_INTERVAL                = 128
+	CHECKPOINT_INTERVAL                = 128 * 4
 )
 
 type clientRequestKey struct {
@@ -98,7 +98,7 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		preprepareSeqNumber:      atomic.Int64{},
 		view:                     1,
 		forView:                  1,
-		vcType:                   core.VCTypeRoundRobin,
+		vcType:                   cfg.LeaderTypeEnum,
 		leaderId:                 1,
 		consensusLog:             NewConsensusLog(),
 		viewChangeRunning:        false,
@@ -346,6 +346,7 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 
 	n.pool.Add(digestClientMsg, batch)
 	n.pbftTimerManager.trackPreprepareRequest()
+	n.log.Test("PrePrepare sent for view %d seq %d with batch size %d", view, seqNum, 1)
 	go func() {
 		for _, othersIp := range config.NodeAddr {
 			if othersIp == n.GetAddr() {
@@ -364,8 +365,10 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 
 	if n.viewChangeRunning {
 		// n.viewMu.RUnlock()
+		n.log.Test("Received PrePrepare for view %d seq %d but currently in view change, ignoring", preprepareMsg.View, preprepareMsg.SeqNum)
 		return
 	}
+	n.log.Test("Received PrePrepare for view %d seq %d", preprepareMsg.View, preprepareMsg.SeqNum)
 	view := n.view
 	// n.viewMu.RUnlock()
 
@@ -519,11 +522,20 @@ func (n *Node) HandlePrePrepareNewView(preprepareMsg core.PreprepareMsgMini, sig
 	// 		return false
 	// 	}
 	// } // should always run
+	if slot.prePrepare == nil {
+		slot.prePrepare = &core.PreprepareMsg{
+			View:            preprepareMsg.View,
+			SeqNum:          preprepareMsg.SeqNum,
+			DigestClientMsg: preprepareMsg.DigestClientMsg,
+		}
 
-	slot.prePrepare.SeqNum = preprepareMsg.SeqNum
-	slot.prePrepare.View = preprepareMsg.View
+	} else {
+		n.log.Error("Should be nil")
+	}
+	// slot.prePrepare.SeqNum = preprepareMsg.SeqNum
+	// slot.prePrepare.View = preprepareMsg.View
 	slot.prePrepareSig = signature
-	slot.prePrepare.DigestClientMsg = preprepareMsg.DigestClientMsg
+	// slot.prePrepare.DigestClientMsg = preprepareMsg.DigestClientMsg
 	if preprepareMsg.DigestClientMsg != [32]byte{} {
 		clientMsg, exists, executed := n.pool.Get(preprepareMsg.DigestClientMsg)
 		if exists {
@@ -561,11 +573,12 @@ func (n *Node) HandlePrePrepareNewView(preprepareMsg core.PreprepareMsgMini, sig
 		slot.prepareSent = true
 
 		slot.prepares[n.GetNodeID()] = &msgForLog
-		slot.mu.Unlock()
+
 		n.log.Info("Sending broadcast prepare from newview")
 		go n.broadcastPrepare(msg, signature)
 
 	}
+	slot.mu.Unlock()
 	// if accepted {
 	// 	n.pool.Add(clientMsg)
 	// 	// n.pbftTimerManager.trackPreprepareRequest()
@@ -579,8 +592,10 @@ func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 	defer n.viewMu.RUnlock()
 	if n.viewChangeRunning {
 		// n.viewMu.RUnlock()
+		n.log.Test("Received Prepare for view %d seq %d but currently in view change, ignoring", prepareMsg.View, prepareMsg.SeqNum)
 		return
 	}
+	n.log.Test("Received Prepare for view %d seq %d", prepareMsg.View, prepareMsg.SeqNum)
 	view := n.view
 	// n.viewMu.RUnlock()
 
@@ -629,8 +644,10 @@ func (n *Node) HandleCommit(commitMsg core.CommitMsg) {
 	defer n.viewMu.RUnlock()
 	if n.viewChangeRunning {
 		// n.viewMu.RUnlock()
+		n.log.Test("Received Commit for view %d seq %d but currently in view change, ignoring", commitMsg.View, commitMsg.SeqNum)
 		return
 	}
+	n.log.Test("Received Commit for view %d seq %d", commitMsg.View, commitMsg.SeqNum)
 	view := n.view
 	// n.viewMu.RUnlock()
 
@@ -670,27 +687,31 @@ func (n *Node) HandleCommit(commitMsg core.CommitMsg) {
 
 func (n *Node) tryAdvancePrepare(slot *consensusSlot, view, seq int64, digest [32]byte) {
 	slot.mu.Lock()
-	defer slot.mu.Unlock()
 
 	if slot.commitSent {
+		slot.mu.Unlock()
 		return // already advanced past prepare
 	}
 	if slot.prePrepare == nil {
+		slot.mu.Unlock()
 		return // can't be prepared without PrePrepare
 	}
 	// Need 2f prepares matching our accepted digest.
 	// Leader's PrePrepare is its implicit prepare-phase vote.
 	if len(slot.prepares) < 2*n.fNodes || matchingVotes(slot.prepares, slot.prePrepare.DigestClientMsg) < 2*n.fNodes {
+		slot.mu.Unlock()
 		return
 	}
 
 	slot.commitSent = true
+	commitDigest := slot.prePrepare.DigestClientMsg
 	// Add own commit vote with digest before releasing lock
-	slot.commits[n.GetNodeID()] = slot.prePrepare.DigestClientMsg
+	slot.commits[n.GetNodeID()] = commitDigest
+	slot.mu.Unlock()
 
 	// Broadcast Commit (release lock first to avoid holding during I/O)
 	go func() {
-		n.broadcastCommit(view, seq, slot.prePrepare.DigestClientMsg)
+		n.broadcastCommit(view, seq, commitDigest)
 		// Commits may already be buffered from peers before we flip commitSent.
 		// Re-check execute to avoid leaving executable slots stuck.
 
@@ -738,6 +759,7 @@ func (n *Node) tryExecute(slot *consensusSlot, seq int64) {
 
 	// digest := slot.prePrepare.DigestClientMsg
 	slot.mu.Unlock()
+	// n.log.Info("reached here")
 	go n.sendCommitTps(executedMsg)
 
 	go n.queueCommittedExecution(seq, slot, executedMsg, noOp, missingData)
@@ -764,6 +786,15 @@ func (n *Node) sendCommitTps(clientMsg core.ClientMsg) {
 		ClientMsg: clientMsg,
 	}
 	n.messageHub.Send(core.MsgCommitTpsMessage, config.ClientAddr, commitTpsMsg, nil)
+}
+
+func (n *Node) sendLeaderIdUpdate(newLeaderID int) {
+	leaderUpdateMsg := core.LeaderIdUpdate{
+		From:        n.GetAddr(),
+		To:          config.ClientAddr,
+		NewLeaderId: newLeaderID,
+	}
+	n.messageHub.Send(core.MsgLeaderIdUpdateMessage, config.ClientAddr, leaderUpdateMsg, nil)
 }
 
 func makeClientRequestKey(msg core.ClientMsg) clientRequestKey {
@@ -933,6 +964,7 @@ func (n *Node) duplicateCheckVC(vcMsgSigs []*core.ViewChangeMsgSig) bool {
 }
 
 func (n *Node) HandleViewChange(viewChange core.ViewChangeMsg, signature []byte) {
+	n.log.Test("Received ViewChange for view %d from node %d", viewChange.ViewNumber, viewChange.From)
 	if n.vcType == core.VCTypeElection {
 		n.HandleViewChangeElection(viewChange, signature)
 	} else if n.vcType == core.VCTypeRoundRobin {
@@ -1021,6 +1053,7 @@ func (n *Node) verifyNewView(newViewMsg core.NewViewMsg) bool {
 				n.log.Error("signature verification failed for view change message for view %d from node %d", newViewMsg.NewViewNumber, vcMsgSig.ViewChangeMsg.From)
 				continue
 			}
+			n.log.Info("verifying VC in new newview")
 			verifiedVC := n.verifyVC(vcMsgSig.ViewChangeMsg)
 			if verifiedVC {
 				seenFrom[vcMsgSig.ViewChangeMsg.From] = struct{}{}
@@ -1056,13 +1089,13 @@ func verifyOSet(Ocreated map[int64]core.PreprepareMsgSig, Oreceived []core.Prepr
 func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	n.viewMu.Lock()
 	defer n.viewMu.Unlock()
-	n.log.Info("Received new view message for view %d from leader %d and my current view is %d and my for view is %d", newViewMsg.NewViewNumber, newViewMsg.From, n.view, n.forView)
+	n.log.Test("Received new view message for view %d from leader %d and my current view is %d and my for view is %d", newViewMsg.NewViewNumber, newViewMsg.From, n.view, n.forView)
 
 	if newViewMsg.NewViewNumber < n.view {
 		return
 	}
 	if newViewMsg.NewViewNumber < n.forView {
-		n.log.Info("Received new view message for view %d which is less than my for view %d, ignoring", newViewMsg.NewViewNumber, n.forView)
+		n.log.Error("Received new view message for view %d which is less than my for view %d, ignoring", newViewMsg.NewViewNumber, n.forView)
 		// return
 	}
 	// n.pbftTimerManager.stopNewViewTimer()
@@ -1166,6 +1199,7 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView i
 func (n *Node) createOReplica(vcMsgSigs []*core.ViewChangeMsgSig, view int64) (map[int64]core.PreprepareMsgSig, int64) {
 
 	preprepareLog := make(map[int64]core.PreprepareMsgSig)
+	n.checkpointMu.Lock()
 	minS := n.lastStableCheckpoint.seq + 1
 	myStableCheckpoint := n.lastStableCheckpoint
 	for _, vcMsgSig := range vcMsgSigs {
@@ -1250,21 +1284,19 @@ func (n *Node) newView() {
 	for _, preprepareMsg := range O {
 		slot := n.consensusLog.getOrCreateLog(preprepareMsg.PreprepareMsgMini.SeqNum, preprepareMsg.PreprepareMsgMini.View)
 		slot.mu.Lock()
-		// if preprepareMsg.PreprepareMsgMini.View > slot.view {
-		// 	n.log.Info("at LeaderResetting slot for new view %d seq %d due to new view creation", preprepareMsg.PreprepareMsgMini.View, preprepareMsg.PreprepareMsgMini.SeqNum)
-		// 	disgestMismatch := slot.resetForNewView(preprepareMsg.PreprepareMsgMini.View, preprepareMsg.PreprepareMsgMini.DigestClientMsg)
-		// 	if disgestMismatch { // only possible in equivocation
-		// 		n.log.Error("at leader Digest mismatch when resetting slot for new view %d seq %d during new view creation", preprepareMsg.PreprepareMsgMini.View, preprepareMsg.PreprepareMsgMini.SeqNum)
-		// 		slot.mu.Unlock()
-		// 		continue
-		// 	}
-		// } else {
-		// 	n.log.Error("at leader This should not happen in new view at leader")
-		// }
-		slot.prePrepare.SeqNum = preprepareMsg.PreprepareMsgMini.SeqNum
-		slot.prePrepare.View = preprepareMsg.PreprepareMsgMini.View
+		if slot.prePrepare == nil {
+			slot.prePrepare = &core.PreprepareMsg{
+				View:            preprepareMsg.PreprepareMsgMini.View,
+				SeqNum:          preprepareMsg.PreprepareMsgMini.SeqNum,
+				DigestClientMsg: preprepareMsg.PreprepareMsgMini.DigestClientMsg,
+			}
+		} else {
+			n.log.Error("Should be nil primary")
+		}
+		// slot.prePrepare.SeqNum = preprepareMsg.PreprepareMsgMini.SeqNum
+		// slot.prePrepare.View = preprepareMsg.PreprepareMsgMini.View
 		slot.prePrepareSig = preprepareMsg.Signature
-		slot.prePrepare.DigestClientMsg = preprepareMsg.PreprepareMsgMini.DigestClientMsg
+		// slot.prePrepare.DigestClientMsg = preprepareMsg.PreprepareMsgMini.DigestClientMsg
 		clientMsg, exists, executed := n.pool.Get(preprepareMsg.PreprepareMsgMini.DigestClientMsg)
 		if exists {
 			slot.prePrepare.ClientMsg = clientMsg
@@ -1278,11 +1310,11 @@ func (n *Node) newView() {
 		slot.mu.Unlock()
 	}
 
-	if n.split {
-		n.log.Info("Node in split got votes")
-	} else {
-		n.log.Info("Node not in split got votes")
-	}
+	// if n.split {
+	// 	n.log.Info("Node in split got votes")
+	// } else {
+	// 	n.log.Info("Node not in split got votes")
+	// }
 
 	newViewMsg := core.NewViewMsg{
 		NewViewNumber: n.view,
@@ -1298,12 +1330,14 @@ func (n *Node) newView() {
 	}
 	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
 	// should strart pbft timer
+	go n.sendLeaderIdUpdate(n.leaderId)
 	go n.broadcastNewView(newViewMsg, signature)
 
 }
 
 func (n *Node) handleViewChangeTimeoutDummy() {
 	n.forView = n.forView + 1
+	n.viewChangeRunning = true
 	if n.vcType == core.VCTypeElection {
 		n.electionVCTimeout()
 	} else if n.vcType == core.VCTypeRoundRobin {

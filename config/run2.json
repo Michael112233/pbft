@@ -2,17 +2,14 @@
   "max_tx_num": 1000000,
   "inject_speed": 20000,
   "max_block_size": 1,
-  "node_num": 7,
+  "node_num": 4,
   "nodes_dead": {
     "1": false,
     "2": false,
-    "3": true,
-    "4": false,
-    "5": true,
-    "6": false,
-    "7": false
+    "3": false,
+    "4": false
   },
-  "periodic": false,
-  "peak_tps_test": false,
+  "periodic": true,
+  "peak_tps_test": true,
   "leader_type": "roundrobin"
 }
