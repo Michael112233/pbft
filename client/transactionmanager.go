@@ -1,7 +1,9 @@
 package client
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,6 +29,14 @@ type shard struct {
 	txns map[int64]*transactionDetails
 }
 
+type TPSPoint struct {
+	TimestampUnixNano int64   `json:"timestamp_unix_nano"`
+	ElapsedSec        float64 `json:"elapsed_sec"`
+	CommittedTotal    int64   `json:"committed_total"`
+	WindowTPS         float64 `json:"window_tps"`
+	AverageTPS        float64 `json:"average_tps"`
+}
+
 type TransactionManager struct {
 	shards      [numShards]shard
 	txnCommited atomic.Int64
@@ -39,6 +49,13 @@ type TransactionManager struct {
 	transactionTimerStopCh  chan struct{}
 	transactionTimerRunning atomic.Bool
 	retryx                  bool
+	tpsSeries               []TPSPoint
+	lastSampleTime          int64
+	lastSampleCommitted     int64
+	tpsSampleInterval       time.Duration
+	tpsSamplerStopCh        chan struct{}
+	tpsSamplerRunning       atomic.Bool
+	tpsSamplerStopOnce      sync.Once
 }
 
 func NewTransactionManager() *TransactionManager {
@@ -53,6 +70,9 @@ func NewTransactionManager() *TransactionManager {
 		transactionTimer:       transactionTimer,
 		transactionTimerStopCh: make(chan struct{}),
 		retryx:                 false,
+		tpsSeries:              make([]TPSPoint, 0),
+		tpsSampleInterval:      200 * time.Millisecond,
+		tpsSamplerStopCh:       make(chan struct{}),
 	}
 	for i := range tm.shards {
 		tm.shards[i].txns = make(map[int64]*transactionDetails)
@@ -134,10 +154,21 @@ func (tm *TransactionManager) StopTimer() {
 		}
 	}
 	close(tm.transactionTimerStopCh)
+	tm.stopTPSSampler()
 }
 
 func (tm *TransactionManager) Start() {
-	tm.startTime = time.Now().UnixNano()
+	start := time.Now().UnixNano()
+	tm.startTime = start
+	tm.tpsMu.Lock()
+	tm.lastSampleTime = start
+	tm.lastSampleCommitted = tm.txnCommited.Load()
+	tm.elapsedTime = 0
+	tm.averageTps = 0
+	tm.tpsMu.Unlock()
+	if tm.tpsSamplerRunning.CompareAndSwap(false, true) {
+		go tm.tpsSamplerWorker()
+	}
 }
 
 func (tm *TransactionManager) getShard(id int64) *shard {
@@ -145,6 +176,7 @@ func (tm *TransactionManager) getShard(id int64) *shard {
 }
 
 func (tm *TransactionManager) GetThroughput() (tps float64, elapsed float64, txnCommited int64) {
+	tm.captureTPSSample(time.Now())
 	tm.tpsMu.RLock()
 	defer tm.tpsMu.RUnlock()
 	return tm.averageTps, tm.elapsedTime, tm.txnCommited.Load()
@@ -211,15 +243,87 @@ func (tm *TransactionManager) CommitTps(reply core.CommitTps) {
 	txn.finishTimestamp = time.Now().UnixNano()
 	txn.latency = txn.finishTimestamp - txn.startTimestamp
 	txn.committed = true
-	txnsCommitted := tm.txnCommited.Add(1)
+	tm.txnCommited.Add(1)
 
-	// Set start time on first commit (CompareAndSwap ensures only first call succeeds)
+}
 
-	if txnsCommitted%100 == 0 {
-		tm.tpsMu.Lock()
-		tm.elapsedTime = float64(time.Now().UnixNano()-tm.startTime) / 1e9
-		tm.averageTps = float64(txnsCommitted) / tm.elapsedTime
-		tm.tpsMu.Unlock()
+func (tm *TransactionManager) tpsSamplerWorker() {
+	ticker := time.NewTicker(tm.tpsSampleInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case now := <-ticker.C:
+			tm.captureTPSSample(now)
+		case <-tm.tpsSamplerStopCh:
+			return
+		}
+	}
+}
+
+func (tm *TransactionManager) stopTPSSampler() {
+	tm.tpsSamplerRunning.Store(false)
+	tm.tpsSamplerStopOnce.Do(func() {
+		close(tm.tpsSamplerStopCh)
+	})
+}
+
+func (tm *TransactionManager) captureTPSSample(now time.Time) {
+	startTime := tm.startTime
+	if startTime == 0 {
+		return
 	}
 
+	tm.tpsMu.Lock()
+	defer tm.tpsMu.Unlock()
+
+	totalCommitted := tm.txnCommited.Load()
+	elapsedSec := float64(now.UnixNano()-startTime) / 1e9
+	if elapsedSec < 0 {
+		elapsedSec = 0
+	}
+
+	lastSampleTime := tm.lastSampleTime
+	if lastSampleTime == 0 {
+		lastSampleTime = startTime
+	}
+	deltaSec := float64(now.UnixNano()-lastSampleTime) / 1e9
+	deltaCommitted := totalCommitted - tm.lastSampleCommitted
+
+	windowTPS := 0.0
+	if deltaSec > 0 {
+		windowTPS = float64(deltaCommitted) / deltaSec
+	}
+
+	averageTPS := 0.0
+	if elapsedSec > 0 {
+		averageTPS = float64(totalCommitted) / elapsedSec
+	}
+
+	tm.elapsedTime = elapsedSec
+	tm.averageTps = averageTPS
+	tm.tpsSeries = append(tm.tpsSeries, TPSPoint{
+		TimestampUnixNano: now.UnixNano(),
+		ElapsedSec:        elapsedSec,
+		CommittedTotal:    totalCommitted,
+		WindowTPS:         windowTPS,
+		AverageTPS:        averageTPS,
+	})
+	tm.lastSampleTime = now.UnixNano()
+	tm.lastSampleCommitted = totalCommitted
+}
+
+func (tm *TransactionManager) ExportTPSSeries(path string) error {
+	tm.captureTPSSample(time.Now())
+
+	tm.tpsMu.RLock()
+	points := make([]TPSPoint, len(tm.tpsSeries))
+	copy(points, tm.tpsSeries)
+	tm.tpsMu.RUnlock()
+
+	data, err := json.MarshalIndent(points, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
 }

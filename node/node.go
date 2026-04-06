@@ -276,7 +276,7 @@ func (n *Node) broadcastPrepare(msg core.PrepareMsg, signature []byte) {
 		if othersIp == n.GetAddr() {
 			continue
 		}
-		go n.messageHub.Send(core.MsgPrepareMessage, othersIp, msg, signature)
+		n.messageHub.Send(core.MsgPrepareMessage, othersIp, msg, signature)
 	}
 }
 func (n *Node) broadcastViewChange(msg core.ViewChangeMsg, signature []byte) {
@@ -284,7 +284,7 @@ func (n *Node) broadcastViewChange(msg core.ViewChangeMsg, signature []byte) {
 		if othersIp == n.GetAddr() {
 			continue
 		}
-		go n.messageHub.Send(core.MsgViewChangeMessage, othersIp, msg, signature)
+		n.messageHub.Send(core.MsgViewChangeMessage, othersIp, msg, signature)
 	}
 }
 
@@ -321,7 +321,7 @@ func (n *Node) broadcastCommit(view, seq int64, digest [32]byte) {
 			continue
 		}
 		// msg.To = othersIp
-		go n.messageHub.Send(core.MsgCommitMessage, othersIp, msg, signature)
+		n.messageHub.Send(core.MsgCommitMessage, othersIp, msg, signature)
 	}
 }
 func (n *Node) preprepare(batch core.ClientMsgSignature) {
@@ -375,7 +375,7 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 				continue
 			}
 			// preprepareMsg.To = othersIp
-			go n.messageHub.Send(core.MsgPreprepareMessage, othersIp, preprepareMsg, signature) // cant do go in current state race
+			n.messageHub.Send(core.MsgPreprepareMessage, othersIp, preprepareMsg, signature) // cant do go in current state race
 		}
 	}()
 
@@ -839,7 +839,7 @@ func (n *Node) sendCommitTps(clientMsg core.ClientMsg) {
 		To:        config.ClientAddr,
 		ClientMsg: clientMsg,
 	}
-	go n.messageHub.Send(core.MsgCommitTpsMessage, config.ClientAddr, commitTpsMsg, nil)
+	n.messageHub.Send(core.MsgCommitTpsMessage, config.ClientAddr, commitTpsMsg, nil)
 }
 
 func (n *Node) sendLeaderIdUpdate(newLeaderID int) {
@@ -848,7 +848,7 @@ func (n *Node) sendLeaderIdUpdate(newLeaderID int) {
 		To:          config.ClientAddr,
 		NewLeaderId: newLeaderID,
 	}
-	go n.messageHub.Send(core.MsgLeaderIdUpdateMessage, config.ClientAddr, leaderUpdateMsg, nil)
+	n.messageHub.Send(core.MsgLeaderIdUpdateMessage, config.ClientAddr, leaderUpdateMsg, nil)
 }
 
 func makeClientRequestKey(msg core.ClientMsg) clientRequestKey {
@@ -1393,7 +1393,7 @@ func (n *Node) broadcastNewView(newViewMsg core.NewViewMsg, signature []byte) {
 		if othersIp == n.GetAddr() {
 			continue
 		}
-		go n.messageHub.Send(core.MsgNewViewMessage, othersIp, newViewMsg, signature)
+		n.messageHub.Send(core.MsgNewViewMessage, othersIp, newViewMsg, signature)
 	}
 }
 

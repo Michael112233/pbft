@@ -75,3 +75,7 @@ func (c *Client) AddTxs(txs []*core.Transaction) {
 func (c *Client) GetAddr() string {
 	return c.addr
 }
+
+func (c *Client) ExportTPSSeries(path string) error {
+	return c.TransactionManager.ExportTPSSeries(path)
+}

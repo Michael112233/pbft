@@ -77,6 +77,17 @@ func runClient(cfg *config.Config) {
 		if input == "exit" {
 			fmt.Println("Exiting node...")
 			break
+		} else if strings.HasPrefix(input, "export") {
+			path := "tps_series.json"
+			parts := strings.Fields(input)
+			if len(parts) >= 2 {
+				path = parts[1]
+			}
+			if err := client.ExportTPSSeries(path); err != nil {
+				fmt.Printf("Failed to export TPS series: %v\n", err)
+			} else {
+				fmt.Printf("Exported TPS series to %s\n", path)
+			}
 		} else {
 			tps, elapsed, txnCommited := client.TransactionManager.GetThroughput()
 			fmt.Printf("Current TPS: %f, Elapsed Time: %f, Transactions Committed: %d\n", tps, elapsed, txnCommited)
