@@ -22,6 +22,8 @@ const (
 	defaultPBFTRequestTimeout          = 5 * time.Second
 	defaultPBFTRequestTimeoutJitterMax = 500 * time.Millisecond
 	CHECKPOINT_INTERVAL                = 20
+	defaultTargetThroughput            = 1000.0
+	targetThroughputMaxFactor          = 0.90
 )
 
 type clientRequestKey struct {
@@ -96,6 +98,12 @@ type Node struct {
 	checkpoints          map[checkpoint]checkpointVotes
 	lastStableCheckpoint checkpoint
 
+	throughputMu               sync.RWMutex
+	checkpointThroughputs      map[int64][]float64
+	throughputIntervalStart    time.Time
+	throughputIntervalStartSeq int64
+	targetThroughput           float64
+
 	dead        bool
 	split       bool
 	periodic    bool
@@ -134,6 +142,7 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		pendingExecutions:        make(map[int64]pendingExecution),
 		checkpoints:              make(map[checkpoint]checkpointVotes),
 		lastStableCheckpoint:     checkpoint{seq: 0, digest: [32]byte{}},
+		checkpointThroughputs:    make(map[int64][]float64),
 		split:                    false,
 		dead:                     cfg.NodesDead[nodeID],
 		periodic:                 cfg.Periodic,
@@ -1267,6 +1276,17 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	n.leaderIdForView[newViewMsg.NewViewNumber] = newViewMsg.From
 	n.viewChangeRunning = false
 	n.pbftTimerManager.stopNewViewTimer()
+	n.executionMu.Lock()
+	lastexe := n.lastExecuted //locking check
+	n.executionMu.Unlock()
+	n.throughputMu.Lock()
+	n.throughputIntervalStart = time.Now().Add(5 * time.Second)
+	n.throughputIntervalStartSeq = lastexe
+	maxRecentThroughput := n.maxRecentViewThroughputLocked(n.view)
+	n.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput
+	n.throughputMu.Unlock()
+
+	n.log.Info("Max recent throughput for new view %d is %.2f; target throughput set to %.2f", n.view, maxRecentThroughput, n.targetThroughput)
 	n.log.Info("Transitioned to new view %d with leader %d", n.view, n.leaderId)
 	needSyncLog := make([]*core.PreprepareMsgSig, len(newViewMsg.PreprepareLog))
 	for _, preprepareMsg := range newViewMsg.PreprepareLog {
