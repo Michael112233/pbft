@@ -44,6 +44,38 @@ func TestBuildEnvelopeLeaderIdUpdate(t *testing.T) {
 	}
 }
 
+func TestBuildEnvelopeVCRunningStatus(t *testing.T) {
+	hub := &NodeMessageHub{
+		node_ref: &Node{NodeID: 1},
+	}
+
+	env, err := hub.buildEnvelope(core.MsgVCRunningStatusMessage, core.VCRunningStatus{
+		VCRunning: true,
+		Txs: []core.ClientMsgSignature{
+			{Data: core.ClientMsg{Id: 7, ClientName: "client-a"}, Signature: []byte{1, 2, 3}},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("buildEnvelope returned error: %v", err)
+	}
+
+	body, ok := env.Body.(*transportpb.Envelope_VcRunningStatus)
+	if !ok {
+		t.Fatalf("env.Body type = %T, want *transportpb.Envelope_VcRunningStatus", env.Body)
+	}
+
+	data, err := transportpb.VCRunningStatusFromPB(body.VcRunningStatus)
+	if err != nil {
+		t.Fatalf("VCRunningStatusFromPB returned error: %v", err)
+	}
+	if !data.VCRunning {
+		t.Fatal("VCRunning = false, want true")
+	}
+	if len(data.Txs) != 1 {
+		t.Fatalf("len(Txs) = %d, want 1", len(data.Txs))
+	}
+}
+
 func TestInjectArtificialLatencyForFarNodeSend(t *testing.T) {
 	oldNodeAddr := config.NodeAddr
 	oldClientAddr := config.ClientAddr

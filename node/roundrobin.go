@@ -75,7 +75,7 @@ func (n *Node) roundRobinVCTimeout() {
 
 	go n.broadcastViewChange(vcPayload, signature)
 
-	if len(n.viewChangeMsgsLog[n.forView]) == 2*n.fNodes+1 {
+	if len(n.viewChangeMsgsLog[n.forView]) >= 2*n.fNodes+1 {
 		// timer start
 		n.log.Info("Starting new view timer from timeout dummy %d", n.forView)
 		n.pbftTimerManager.startNewViewTimer(n)

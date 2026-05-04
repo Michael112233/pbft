@@ -32,6 +32,7 @@ func (n *Node) electionVCTimeout() {
 				continue
 			}
 			if vcMsgSig.ViewChangeMsg.ElectionData.ReqVote {
+				n.log.Info("Granting vote to node %d for view change view %d based on received view change message", vcMsgSig.ViewChangeMsg.From, n.forView)
 				n.votedFor = vcMsgSig.ViewChangeMsg.From
 				grantVote = true
 
@@ -40,7 +41,7 @@ func (n *Node) electionVCTimeout() {
 		}
 		if !grantVote {
 			// will vote what if f first byz and dont send req vote
-			n.log.Info("No req vote found in view change messages for view %d, not granting vote", n.forView)
+			n.log.Error("No req vote found in view change messages for view %d, not granting vote", n.forView)
 		}
 
 	}
@@ -79,7 +80,7 @@ func (n *Node) electionVCTimeout() {
 
 	if len(n.viewChangeMsgsLog[n.forView]) == 2*n.fNodes+1 {
 		// timer start
-		n.log.Info("Starting new view timer from timeout dummy %d", n.forView)
+		n.log.Info("Starting new view timer from timeout election dummy %d", n.forView)
 		n.pbftTimerManager.startNewViewTimer(n)
 	}
 }
@@ -103,7 +104,7 @@ func (n *Node) HandleViewChangeElection(viewChange core.ViewChangeMsg, signature
 			Signature:     signature,
 		})
 	verifiedvoteLog := false
-	if n.votedFor == n.GetNodeID() && viewChange.ElectionData.GrantVote && viewChange.ElectionData.GrantTo == n.GetNodeID() {
+	if n.votedFor == n.GetNodeID() && viewChange.ElectionData.GrantVote && viewChange.ElectionData.GrantTo == n.GetNodeID() && n.forView == viewChange.ViewNumber {
 		n.voteLog[viewChange.ViewNumber] = append(n.voteLog[viewChange.ViewNumber], viewChange.From)
 		verifiedvoteLog = n.verifyVoteLog(n.voteLog[viewChange.ViewNumber])
 	}
@@ -111,11 +112,12 @@ func (n *Node) HandleViewChangeElection(viewChange core.ViewChangeMsg, signature
 	if n.forView == viewChange.ViewNumber {
 		if len(n.viewChangeMsgsLog[viewChange.ViewNumber]) == 2*n.fNodes+1 {
 
-			// 	n.log.Info("Starting new view timer for view CHANGE %d", viewChange.ViewNumber)
+			n.log.Info("Starting new view timer for view CHANGE election %d", viewChange.ViewNumber)
 			n.pbftTimerManager.startNewViewTimer(n)
 		}
 		if n.votedFor == n.GetNodeID() {
 			if verifiedvoteLog {
+				n.log.Info("Verified vote log for view change view %d entering new view from election", viewChange.ViewNumber)
 				n.newView()
 			}
 		}

@@ -10,6 +10,10 @@ type Message struct {
 type RequestMessage struct {
 	Txs []ClientMsgSignature
 }
+type VCRunningStatus struct {
+	Txs       []ClientMsgSignature
+	VCRunning bool
+}
 
 type ClientMsg struct {
 	Id         int64
@@ -64,6 +68,7 @@ type PreprepareMsgMini struct {
 type PreprepareMsgSig struct { // used in VC
 	PreprepareMsgMini PreprepareMsgMini
 	Signature         []byte
+	ActualMsg         ClientMsgSignature
 }
 
 type PrepareMsg struct {

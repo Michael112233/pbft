@@ -529,6 +529,13 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}, signat
 		}
 		env.Body = &transportpb.Envelope_LeaderIdUpdate{LeaderIdUpdate: transportpb.LeaderIdUpdateToPB(leaderUpdate)}
 
+	case core.MsgVCRunningStatusMessage:
+		vcRunningStatus, ok := msg.(core.VCRunningStatus)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_VcRunningStatus{VcRunningStatus: transportpb.VCRunningStatusToPB(vcRunningStatus)}
+
 	case core.MsgCloseMessage:
 		closeMsg, ok := msg.(core.CloseMessage)
 		if !ok {
@@ -544,7 +551,7 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}, signat
 }
 
 func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, signature []byte) {
-	if msgType == core.MsgReplyMessage || msgType == core.MsgCommitTpsMessage || msgType == core.MsgLeaderIdUpdateMessage {
+	if msgType == core.MsgReplyMessage || msgType == core.MsgCommitTpsMessage || msgType == core.MsgLeaderIdUpdateMessage || msgType == core.MsgVCRunningStatusMessage {
 		env, err := hub.buildEnvelope(msgType, msg, signature)
 		if err != nil {
 			hub.log.Error("build envelope failed. msgType=%s err=%v", msgType, err)

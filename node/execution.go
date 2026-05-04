@@ -101,6 +101,7 @@ func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.C
 			result = n.executionMachine.Apply(pending.msg)
 		} else {
 			n.log.Error("noop in execution for seq %d messes up periodic trigger", nextSeq)
+			n.noOpsExecuted.Add(1)
 		}
 
 		pending.slot.executionPending = true
@@ -109,7 +110,7 @@ func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.C
 		pending.slot.mu.Unlock()
 
 		n.lastExecuted = nextSeq
-		if n.lastExecuted == 1 || n.lastExecuted%CHECKPOINT_INTERVAL == 0 {
+		if (n.lastExecuted == 1 || n.lastExecuted%CHECKPOINT_INTERVAL == 0) && n.cfg.Performance {
 			performanceTrigger = n.observeExecutedSlotForThroughput(n.lastExecuted, time.Now())
 		}
 		// period := int64(9*CHECKPOINT_INTERVAL) / 2

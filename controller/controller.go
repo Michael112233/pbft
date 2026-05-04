@@ -50,6 +50,8 @@ func runNode(nodeID int64, cfg *config.Config) {
 			Node.Dead()
 		} else if input[0] == 'e' {
 			Node.PrintExecutedSlots()
+		} else if input[0] == 'c' {
+			Node.PrintCommitSentSummary()
 		}
 
 	}

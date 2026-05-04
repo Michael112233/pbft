@@ -27,6 +27,11 @@ message RequestMessage {
   repeated ClientMsgSignature txs = 1;
 }
 
+message VCRunningStatus {
+  repeated ClientMsgSignature txs = 1;
+  bool vc_running = 2;
+}
+
 message PreprepareMsg {
   int64 view = 1;
   int64 seq_num = 2;
@@ -73,6 +78,7 @@ message PreprepareMsgMini {
 message PreprepareMsgSig {
   PreprepareMsgMini preprepare_msg_mini = 1;
   bytes signature = 2;
+  ClientMsgSignature actual_msg = 3;
 }
 
 message PrepareMsgSig {
@@ -191,6 +197,7 @@ message Envelope {
     CheckpointMsg checkpoint = 19;
     CommitTps commit_tps = 20;
     LeaderIdUpdate leader_id_update = 21;
+    VCRunningStatus vc_running_status = 22;
   }
 }
 

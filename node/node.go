@@ -21,7 +21,7 @@ import (
 const (
 	defaultPBFTRequestTimeout          = 5 * time.Second
 	defaultPBFTRequestTimeoutJitterMax = 500 * time.Millisecond
-	CHECKPOINT_INTERVAL                = 20
+	CHECKPOINT_INTERVAL                = 15
 	defaultTargetThroughput            = 1000.0
 	targetThroughputMaxFactor          = 0.90
 )
@@ -92,6 +92,7 @@ type Node struct {
 	executionMachine  execution.StateMachine
 	executionMu       sync.Mutex
 	lastExecuted      int64
+	noOpsExecuted     atomic.Int64
 	pendingExecutions map[int64]pendingExecution
 
 	checkpointMu         sync.Mutex
@@ -513,7 +514,7 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 	n.tryAdvancePrepare(slot, view, preprepareMsg.SeqNum, digestClientMsg)
 }
 
-func (n *Node) HandlePrePrepareNewView(preprepareMsg core.PreprepareMsgMini, signature []byte) bool {
+func (n *Node) HandlePrePrepareNewView(preprepareMsg core.PreprepareMsgMini, signature []byte, actualMsg core.ClientMsgSignature) bool {
 
 	view := n.view
 	// n.viewMu.RUnlock()
@@ -592,6 +593,9 @@ func (n *Node) HandlePrePrepareNewView(preprepareMsg core.PreprepareMsgMini, sig
 			slot.missingData = false
 			n.log.Info("PrePrepareMini for already executed client message, view %d seq %d", preprepareMsg.View, preprepareMsg.SeqNum)
 		}
+		// fail safe for now to handle missing state
+		slot.prePrepare.ClientMsg = actualMsg
+		slot.missingData = false
 	}
 
 	if !slot.prepareSent {
@@ -861,6 +865,14 @@ func (n *Node) sendLeaderIdUpdate(newLeaderID int) {
 	n.messageHub.Send(core.MsgLeaderIdUpdateMessage, config.ClientAddr, leaderUpdateMsg, nil)
 }
 
+func (n *Node) sendVCRunningStatus(txns []core.ClientMsgSignature, vcRunning bool) {
+	vcStatusMsg := core.VCRunningStatus{
+		Txs:       txns,
+		VCRunning: vcRunning,
+	}
+	n.messageHub.Send(core.MsgVCRunningStatusMessage, config.ClientAddr, vcStatusMsg, nil)
+}
+
 func makeClientRequestKey(msg core.ClientMsg) clientRequestKey {
 	return clientRequestKey{
 		clientName: msg.ClientName,
@@ -1124,6 +1136,7 @@ func (n *Node) duplicateCheckVC(vcMsgSigs []*core.ViewChangeMsgSig) bool {
 func (n *Node) HandleViewChange(viewChange core.ViewChangeMsg, signature []byte) {
 	n.log.Test("Received ViewChange for view %d from node %d", viewChange.ViewNumber, viewChange.From)
 	if n.vcType == core.VCTypeElection {
+		n.log.Info("Election Path received view change")
 		n.HandleViewChangeElection(viewChange, signature)
 	} else if n.vcType == core.VCTypeRoundRobin {
 		n.HandleViewChangeRoundRobin(viewChange, signature)
@@ -1276,21 +1289,25 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	n.leaderIdForView[newViewMsg.NewViewNumber] = newViewMsg.From
 	n.viewChangeRunning = false
 	n.pbftTimerManager.stopNewViewTimer()
-	n.executionMu.Lock()
-	lastexe := n.lastExecuted //locking check
-	n.executionMu.Unlock()
-	n.throughputMu.Lock()
-	n.throughputIntervalStart = time.Now().Add(5 * time.Second)
-	n.throughputIntervalStartSeq = lastexe
-	maxRecentThroughput := n.maxRecentViewThroughputLocked(n.view)
-	n.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput
-	n.throughputMu.Unlock()
+	n.pbftTimerManager.stopPeriodicElectionTimer()
+	if n.cfg.Performance {
+		n.executionMu.Lock()
+		lastexe := n.lastExecuted //locking check
+		n.executionMu.Unlock()
+		n.throughputMu.Lock()
+		n.throughputIntervalStart = time.Now().Add(5 * time.Second)
+		n.throughputIntervalStartSeq = lastexe
+		maxRecentThroughput := n.maxRecentViewThroughputLocked(n.view)
+		n.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput
+		n.log.Info("Max recent throughput for new view %d is %.2f; target throughput set to %.2f", n.view, maxRecentThroughput, n.targetThroughput)
+		n.throughputMu.Unlock()
 
-	n.log.Info("Max recent throughput for new view %d is %.2f; target throughput set to %.2f", n.view, maxRecentThroughput, n.targetThroughput)
+	}
+
 	n.log.Info("Transitioned to new view %d with leader %d", n.view, n.leaderId)
 	needSyncLog := make([]*core.PreprepareMsgSig, len(newViewMsg.PreprepareLog))
 	for _, preprepareMsg := range newViewMsg.PreprepareLog {
-		needSync := n.HandlePrePrepareNewView(preprepareMsg.PreprepareMsgMini, preprepareMsg.Signature)
+		needSync := n.HandlePrePrepareNewView(preprepareMsg.PreprepareMsgMini, preprepareMsg.Signature, preprepareMsg.ActualMsg)
 		if needSync {
 			needSyncLog = append(needSyncLog, &preprepareMsg)
 		}
@@ -1347,6 +1364,7 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView i
 			O = append(O, core.PreprepareMsgSig{
 				PreprepareMsgMini: preprepare.PreprepareMsgMini,
 				Signature:         signature,
+				ActualMsg:         preprepare.ActualMsg,
 			})
 
 		} else {
@@ -1456,8 +1474,23 @@ func (n *Node) newView() {
 	n.leaderIdForView[n.view] = n.leaderId
 	n.viewChangeRunning = false
 	n.pbftTimerManager.stopNewViewTimer()
+	n.pbftTimerManager.stopPeriodicElectionTimer()
+	n.log.Info("Became leader for new view %d and my id is %d", n.view, n.GetNodeID())
+	if n.cfg.Performance {
+		n.executionMu.Lock()
+		lastexe := n.lastExecuted //locking check
+		n.executionMu.Unlock()
+		n.throughputMu.Lock()
+		n.throughputIntervalStart = time.Now().Add(5 * time.Second)
+		n.throughputIntervalStartSeq = lastexe
+		maxRecentThroughput := n.maxRecentViewThroughputLocked(n.view)
+		n.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput
+		n.log.Info("Max recent throughput for new view %d is %.2f; target throughput set to %.2f", n.view, maxRecentThroughput, n.targetThroughput)
+		n.throughputMu.Unlock()
+	}
 
 	O, maxSeq := n.createO(n.viewChangeMsgsLog[n.view], n.view, oldView)
+	n.log.Info("Created O with maxSeq %d for new view %d at primary and last stable checkpoint seq is %d", maxSeq, n.view, n.lastStableCheckpoint.seq)
 	n.preprepareSeqNumber.Store(maxSeq)
 	if len(O) == 0 {
 		n.log.Info("O is empty for new view %d at primary, maxSeq is %d", n.view, maxSeq)
@@ -1488,7 +1521,11 @@ func (n *Node) newView() {
 		} else if !exists && executed {
 			slot.missingData = false
 		}
+		// fail safe for
+		slot.prePrepare.ClientMsg = preprepareMsg.ActualMsg
+		slot.missingData = false
 		slot.mu.Unlock()
+
 	}
 
 	// if n.split {
@@ -1522,6 +1559,8 @@ func (n *Node) handleViewChangeTimeoutDummy() {
 	n.forView = n.forView + 1
 	n.viewChangeRunning = true
 	if n.vcType == core.VCTypeElection {
+		n.log.Info("Election Path View Change Timeout")
+
 		n.electionVCTimeout()
 	} else if n.vcType == core.VCTypeRoundRobin {
 		n.roundRobinVCTimeout()
@@ -1555,6 +1594,7 @@ func (n *Node) createVCContent(stableCheckpointSeq int64) map[int64]*core.Prepar
 				DigestClientMsg: slot.prePrepare.DigestClientMsg,
 			},
 			Signature: append([]byte(nil), slot.prePrepareSig...),
+			ActualMsg: slot.prePrepare.ClientMsg,
 		}
 
 		prepareLog := make(map[int]*core.PrepareMsgSig, len(slot.prepares))

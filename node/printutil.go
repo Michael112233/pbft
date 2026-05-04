@@ -65,7 +65,7 @@ func (n *Node) PrintDetails() {
 	preprepareSeq := n.preprepareSeqNumber.Load()
 
 	fmt.Printf("------ Node and View CHnange Details ------\n")
-	fmt.Printf("Node ID: %d, Address: %s, Current View: %d, For View: %d, leaderID: %d, voted For: %d, PrePrepare Sequence Number: %d, last Stable Checkpoint Sequence: %d, last Executed Sequence: %d, fnodes: %d, dead: %t, split: %t, periodic: %t, peakTpsTest: %t, vcType: %s\n\n", n.NodeID, n.GetAddr(), currentView, forView, leaderID, votedFor, preprepareSeq, lastStableCheckpoint.seq, lastExecuted, fNodes, dead, split, periodic, peakTpsTest, vcTypeString(vcType))
+	fmt.Printf("Node ID: %d, Address: %s, Current View: %d, For View: %d, leaderID: %d, voted For: %d, PrePrepare Sequence Number: %d, last Stable Checkpoint Sequence: %d, last Executed Sequence: %d, no Ops Executed: %d, fnodes: %d, dead: %t, split: %t, periodic: %t, peakTpsTest: %t, vcType: %s\n\n", n.NodeID, n.GetAddr(), currentView, forView, leaderID, votedFor, preprepareSeq, lastStableCheckpoint.seq, lastExecuted, n.noOpsExecuted.Load(), fNodes, dead, split, periodic, peakTpsTest, vcTypeString(vcType))
 
 	fmt.Printf("------ Checkpoint Details ------\n")
 	fmt.Printf("Last Stable Checkpoint: seq=%d digest=%x\n", lastStableCheckpoint.seq, lastStableCheckpoint.digest)
@@ -186,6 +186,12 @@ func (n *Node) PrintExecutedSlots() {
 
 	n.consensusLog.PrintExecutedSlots(n.view)
 }
+
+func (n *Node) PrintCommitSentSummary() {
+
+	n.consensusLog.PrintCommitSentSummary()
+}
+
 func vcTypeString(vcType core.VCType) string {
 	switch vcType {
 	case core.VCTypeElection:

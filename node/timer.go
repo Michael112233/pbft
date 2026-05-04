@@ -25,8 +25,13 @@ type TimerManager struct {
 	newViewTimerEpoch    atomic.Int64
 
 	viewChangeTimeoutDummyCount atomic.Int64
-	log                         *logger.Logger
-	node_ref                    *Node
+
+	periodicElectionTimeout    time.Duration
+	periodicElectionTimerOn    atomic.Bool
+	periodicElectionTimerEpoch atomic.Int64
+
+	log      *logger.Logger
+	node_ref *Node
 }
 
 func NewTimerManager(log *logger.Logger) *TimerManager {
@@ -39,13 +44,14 @@ func NewTimerManager(log *logger.Logger) *TimerManager {
 	}
 	return &TimerManager{
 
-		pbftTimer:            pbftTimer,
-		pbftTimerInitiated:   false,
-		pbftTimeout:          defaultPBFTRequestTimeout,
-		pbftTimeoutJitterMax: defaultPBFTRequestTimeoutJitterMax,
-		newViewTimeout:       defaultPBFTRequestTimeout,
-		pbftTimerStopCh:      make(chan struct{}),
-		log:                  log,
+		pbftTimer:               pbftTimer,
+		pbftTimerInitiated:      false,
+		pbftTimeout:             defaultPBFTRequestTimeout,
+		pbftTimeoutJitterMax:    defaultPBFTRequestTimeoutJitterMax,
+		newViewTimeout:          defaultPBFTRequestTimeout,
+		periodicElectionTimeout: defaultPBFTRequestTimeout,
+		pbftTimerStopCh:         make(chan struct{}),
+		log:                     log,
 	}
 }
 
@@ -58,7 +64,7 @@ func (tm *TimerManager) startNewViewTimer(n *Node) {
 	epoch := tm.newViewTimerEpoch.Add(1)
 	tm.log.Info("new-view timer started")
 	go func(localEpoch int64) {
-		timer := time.NewTimer(tm.nextPBFTTimeoutLocked())
+		timer := time.NewTimer(tm.NextPBFTTimeoutLocked())
 		defer timer.Stop()
 
 		select {
@@ -80,8 +86,48 @@ func (tm *TimerManager) startNewViewTimer(n *Node) {
 
 		n.viewMu.Lock()
 		tm.log.Error("New-view timer expired for view %d; triggering dummy view-change", n.forView)
-		if !n.peakTpsTest || true {
+		if !n.peakTpsTest || false {
 			tm.log.Info("Triggering dummy view-change due to new-view timer expiry")
+			n.handleViewChangeTimeoutDummy()
+		}
+		n.viewMu.Unlock()
+	}(epoch)
+}
+
+func (tm *TimerManager) startPeriodicElectionTimer(n *Node) {
+	if !tm.periodicElectionTimerOn.CompareAndSwap(false, true) {
+		tm.log.Info("periodic election timer already started")
+		return
+	}
+
+	epoch := tm.periodicElectionTimerEpoch.Add(1)
+	tm.log.Info("periodic election timer started")
+	go func(localEpoch int64) {
+		timeout := time.Duration(rand.Int64N(500)+1) * time.Millisecond
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+
+		select {
+		case <-timer.C:
+		case <-tm.pbftTimerStopCh:
+			if tm.periodicElectionTimerEpoch.Load() == localEpoch {
+				tm.periodicElectionTimerOn.Store(false)
+			}
+			return
+		}
+
+		// Ignore stale timer goroutines.
+		if tm.periodicElectionTimerEpoch.Load() != localEpoch || !tm.periodicElectionTimerOn.Load() {
+			return
+		}
+
+		// This one-shot timer has fired; allow callback code to re-arm a new timer.
+		tm.periodicElectionTimerOn.Store(false)
+
+		n.viewMu.Lock()
+		tm.log.Error("Periodic election timer expired for view %d; triggering dummy view-change", n.forView)
+		if !n.peakTpsTest || true {
+			tm.log.Info("Triggering dummy view-change due to periodic election timer expiry")
 			n.handleViewChangeTimeoutDummy()
 		}
 		n.viewMu.Unlock()
@@ -94,6 +140,11 @@ func (tm *TimerManager) stopNewViewTimer() {
 	tm.newViewTimerOn.Store(false)
 }
 
+func (tm *TimerManager) stopPeriodicElectionTimer() {
+	tm.log.Info("periodic election timer stopped")
+	tm.periodicElectionTimerEpoch.Add(1)
+	tm.periodicElectionTimerOn.Store(false)
+}
 func (tm *TimerManager) pbftTimerWorker(n *Node) {
 	tm.log.Info("PBFT timer worker started")
 	tm.node_ref = n
@@ -163,7 +214,7 @@ func (tm *TimerManager) startPBFTTimerLocked() {
 		default:
 		}
 	}
-	tm.pbftTimer.Reset(tm.nextPBFTTimeoutLocked())
+	tm.pbftTimer.Reset(tm.NextPBFTTimeoutLocked())
 	tm.pbftTimerInitiated = true
 }
 
@@ -177,11 +228,11 @@ func (tm *TimerManager) resetPBFTTimerLocked() {
 		default:
 		}
 	}
-	tm.pbftTimer.Reset(tm.nextPBFTTimeoutLocked())
+	tm.pbftTimer.Reset(tm.NextPBFTTimeoutLocked())
 	tm.pbftTimerInitiated = true
 }
 
-func (tm *TimerManager) nextPBFTTimeoutLocked() time.Duration {
+func (tm *TimerManager) NextPBFTTimeoutLocked() time.Duration {
 
 	if tm.node_ref.split || tm.node_ref.vcType == core.VCTypeRoundRobin {
 		// tm.log.Info("Node is in split mode/ roundrobin; using base PBFT timeout without jitter")

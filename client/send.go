@@ -29,7 +29,7 @@ func (c *Client) InjectTxs() {
 		defer c.WaitGroup.Done()
 
 		// Create signed ClientMsgSignature array for all transactions
-		txns := GenerateDummyTxs(int(c.config.Period) * 4)
+		txns := GenerateDummyTxs(int(c.config.Period) * 1)
 		signedMsgs := make([]core.ClientMsgSignature, len(txns))
 		for i, tx := range txns {
 			clientMsg := core.ClientMsg{
@@ -60,9 +60,6 @@ func (c *Client) InjectTxs() {
 
 			injectTxs = signedMsgs[i*int64(c.config.Period) : (i+1)*int64(c.config.Period)] //c.txs[i*c.config.InjectSpeed : (i+1)*c.config.InjectSpeed]
 
-			c.leaderMu.RLock()
-			leader := c.leaderAddr
-			c.leaderMu.RUnlock()
 			// c.TransactionManager.StartTimer()
 			go c.TransactionManager.AddTransaction(injectTxs)
 
@@ -79,35 +76,39 @@ func (c *Client) InjectTxs() {
 			// 	fmt.Scanln()
 			// 	c.TransactionManager.ResetTimer()
 			// }
-			c.log.Info(fmt.Sprintf("Send request message to %s with %d transactions", leader, int64(i)))
+			for {
+				c.leaderMu.RLock()
+				leader := c.leaderAddr
+				c.leaderMu.RUnlock()
 
-			c.messageHub.Send(core.MsgRequestMessage, c.addr, leader, msg, nil) // couuld be go as stream locked
+				c.log.Info(fmt.Sprintf("Send request message to %s with batch %d and %d transactions", leader, int64(i), len(injectTxs)))
+				c.messageHub.Send(core.MsgRequestMessage, c.addr, leader, msg, nil) // couuld be go as stream locked
+
+				vcStatus := <-c.vcrunChan
+				if !vcStatus.VCRunning {
+					c.log.Info("Received view change not running status, moving to next batch")
+					time.Sleep(500 * time.Millisecond) // small sleep to allow system to stabilize before next wave
+					break
+				}
+
+				c.log.Info("Received view change running status with %d transactions in flight, pausing injection until view change completes", len(vcStatus.Txs))
+				<-c.cchan                   // wait for signal to continue injection after view change completes
+				time.Sleep(1 * time.Second) // small sleep to allow system to stabilize after view change before retry
+			}
 
 			// Wait for the next leader update before sending the next periodic wave.
-			if c.config.Periodic {
-				lastWave := (i+1)*int64(c.config.Period) >= int64(len(txns))
-				if !lastWave {
-					<-c.cchan
-				}
-				time.Sleep(1 * time.Second) // small sleep to allow system to stabilize after leader change before next wave
-			} else {
-				time.Sleep(1 * time.Second)
+			// if c.config.Periodic {
+			// 	lastWave := (i+1)*int64(c.config.Period) >= int64(len(txns))
+			// 	if !lastWave {
+			// 		<-c.cchan
+			// 	}
+			// 	time.Sleep(1 * time.Second) // small sleep to allow system to stabilize after leader change before next wave
+			// } else {
+			// 	time.Sleep(1 * time.Second)
 
-			}
+			// }
 			// }
 
 		}
 	}()
 }
-
-// func (c *Client) BroadcastClose() {
-// 	for _, addr := range config.NodeAddr {
-// 		closeMsg := core.CloseMessage{
-// 			Timestamp: time.Now().UnixNano(),
-// 			From:      c.addr,
-// 			To:        addr,
-// 		}
-// 		c.log.Info(fmt.Sprintf("Send close message to %s", addr))
-// 		c.messageHub.Send(core.MsgCloseMessage, c.addr, addr, closeMsg, nil)
-// 	}
-// }

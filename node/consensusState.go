@@ -196,6 +196,34 @@ func (log *ConsensusLog) PrintExecutedSlots(currView int64) {
 	fmt.Printf("Total executed slots: %d\n", len(sortedSeqNums))
 }
 
+func (log *ConsensusLog) PrintCommitSentSummary() {
+	commitSentFalse := 0
+	commitSentTrueExecutionPendingFalse := 0
+
+	log.slotsMu.RLock()
+	for _, slot := range log.slots {
+		if slot == nil {
+			continue
+		}
+
+		slot.mu.Lock()
+		commitSent := slot.commitSent
+		executionPending := slot.executionPending
+		slot.mu.Unlock()
+
+		if !commitSent {
+			commitSentFalse++
+		}
+		if commitSent && !executionPending {
+			commitSentTrueExecutionPendingFalse++
+		}
+	}
+	log.slotsMu.RUnlock()
+
+	fmt.Printf("Total slots with CommitSent=false: %d\n", commitSentFalse)
+	fmt.Printf("Total slots with CommitSent=true and ExecutionPending=false: %d\n", commitSentTrueExecutionPendingFalse)
+}
+
 func (log *ConsensusLog) PrintDetails(view int64) {
 	for i := int64(1); i <= view; i++ {
 		fmt.Printf("-----------------------------------\n\n")

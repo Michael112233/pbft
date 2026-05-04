@@ -16,6 +16,14 @@ func TestCreateVCContentCopiesPreparedCerts(t *testing.T) {
 			View:            2,
 			SeqNum:          11,
 			DigestClientMsg: [32]byte{1},
+			ClientMsg: core.ClientMsgSignature{
+				Data: core.ClientMsg{
+					Id:         101,
+					Timestamp:  202,
+					ClientName: "client-a",
+				},
+				Signature: []byte{4, 5, 6},
+			},
 		},
 		prePrepareSig: []byte{9, 8, 7},
 		prepares: map[int]*core.PrepareMsgSig{
@@ -55,5 +63,11 @@ func TestCreateVCContentCopiesPreparedCerts(t *testing.T) {
 	}
 	if cert.PrepareLog[2].PrepareMsg.From != 2 {
 		t.Fatalf("prepare payload mutated to from=%d, want 2", cert.PrepareLog[2].PrepareMsg.From)
+	}
+	if cert.PreprepareMsg.ActualMsg.Data.Id != 101 {
+		t.Fatalf("actual msg id = %d, want 101", cert.PreprepareMsg.ActualMsg.Data.Id)
+	}
+	if string(cert.PreprepareMsg.ActualMsg.Signature) != string([]byte{4, 5, 6}) {
+		t.Fatalf("actual msg signature = %v, want [4 5 6]", cert.PreprepareMsg.ActualMsg.Signature)
 	}
 }

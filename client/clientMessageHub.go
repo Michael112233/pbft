@@ -238,6 +238,19 @@ func (hub *ClientMessageHub) handleIncomingEnvelope(addr string, env *transportp
 		}
 		go hub.client_ref.HandleLeaderUpdate(data)
 
+	case core.MsgVCRunningStatusMessage:
+		vcRunningStatus := env.GetVcRunningStatus()
+		if vcRunningStatus == nil {
+			hub.log.Error("stream vcRunningStatus missing body. target=%s", addr)
+			return
+		}
+		data, err := transportpb.VCRunningStatusFromPB(vcRunningStatus)
+		if err != nil {
+			hub.log.Error("stream vcRunningStatus decode failed. target=%s err=%v", addr, err)
+			return
+		}
+		go hub.client_ref.HandleVCRunningStatus(data)
+
 	default:
 		hub.log.Error("Unknown stream message type received: msgType=%s target=%s", env.MsgType, addr)
 	}

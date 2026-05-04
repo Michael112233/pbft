@@ -55,6 +55,43 @@ func TestHandleIncomingEnvelopeDispatchesLeaderUpdate(t *testing.T) {
 	t.Fatalf("leader address was not updated: got %q want %q", leaderAddr, "localhost:28200")
 }
 
+func TestHandleIncomingEnvelopeDispatchesVCRunningStatus(t *testing.T) {
+	client := &Client{
+		log:       logger.NewLogger(0, "client"),
+		vcrunChan: make(chan core.VCRunningStatus, 1),
+	}
+	hub := &ClientMessageHub{
+		client_ref: client,
+		log:        client.log,
+	}
+
+	in := core.VCRunningStatus{
+		VCRunning: true,
+		Txs: []core.ClientMsgSignature{
+			{Data: core.ClientMsg{Id: 1, ClientName: "client-a"}, Signature: []byte{1}},
+			{Data: core.ClientMsg{Id: 2, ClientName: "client-a"}, Signature: []byte{2}},
+		},
+	}
+	hub.handleIncomingEnvelope("localhost:28100", &transportpb.Envelope{
+		MsgType: core.MsgVCRunningStatusMessage,
+		Body: &transportpb.Envelope_VcRunningStatus{
+			VcRunningStatus: transportpb.VCRunningStatusToPB(in),
+		},
+	})
+
+	select {
+	case got := <-client.vcrunChan:
+		if !got.VCRunning {
+			t.Fatal("VCRunning = false, want true")
+		}
+		if len(got.Txs) != 2 {
+			t.Fatalf("len(Txs) = %d, want 2", len(got.Txs))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for VCRunningStatus dispatch")
+	}
+}
+
 func TestInjectArtificialLatencyForFarNodeRequest(t *testing.T) {
 	oldNodeAddr := config.NodeAddr
 	config.NodeAddr = map[int]string{

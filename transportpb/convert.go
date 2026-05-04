@@ -116,6 +116,35 @@ func RequestFromPB(msg *RequestMessage) (core.RequestMessage, error) {
 	return out, nil
 }
 
+func VCRunningStatusToPB(msg core.VCRunningStatus) *VCRunningStatus {
+	out := &VCRunningStatus{
+		Txs:       make([]*ClientMsgSignature, 0, len(msg.Txs)),
+		VcRunning: msg.VCRunning,
+	}
+	for _, tx := range msg.Txs {
+		out.Txs = append(out.Txs, ClientMsgSigToPB(tx))
+	}
+	return out
+}
+
+func VCRunningStatusFromPB(msg *VCRunningStatus) (core.VCRunningStatus, error) {
+	if msg == nil {
+		return core.VCRunningStatus{}, nil
+	}
+	out := core.VCRunningStatus{
+		Txs:       make([]core.ClientMsgSignature, 0, len(msg.Txs)),
+		VCRunning: msg.VcRunning,
+	}
+	for _, tx := range msg.Txs {
+		coreTx, err := ClientMsgSigFromPB(tx)
+		if err != nil {
+			return core.VCRunningStatus{}, err
+		}
+		out.Txs = append(out.Txs, coreTx)
+	}
+	return out, nil
+}
+
 // func VCToPB(msg core.ViewChangeMsg) *ViewChangeMsg {
 
 func PreprepareToPB(msg core.PreprepareMsg) *PreprepareMsg {
@@ -369,6 +398,7 @@ func PreprepareMsgSigToPB(msg core.PreprepareMsgSig) *PreprepareMsgSig {
 	return &PreprepareMsgSig{
 		PreprepareMsgMini: PreprepareMiniToPB(msg.PreprepareMsgMini),
 		Signature:         append([]byte(nil), msg.Signature...),
+		ActualMsg:         ClientMsgSigToPB(msg.ActualMsg),
 	}
 }
 
@@ -380,9 +410,14 @@ func PreprepareMsgSigFromPB(msg *PreprepareMsgSig) (core.PreprepareMsgSig, error
 	if err != nil {
 		return core.PreprepareMsgSig{}, err
 	}
+	actualMsg, err := ClientMsgSigFromPB(msg.ActualMsg)
+	if err != nil {
+		return core.PreprepareMsgSig{}, err
+	}
 	return core.PreprepareMsgSig{
 		PreprepareMsgMini: mini,
 		Signature:         append([]byte(nil), msg.Signature...),
+		ActualMsg:         actualMsg,
 	}, nil
 }
 

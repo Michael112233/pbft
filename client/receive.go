@@ -24,8 +24,17 @@ func (c *Client) HandleCommitTpsMessage(data core.CommitTps) {
 func (c *Client) HandleLeaderUpdate(data core.LeaderIdUpdate) {
 	c.leaderMu.Lock()
 	c.leaderAddr = config.NodeAddr[data.NewLeaderId]
+	leaderAddr := c.leaderAddr
 	c.leaderMu.Unlock()
-	c.log.Info(fmt.Sprintf("Received leader update message, new leader id %d, new leader addr %s", data.NewLeaderId, c.leaderAddr))
-	c.cchan <- struct{}{}
-	c.log.Info(fmt.Sprintf(" send to chan Received leader update message, new leader id %d, new leader addr %s", data.NewLeaderId, c.leaderAddr))
+	c.log.Info(fmt.Sprintf("Received leader update message, new leader id %d, new leader addr %s", data.NewLeaderId, leaderAddr))
+	select {
+	case c.cchan <- struct{}{}:
+		c.log.Info(fmt.Sprintf("send to chan Received leader update message, new leader id %d, new leader addr %s", data.NewLeaderId, leaderAddr))
+	default:
+		c.log.Info(fmt.Sprintf("leader update signal already pending, new leader id %d, new leader addr %s", data.NewLeaderId, leaderAddr))
+	}
+}
+
+func (c *Client) HandleVCRunningStatus(data core.VCRunningStatus) {
+	c.vcrunChan <- data
 }
