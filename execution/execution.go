@@ -37,30 +37,30 @@ func (sm *AccountStateMachine) Apply(msg core.ClientMsg) Result {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	// if msg.Txn == nil {
-	// 	return Result{Success: false, Error: "missing transaction"}
-	// }
-	// if msg.Txn.Sender == "" {
-	// 	return Result{Success: false, Error: "missing sender"}
-	// }
-	// if msg.Txn.Receiver == "" {
-	// 	return Result{Success: false, Error: "missing receiver"}
-	// }
-	// if msg.Txn.Amount == nil {
-	// 	return Result{Success: false, Error: "missing amount"}
-	// }
-	// if msg.Txn.Amount.Sign() < 0 {
-	// 	return Result{Success: false, Error: "negative amount"}
-	// }
+	if msg.Txn == nil {
+		return Result{Success: false, Error: "missing transaction"}
+	}
+	if msg.Txn.Sender == "" {
+		return Result{Success: false, Error: "missing sender"}
+	}
+	if msg.Txn.Receiver == "" {
+		return Result{Success: false, Error: "missing receiver"}
+	}
+	if msg.Txn.Amount == nil {
+		return Result{Success: false, Error: "missing amount"}
+	}
+	if msg.Txn.Amount.Sign() < 0 {
+		return Result{Success: false, Error: "negative amount"}
+	}
 
-	// senderBalance := sm.ensureAccountLocked(msg.Txn.Sender)
-	// receiverBalance := sm.ensureAccountLocked(msg.Txn.Receiver)
-	// if senderBalance.Cmp(msg.Txn.Amount) < 0 {
-	// 	return Result{Success: false, Error: "insufficient funds"}
-	// }
+	senderBalance := sm.ensureAccountLocked(msg.Txn.Sender)
+	receiverBalance := sm.ensureAccountLocked(msg.Txn.Receiver)
+	if senderBalance.Cmp(msg.Txn.Amount) < 0 {
+		return Result{Success: false, Error: "insufficient funds"}
+	}
 
-	// senderBalance.Sub(senderBalance, msg.Txn.Amount)
-	// receiverBalance.Add(receiverBalance, msg.Txn.Amount)
+	senderBalance.Sub(senderBalance, msg.Txn.Amount)
+	receiverBalance.Add(receiverBalance, msg.Txn.Amount)
 	return Result{Success: true}
 }
 
@@ -112,7 +112,7 @@ func (sm *AccountStateMachine) ensureAccountLocked(account string) *big.Int {
 }
 
 func defaultAccountBalance() *big.Int {
-	balance, ok := new(big.Int).SetString("9999", 10)
+	balance, ok := new(big.Int).SetString("999999999999", 10)
 	if !ok {
 		panic("invalid default account balance")
 	}

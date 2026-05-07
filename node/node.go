@@ -76,6 +76,7 @@ type Node struct {
 	consensusLog              ConsensusLog
 	viewChangeRunning         bool
 	viewMu                    sync.RWMutex
+	periodInterval            int64 // protected by viewMu
 	bufferedMsgsMu            sync.Mutex
 	bufferedMsgs              []bufferedConsensusMessage
 	vcType                    core.VCType
@@ -148,6 +149,7 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		dead:                     cfg.NodesDead[nodeID],
 		periodic:                 cfg.Periodic,
 		peakTpsTest:              cfg.PeakTpsTest,
+		periodInterval:           cfg.Period,
 	}
 }
 
@@ -395,6 +397,7 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []byte) {
 	n.viewMu.RLock()
 	view := n.view
+	forView := n.forView
 	viewChangeRunning := n.viewChangeRunning
 	n.viewMu.RUnlock()
 
@@ -408,9 +411,13 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 			})
 			n.log.Info("Buffered PrePrepare for future view %d seq %d while current view is %d", preprepareMsg.View, preprepareMsg.SeqNum, view)
 			return
+		} else if preprepareMsg.View < view {
+			n.log.Info("Received PrePrepare for past view %d seq %d while current view is %d, ignoring and for view is %d", preprepareMsg.View, preprepareMsg.SeqNum, view, forView)
+		} else {
+			n.log.Info("Received PrePrepare for current view %d (equal views) seq %d but currently in view change, ignoring and for view is %d", preprepareMsg.View, preprepareMsg.SeqNum, forView)
 		}
 		// n.viewMu.RUnlock()
-		n.log.Test("Received PrePrepare for view %d seq %d but currently in view change, ignoring", preprepareMsg.View, preprepareMsg.SeqNum)
+
 		return
 	}
 	n.log.Test("Received PrePrepare for view %d seq %d", preprepareMsg.View, preprepareMsg.SeqNum)
@@ -591,7 +598,7 @@ func (n *Node) HandlePrePrepareNewView(preprepareMsg core.PreprepareMsgMini, sig
 			slot.missingData = true
 		} else if !exists && executed {
 			slot.missingData = false
-			n.log.Info("PrePrepareMini for already executed client message, view %d seq %d", preprepareMsg.View, preprepareMsg.SeqNum)
+			// n.log.Info("PrePrepareMini for already executed client message, view %d seq %d", preprepareMsg.View, preprepareMsg.SeqNum)
 		}
 		// fail safe for now to handle missing state
 		slot.prePrepare.ClientMsg = actualMsg
@@ -621,7 +628,6 @@ func (n *Node) HandlePrePrepareNewView(preprepareMsg core.PreprepareMsgMini, sig
 
 		slot.prepares[n.GetNodeID()] = &msgForLog
 
-		n.log.Info("Sending broadcast prepare from newview")
 		go n.broadcastPrepare(msg, signature)
 
 	}
@@ -637,6 +643,7 @@ func (n *Node) HandlePrePrepareNewView(preprepareMsg core.PreprepareMsgMini, sig
 func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 	n.viewMu.RLock()
 	view := n.view
+	forView := n.forView
 	viewChangeRunning := n.viewChangeRunning
 	n.viewMu.RUnlock()
 	if viewChangeRunning {
@@ -649,9 +656,13 @@ func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 			})
 			n.log.Info("Buffered Prepare for future view %d seq %d while current view is %d", prepareMsg.View, prepareMsg.SeqNum, view)
 			return
+		} else if prepareMsg.View < view {
+			n.log.Info("Received Prepare for past view %d seq %d while current view is %d, ignoring and for view is %d", prepareMsg.View, prepareMsg.SeqNum, view, forView)
+		} else {
+			n.log.Info("Received Prepare for current view %d (equal views) seq %d but currently in view change, ignoring and for view is %d", prepareMsg.View, prepareMsg.SeqNum, forView)
 		}
 		// n.viewMu.RUnlock()
-		n.log.Test("Received Prepare for view %d seq %d but currently in view change, ignoring", prepareMsg.View, prepareMsg.SeqNum)
+
 		return
 	}
 	n.log.Test("Received Prepare for view %d seq %d", prepareMsg.View, prepareMsg.SeqNum)
@@ -700,6 +711,7 @@ func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 func (n *Node) HandleCommit(commitMsg core.CommitMsg) {
 	n.viewMu.RLock()
 	view := n.view
+	forView := n.forView
 	viewChangeRunning := n.viewChangeRunning
 	n.viewMu.RUnlock()
 	if viewChangeRunning {
@@ -711,9 +723,13 @@ func (n *Node) HandleCommit(commitMsg core.CommitMsg) {
 			})
 			n.log.Info("Buffered Commit for future view %d seq %d while current view is %d", commitMsg.View, commitMsg.SeqNum, view)
 			return
+		} else if commitMsg.View < view {
+			n.log.Info("Received Commit for past view %d seq %d while current view is %d, ignoring", commitMsg.View, commitMsg.SeqNum, view)
+		} else {
+			n.log.Info("Received Commit for current view %d (equal views) seq %d but currently in view change, ignoring and for view is %d", commitMsg.View, commitMsg.SeqNum, forView)
 		}
 		// n.viewMu.RUnlock()
-		n.log.Test("Received Commit for view %d seq %d but currently in view change, ignoring", commitMsg.View, commitMsg.SeqNum)
+
 		return
 	}
 	n.log.Test("Received Commit for view %d seq %d", commitMsg.View, commitMsg.SeqNum)
@@ -972,11 +988,11 @@ func (n *Node) replayBufferedMessagesForView(view int64) {
 	for _, msg := range buffered {
 		switch msg.kind {
 		case bufferedPrePrepare: //maybe async them
-			n.HandlePrePrepare(msg.preprepare, msg.signature)
+			go n.HandlePrePrepare(msg.preprepare, msg.signature)
 		case bufferedPrepare:
-			n.HandlePrepare(msg.prepare, msg.signature)
+			go n.HandlePrepare(msg.prepare, msg.signature)
 		case bufferedCommit:
-			n.HandleCommit(msg.commit)
+			go n.HandleCommit(msg.commit)
 		}
 	}
 }
@@ -1259,7 +1275,7 @@ func verifyOSet(Ocreated map[int64]core.PreprepareMsgSig, Oreceived []core.Prepr
 
 func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	n.viewMu.Lock()
-	n.log.Test("Received new view message for view %d from leader %d and my current view is %d and my for view is %d", newViewMsg.NewViewNumber, newViewMsg.From, n.view, n.forView)
+	n.log.Info("Received new view message for view %d from leader %d and my current view is %d and my for view is %d", newViewMsg.NewViewNumber, newViewMsg.From, n.view, n.forView)
 
 	if newViewMsg.NewViewNumber < n.view {
 		n.viewMu.Unlock()
@@ -1276,13 +1292,16 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 		n.viewMu.Unlock()
 		return
 	}
-	Oset, _ := n.createOReplica(newViewMsg.ViewChangeLog, newViewMsg.NewViewNumber)
+	Oset, maxSeq := n.createOReplica(newViewMsg.ViewChangeLog, newViewMsg.NewViewNumber)
+
 	verifiedOsets := verifyOSet(Oset, newViewMsg.PreprepareLog)
 	if !verifiedOsets {
 		n.log.Error("O set verification failed for new view message for view %d", newViewMsg.NewViewNumber)
 		n.viewMu.Unlock()
 		return
 	}
+	n.preprepareSeqNumber.Store(maxSeq)
+	n.periodInterval = maxSeq + n.cfg.Period
 	n.view = newViewMsg.NewViewNumber
 	n.forView = newViewMsg.NewViewNumber
 	n.leaderId = newViewMsg.From
@@ -1295,9 +1314,9 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 		lastexe := n.lastExecuted //locking check
 		n.executionMu.Unlock()
 		n.throughputMu.Lock()
-		n.throughputIntervalStart = time.Now().Add(5 * time.Second)
+		n.throughputIntervalStart = time.Now().Add(50 * time.Millisecond)
 		n.throughputIntervalStartSeq = lastexe
-		maxRecentThroughput := n.maxRecentViewThroughputLocked(n.view)
+		maxRecentThroughput := n.maxRecentViewFinalThroughputLocked(n.view)
 		n.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput
 		n.log.Info("Max recent throughput for new view %d is %.2f; target throughput set to %.2f", n.view, maxRecentThroughput, n.targetThroughput)
 		n.throughputMu.Unlock()
@@ -1315,7 +1334,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	}
 	replayView := n.view
 	n.viewMu.Unlock()
-
+	go n.sendLeaderIdUpdate(n.leaderId)
 	n.pbftTimerManager.forceResetPBFTTimer()
 	n.replayBufferedMessagesForView(replayView)
 }
@@ -1481,9 +1500,9 @@ func (n *Node) newView() {
 		lastexe := n.lastExecuted //locking check
 		n.executionMu.Unlock()
 		n.throughputMu.Lock()
-		n.throughputIntervalStart = time.Now().Add(5 * time.Second)
+		n.throughputIntervalStart = time.Now().Add(50 * time.Millisecond)
 		n.throughputIntervalStartSeq = lastexe
-		maxRecentThroughput := n.maxRecentViewThroughputLocked(n.view)
+		maxRecentThroughput := n.maxRecentViewFinalThroughputLocked(n.view)
 		n.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput
 		n.log.Info("Max recent throughput for new view %d is %.2f; target throughput set to %.2f", n.view, maxRecentThroughput, n.targetThroughput)
 		n.throughputMu.Unlock()
@@ -1492,6 +1511,7 @@ func (n *Node) newView() {
 	O, maxSeq := n.createO(n.viewChangeMsgsLog[n.view], n.view, oldView)
 	n.log.Info("Created O with maxSeq %d for new view %d at primary and last stable checkpoint seq is %d", maxSeq, n.view, n.lastStableCheckpoint.seq)
 	n.preprepareSeqNumber.Store(maxSeq)
+	n.periodInterval = maxSeq + n.cfg.Period
 	if len(O) == 0 {
 		n.log.Info("O is empty for new view %d at primary, maxSeq is %d", n.view, maxSeq)
 	}
@@ -1511,19 +1531,21 @@ func (n *Node) newView() {
 		// slot.prePrepare.View = preprepareMsg.PreprepareMsgMini.View
 		slot.prePrepareSig = preprepareMsg.Signature
 		// slot.prePrepare.DigestClientMsg = preprepareMsg.PreprepareMsgMini.DigestClientMsg
-		clientMsg, exists, executed := n.pool.Get(preprepareMsg.PreprepareMsgMini.DigestClientMsg)
-		if exists {
-			slot.prePrepare.ClientMsg = clientMsg
-			slot.missingData = false
-		} else if !exists && !executed {
-			n.log.Error("Primary missing slot at new view for seq %d", preprepareMsg.PreprepareMsgMini.SeqNum)
-			slot.missingData = true
-		} else if !exists && executed {
+		if preprepareMsg.PreprepareMsgMini.DigestClientMsg != [32]byte{} {
+			clientMsg, exists, executed := n.pool.Get(preprepareMsg.PreprepareMsgMini.DigestClientMsg)
+			if exists {
+				slot.prePrepare.ClientMsg = clientMsg
+				slot.missingData = false
+			} else if !exists && !executed {
+				n.log.Error("Primary missing slot at new view for seq %d", preprepareMsg.PreprepareMsgMini.SeqNum)
+				slot.missingData = true
+			} else if !exists && executed {
+				slot.missingData = false
+			}
+			// fail safe for
+			slot.prePrepare.ClientMsg = preprepareMsg.ActualMsg
 			slot.missingData = false
 		}
-		// fail safe for
-		slot.prePrepare.ClientMsg = preprepareMsg.ActualMsg
-		slot.missingData = false
 		slot.mu.Unlock()
 
 	}
@@ -1548,7 +1570,7 @@ func (n *Node) newView() {
 	}
 	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
 	// should strart pbft timer
-	go n.sendLeaderIdUpdate(n.leaderId)
+
 	go n.broadcastNewView(newViewMsg, signature)
 	n.log.Info("Entering replay from primary might not need at primary")
 	go n.replayBufferedMessagesForView(n.view)

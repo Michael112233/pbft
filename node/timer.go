@@ -57,12 +57,12 @@ func NewTimerManager(log *logger.Logger) *TimerManager {
 
 func (tm *TimerManager) startNewViewTimer(n *Node) {
 	if !tm.newViewTimerOn.CompareAndSwap(false, true) {
-		tm.log.Info("new-view timer already started")
+		tm.log.Time("new-view timer already started")
 		return
 	}
 
 	epoch := tm.newViewTimerEpoch.Add(1)
-	tm.log.Info("new-view timer started")
+	tm.log.Time("new-view timer started")
 	go func(localEpoch int64) {
 		timer := time.NewTimer(tm.NextPBFTTimeoutLocked())
 		defer timer.Stop()
@@ -87,7 +87,7 @@ func (tm *TimerManager) startNewViewTimer(n *Node) {
 		n.viewMu.Lock()
 		tm.log.Error("New-view timer expired for view %d; triggering dummy view-change", n.forView)
 		if !n.peakTpsTest || false {
-			tm.log.Info("Triggering dummy view-change due to new-view timer expiry")
+			tm.log.Time("Triggering dummy view-change due to new-view timer expiry")
 			n.handleViewChangeTimeoutDummy()
 		}
 		n.viewMu.Unlock()
@@ -96,12 +96,12 @@ func (tm *TimerManager) startNewViewTimer(n *Node) {
 
 func (tm *TimerManager) startPeriodicElectionTimer(n *Node) {
 	if !tm.periodicElectionTimerOn.CompareAndSwap(false, true) {
-		tm.log.Info("periodic election timer already started")
+		tm.log.Time("periodic election timer already started")
 		return
 	}
 
 	epoch := tm.periodicElectionTimerEpoch.Add(1)
-	tm.log.Info("periodic election timer started")
+	tm.log.Time("periodic election timer started")
 	go func(localEpoch int64) {
 		timeout := time.Duration(rand.Int64N(500)+1) * time.Millisecond
 		timer := time.NewTimer(timeout)
@@ -127,7 +127,7 @@ func (tm *TimerManager) startPeriodicElectionTimer(n *Node) {
 		n.viewMu.Lock()
 		tm.log.Error("Periodic election timer expired for view %d; triggering dummy view-change", n.forView)
 		if !n.peakTpsTest || true {
-			tm.log.Info("Triggering dummy view-change due to periodic election timer expiry")
+			tm.log.Time("Triggering dummy view-change due to periodic election timer expiry")
 			n.handleViewChangeTimeoutDummy()
 		}
 		n.viewMu.Unlock()
@@ -135,18 +135,18 @@ func (tm *TimerManager) startPeriodicElectionTimer(n *Node) {
 }
 
 func (tm *TimerManager) stopNewViewTimer() {
-	tm.log.Info("new-view timer stopped")
+	tm.log.Time("new-view timer stopped")
 	tm.newViewTimerEpoch.Add(1)
 	tm.newViewTimerOn.Store(false)
 }
 
 func (tm *TimerManager) stopPeriodicElectionTimer() {
-	tm.log.Info("periodic election timer stopped")
+	tm.log.Time("periodic election timer stopped")
 	tm.periodicElectionTimerEpoch.Add(1)
 	tm.periodicElectionTimerOn.Store(false)
 }
 func (tm *TimerManager) pbftTimerWorker(n *Node) {
-	tm.log.Info("PBFT timer worker started")
+	tm.log.Time("PBFT timer worker started")
 	tm.node_ref = n
 	for {
 		select {
@@ -164,7 +164,7 @@ func (tm *TimerManager) trackPreprepareRequest() {
 	defer tm.lock.Unlock()
 
 	if !tm.pbftTimerInitiated {
-		tm.log.Info("Starting PBFT timer for new pending request")
+		tm.log.Time("Starting PBFT timer for new pending request")
 		tm.startPBFTTimerLocked()
 	}
 }
@@ -174,7 +174,7 @@ func (tm *TimerManager) forceResetPBFTTimer() {
 	defer tm.lock.Unlock()
 
 	if tm.pbftTimerInitiated {
-		tm.log.Info("Force resetting PBFT timer")
+		tm.log.Time("Force resetting PBFT timer")
 		tm.resetPBFTTimerLocked()
 	}
 }
@@ -183,14 +183,14 @@ func (tm *TimerManager) forceStopPBFTTimer() {
 	defer tm.lock.Unlock()
 
 	if tm.pbftTimerInitiated {
-		tm.log.Info("Force stopping PBFT timer")
+		tm.log.Time("Force stopping PBFT timer")
 		tm.stopPBFTTimerLocked()
 	}
 }
 func (tm *TimerManager) onRequestExecuted(msg core.ClientMsg, n *Node) {
 
 	if n.pool.PendingRequests() == 0 { // imp in case gap in client req then for new req premature timeout
-		tm.log.Info("No more pending requests; stopping PBFT timer at execute")
+		tm.log.Time("No more pending requests; stopping PBFT timer at execute")
 		tm.lock.Lock()
 		tm.stopPBFTTimerLocked()
 		tm.lock.Unlock()
@@ -276,23 +276,25 @@ func (tm *TimerManager) handlePBFTTimerExpiry(n *Node) {
 	tm.lock.Lock()
 	lenOfPending := n.pool.PendingRequests()
 	if lenOfPending == 0 {
-		tm.log.Info("No pending requests at timer expiry; no dummy trigger needed")
+		tm.log.Time("No pending requests at timer expiry; no dummy trigger needed")
 		tm.stopPBFTTimerLocked()
 		tm.lock.Unlock()
 		return
 	}
 	tm.pbftTimerInitiated = false
 	tm.lock.Unlock()
-	tm.log.Info("Pending requests found at timer expiry: %d; triggering dummy view-change", lenOfPending)
+	tm.log.Time("Pending requests found at timer expiry: %d; triggering dummy view-change", lenOfPending)
 	n.viewMu.Lock()
 	if !n.viewChangeRunning {
 
 		if !n.peakTpsTest {
-			n.log.Info("Triggering dummy view-change due to PBFT timer expiry")
+			n.log.Time("Triggering dummy view-change due to PBFT timer expiry")
 			n.handleViewChangeTimeoutDummy()
+		} else {
+			tm.log.Time("PBFT timer expired but peak TPS test is enabled; not triggering dummy view-change")
 		}
 	} else {
-		tm.log.Info("View change already running at timer expiry; not triggering another dummy view-change")
+		tm.log.Time("View change already running at timer expiry; not triggering another dummy view-change")
 	}
 	n.viewMu.Unlock()
 }

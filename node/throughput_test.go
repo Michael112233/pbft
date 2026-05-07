@@ -135,6 +135,36 @@ func TestMaxRecentViewThroughputLockedReturnsDefaultWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestMaxRecentViewFinalThroughputLockedUsesOnlyLastValuePerView(t *testing.T) {
+	n, _ := newTestNodeWithKeys(t, 1, 4)
+	n.checkpointThroughputs[1] = []float64{100}
+	n.checkpointThroughputs[2] = []float64{7, 8}
+	n.checkpointThroughputs[3] = []float64{50, 12}
+	n.checkpointThroughputs[4] = []float64{9}
+	n.checkpointThroughputs[5] = []float64{11, 10}
+	n.checkpointThroughputs[6] = []float64{99}
+
+	n.throughputMu.Lock()
+	got := n.maxRecentViewFinalThroughputLocked(6)
+	n.throughputMu.Unlock()
+
+	if got != 12 {
+		t.Fatalf("max recent final throughput = %f, want 12", got)
+	}
+}
+
+func TestMaxRecentViewFinalThroughputLockedReturnsDefaultWhenEmpty(t *testing.T) {
+	n, _ := newTestNodeWithKeys(t, 1, 4)
+
+	n.throughputMu.Lock()
+	got := n.maxRecentViewFinalThroughputLocked(2)
+	n.throughputMu.Unlock()
+
+	if got != defaultTargetThroughput {
+		t.Fatalf("max recent final throughput = %f, want %f", got, defaultTargetThroughput)
+	}
+}
+
 func TestHandleNewViewSetsTargetThroughputFromRecentViews(t *testing.T) {
 	n, _ := newTestNodeWithKeys(t, 1, 4)
 	n.lastExecuted = 42

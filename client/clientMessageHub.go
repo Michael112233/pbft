@@ -328,7 +328,7 @@ func (hub *ClientMessageHub) Send(msgType string, from string, to string, msg in
 		return
 	}
 
-	hub.injectArtificialLatency(msgType, from, to)
+	// hub.injectArtificialLatency(msgType, from, to)
 
 	if err := hub.sendToNodeStream(to, env); err != nil {
 		hub.log.Error("stream send failed. msgType=%s target=%s err=%v", msgType, to, err)

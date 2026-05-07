@@ -94,7 +94,7 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 	if viewChange.ViewNumber <= n.view {
 		return
 	}
-	n.log.Info("verifying vc in round robin vc handler")
+	n.log.Info("received vc as round robin type from node %d for view %d", viewChange.From, viewChange.ViewNumber)
 	verifiedVC := n.verifyVC(viewChange)
 	if !verifiedVC {
 		return

@@ -38,3 +38,9 @@ logs/
 
 # md files
 *.md
+
+# json
+*.json
+
+# pem
+keys/*.pem

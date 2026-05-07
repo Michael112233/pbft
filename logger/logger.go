@@ -13,6 +13,7 @@ type Logger struct {
 	warnLogger      *log.Logger
 	errorLogger     *log.Logger
 	testLogger      *log.Logger
+	timeLogger      *log.Logger
 	timestampFormat string
 }
 
@@ -65,6 +66,7 @@ func NewLogger(nodeID int, role string) *Logger {
 		debugLogger: log.New(file, "[DEBUG] ", 0),
 		warnLogger:  log.New(file, "[WARN] ", 0),
 		errorLogger: log.New(file, "[ERROR] ", 0),
+		timeLogger:  log.New(file, "[TIME] ", 0),
 		testLogger:  log.New(testFile, "[TEST] ", 0),
 	}
 
@@ -114,6 +116,13 @@ func (l *Logger) Error(format string, args ...interface{}) {
 	if l.errorLogger != nil {
 		message := l.formatLogMessage("[ERROR]", format, args...)
 		l.errorLogger.Print(message)
+	}
+}
+
+func (l *Logger) Time(format string, args ...interface{}) {
+	if l.timeLogger != nil {
+		message := l.formatLogMessage("[TIME]", format, args...)
+		l.timeLogger.Print(message)
 	}
 }
 

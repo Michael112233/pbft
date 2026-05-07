@@ -1,6 +1,7 @@
 package node
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/michael112233/pbft/core"
@@ -23,7 +24,7 @@ type executionPostAction struct {
 }
 
 func (n *Node) queueCommittedExecution(seq int64, slot *consensusSlot, msg core.ClientMsg, noOp bool, missingData bool) {
-	postActions, periodicTrigger, checkpointTrigger, performanceTrigger, checkpointDigest, checkpointSeq := n.collectReadyExecutions(seq, slot, msg, noOp, missingData)
+	postActions, periodicTrigger, periodInterval, checkpointTrigger, performanceTrigger, checkpointDigest, checkpointSeq := n.collectReadyExecutions(seq, slot, msg, noOp, missingData)
 	for _, action := range postActions {
 		n.log.Test("Executed request for seq %d success=%t", action.seq, action.result.Success)
 		if !action.noOp {
@@ -36,7 +37,7 @@ func (n *Node) queueCommittedExecution(seq int64, slot *consensusSlot, msg core.
 		n.log.Info("Both periodic and checkpoint trigger checkpointDigest=%x", checkpointDigest)
 	}
 	if periodicTrigger && n.periodic {
-		go n.periodicVC()
+		go n.periodicVC(periodInterval)
 	}
 	if checkpointTrigger {
 		n.log.Info("Checkpoint trigger for seq %d with digest %x", checkpointSeq, checkpointDigest)
@@ -48,12 +49,16 @@ func (n *Node) queueCommittedExecution(seq int64, slot *consensusSlot, msg core.
 
 }
 
-func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.ClientMsg, noOp bool, missingData bool) ([]executionPostAction, bool, bool, bool, [32]byte, int64) {
+func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.ClientMsg, noOp bool, missingData bool) ([]executionPostAction, bool, int64, bool, bool, [32]byte, int64) {
+	n.viewMu.RLock()
+	periodInterval := n.periodInterval
+	view := n.view
+	n.viewMu.RUnlock()
 	n.executionMu.Lock()
 	defer n.executionMu.Unlock()
 
 	if seq <= n.lastExecuted {
-		return nil, false, false, false, [32]byte{}, 0
+		return nil, false, periodInterval, false, false, [32]byte{}, 0
 	}
 	if _, exists := n.pendingExecutions[seq]; !exists {
 		n.pendingExecutions[seq] = pendingExecution{
@@ -99,8 +104,11 @@ func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.C
 		result := execution.Result{}
 		if !pending.noOp {
 			result = n.executionMachine.Apply(pending.msg)
+			if !result.Success {
+				n.log.Error("Execution failed for seq %d with digest %x: %s", nextSeq, pending.slot.prePrepare.DigestClientMsg, result.Error)
+			}
 		} else {
-			n.log.Error("noop in execution for seq %d messes up periodic trigger", nextSeq)
+			n.log.Info("noop in execution for seq %d messes up periodic trigger", nextSeq)
 			n.noOpsExecuted.Add(1)
 		}
 
@@ -111,10 +119,10 @@ func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.C
 
 		n.lastExecuted = nextSeq
 		if (n.lastExecuted == 1 || n.lastExecuted%CHECKPOINT_INTERVAL == 0) && n.cfg.Performance {
-			performanceTrigger = n.observeExecutedSlotForThroughput(n.lastExecuted, time.Now())
+			performanceTrigger = n.observeExecutedSlotForThroughput(n.lastExecuted, time.Now(), view)
 		}
 		// period := int64(9*CHECKPOINT_INTERVAL) / 2
-		if n.lastExecuted%n.cfg.Period == 0 {
+		if n.lastExecuted == periodInterval {
 			periodicTrigger = true
 		}
 
@@ -143,21 +151,15 @@ func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.C
 		})
 	}
 
-	return postActions, periodicTrigger, checkpointTrigger, performanceTrigger, checkpointDigest, checkpointSeq
+	return postActions, periodicTrigger, periodInterval, checkpointTrigger, performanceTrigger, checkpointDigest, checkpointSeq
 }
 
-func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time) bool {
+func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view int64) bool {
 	if seq <= 0 {
 		return false
 	}
 
-	var view int64
 	isCheckpointBoundary := seq%CHECKPOINT_INTERVAL == 0
-	if isCheckpointBoundary {
-		n.viewMu.RLock()
-		view = n.view
-		n.viewMu.RUnlock()
-	}
 
 	n.throughputMu.Lock()
 	defer n.throughputMu.Unlock()
@@ -188,8 +190,8 @@ func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time) bool {
 	}
 
 	n.checkpointThroughputs[view] = append(n.checkpointThroughputs[view], throughput)
-	n.throughputIntervalStart = now
-	n.throughputIntervalStartSeq = seq
+	// n.throughputIntervalStart = now
+	// n.throughputIntervalStartSeq = seq
 	if n.log != nil {
 		n.log.Info("Checkpoint throughput view=%d seq=%d throughput=%.2f slots_per_sec", view, seq, throughput)
 	}
@@ -216,6 +218,36 @@ func (n *Node) maxRecentViewThroughputLocked(currentView int64) float64 {
 	if !found {
 		return defaultTargetThroughput
 	}
+	return maxThroughput
+}
+
+func (n *Node) maxRecentViewFinalThroughputLocked(currentView int64) float64 {
+	window := int64(3*n.fNodes + 1)
+	startView := currentView - window
+	if startView < 1 {
+		startView = 1
+	}
+
+	maxThroughput := 0.0
+	found := false
+	concatStr := ""
+	for view := startView; view < currentView; view++ {
+		throughputs := n.checkpointThroughputs[view]
+		if len(throughputs) == 0 {
+			concatStr += fmt.Sprintf("view %d: no throughputs recorded; ", view)
+			continue
+		}
+		throughput := throughputs[len(throughputs)-1]
+		concatStr += fmt.Sprintf("view %d: final checkpoint throughput=%.2f; ", view, throughput)
+		if !found || throughput > maxThroughput {
+			maxThroughput = throughput
+			found = true
+		}
+	}
+	if !found {
+		return defaultTargetThroughput
+	}
+	n.log.Info("Recent checkpoint throughputs for views [%d, %d): %s", startView, currentView, concatStr)
 	return maxThroughput
 }
 
