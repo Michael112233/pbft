@@ -71,8 +71,8 @@ func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.C
 
 	postActions := make([]executionPostAction, 0)
 	periodicTrigger := false
-	checkpointTrigger := false
-	performanceTrigger := false
+	checkpointTrigger := 0
+	performanceTrigger := 0
 	var checkpointDigest [32]byte
 	var checkpointSeq int64
 	for {
@@ -119,7 +119,10 @@ func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.C
 
 		n.lastExecuted = nextSeq
 		if (n.lastExecuted == 1 || n.lastExecuted%CHECKPOINT_INTERVAL == 0) && n.cfg.Performance {
-			performanceTrigger = n.observeExecutedSlotForThroughput(n.lastExecuted, time.Now(), view)
+			performanceTriggert := n.observeExecutedSlotForThroughput(n.lastExecuted, time.Now(), view)
+			if performanceTriggert {
+				performanceTrigger += 1
+			}
 		}
 		// period := int64(9*CHECKPOINT_INTERVAL) / 2
 		if n.lastExecuted == periodInterval {
@@ -137,7 +140,7 @@ func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.C
 					Digest: checkpointDigest,
 					From:   n.GetNodeID(),
 				}, true)
-				checkpointTrigger = true
+				checkpointTrigger += 1
 				checkpointSeq = nextSeq
 			}
 
@@ -150,8 +153,15 @@ func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.C
 			noOp:   pending.noOp,
 		})
 	}
-
-	return postActions, periodicTrigger, periodInterval, checkpointTrigger, performanceTrigger, checkpointDigest, checkpointSeq
+	checkpointTriggered := checkpointTrigger > 0
+	performanceTriggered := performanceTrigger > 0
+	if checkpointTrigger > 1 {
+		n.log.Info("Multiple checkpoint triggers for seq %d, checkpointTrigger count %d", checkpointSeq, checkpointTrigger)
+	}
+	if performanceTrigger > 1 {
+		n.log.Info("Multiple performance triggers for seq %d, performanceTrigger count %d", checkpointSeq, performanceTrigger)
+	}
+	return postActions, periodicTrigger, periodInterval, checkpointTriggered, performanceTriggered, checkpointDigest, checkpointSeq
 }
 
 func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view int64) bool {
@@ -178,15 +188,26 @@ func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view i
 	throughput := 0.0
 	if elapsedSeconds > 0 {
 		throughput = float64(executedSlots) / elapsedSeconds
+		if throughput < 100 {
+			n.log.Info(" Grace Period as throughput less than 100 for view %d and seq %d is %.2f with elapsed time %.2f seconds, executed slots %d", view, seq, throughput, elapsedSeconds, executedSlots)
+			return false
+		}
 	} else { // grace period
-		n.log.Info("In grace period after VC, not measuring throughput for seq %d", seq)
+		n.log.Info("In grace period as elapsed time is zero for view %d and seq %d, executed slots %d", view, seq, executedSlots)
 		return false
 
 	}
 
 	belowTarget := throughput < n.targetThroughput
+	if belowTarget {
+		n.log.Info("Throughput %.2f is below target %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, n.targetThroughput, view, seq, elapsedSeconds, executedSlots)
+	} else {
+		n.log.Info("Throughput %.2f is above target %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, n.targetThroughput, view, seq, elapsedSeconds, executedSlots)
+	}
 	if throughput > n.targetThroughput {
+		oldtput := n.targetThroughput
 		n.targetThroughput *= 1.01
+		n.log.Info("Increasing target throughput from %.2f to %.2f for view %d as observed throughput %.2f is above target", oldtput, n.targetThroughput, view, throughput)
 	}
 
 	n.checkpointThroughputs[view] = append(n.checkpointThroughputs[view], throughput)

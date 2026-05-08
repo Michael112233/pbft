@@ -21,9 +21,9 @@ import (
 const (
 	defaultPBFTRequestTimeout          = 5 * time.Second
 	defaultPBFTRequestTimeoutJitterMax = 500 * time.Millisecond
-	CHECKPOINT_INTERVAL                = 15
-	defaultTargetThroughput            = 1000.0
-	targetThroughputMaxFactor          = 0.90
+	CHECKPOINT_INTERVAL                = 250
+	defaultTargetThroughput            = 160
+	targetThroughputMaxFactor          = 0.80
 )
 
 type clientRequestKey struct {
@@ -1314,7 +1314,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 		lastexe := n.lastExecuted //locking check
 		n.executionMu.Unlock()
 		n.throughputMu.Lock()
-		n.throughputIntervalStart = time.Now().Add(50 * time.Millisecond)
+		n.throughputIntervalStart = time.Now().Add(500 * time.Millisecond)
 		n.throughputIntervalStartSeq = lastexe
 		maxRecentThroughput := n.maxRecentViewFinalThroughputLocked(n.view)
 		n.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput
@@ -1500,7 +1500,7 @@ func (n *Node) newView() {
 		lastexe := n.lastExecuted //locking check
 		n.executionMu.Unlock()
 		n.throughputMu.Lock()
-		n.throughputIntervalStart = time.Now().Add(50 * time.Millisecond)
+		n.throughputIntervalStart = time.Now().Add(500 * time.Millisecond)
 		n.throughputIntervalStartSeq = lastexe
 		maxRecentThroughput := n.maxRecentViewFinalThroughputLocked(n.view)
 		n.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput

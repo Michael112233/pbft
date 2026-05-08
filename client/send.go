@@ -29,7 +29,7 @@ func (c *Client) InjectTxs() {
 		defer c.WaitGroup.Done()
 
 		// Create signed ClientMsgSignature array for all transactions
-		txns := GenerateDummyTxs(int(c.config.Period) * 20)
+		txns := GenerateDummyTxs(int(c.config.Period) * 10)
 		signedMsgs := make([]core.ClientMsgSignature, len(txns))
 		for i, tx := range txns {
 			clientMsg := core.ClientMsg{
@@ -56,9 +56,9 @@ func (c *Client) InjectTxs() {
 		var injectTxs []core.ClientMsgSignature
 		c.TransactionManager.Start()
 
-		for i := int64(0); (i+1)*int64(c.config.Period) <= int64(len(txns)); i++ {
+		for i := int64(0); (i+1)*int64(c.config.InjectSpeed) <= int64(len(txns)); i++ {
 
-			injectTxs = signedMsgs[i*int64(c.config.Period) : (i+1)*int64(c.config.Period)] //c.txs[i*c.config.InjectSpeed : (i+1)*c.config.InjectSpeed]
+			injectTxs = signedMsgs[i*int64(c.config.InjectSpeed) : (i+1)*int64(c.config.InjectSpeed)]
 
 			// c.TransactionManager.StartTimer()
 			go c.TransactionManager.AddTransaction(injectTxs)
