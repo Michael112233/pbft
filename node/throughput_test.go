@@ -12,10 +12,10 @@ func TestCheckpointThroughputRecordsBoundaryAndResetsInterval(t *testing.T) {
 	n, _ := newTestNodeWithKeys(t, 1, 4)
 	start := time.Unix(100, 0)
 
-	if belowTarget := n.observeExecutedSlotForThroughput(1, start); belowTarget {
+	if belowTarget := n.observeExecutedSlotForThroughput(1, start, 1, 1); belowTarget {
 		t.Fatal("seq 1 initialization returned below target")
 	}
-	if belowTarget := n.observeExecutedSlotForThroughput(CHECKPOINT_INTERVAL, start.Add(2*time.Second)); !belowTarget {
+	if belowTarget := n.observeExecutedSlotForThroughput(CHECKPOINT_INTERVAL, start.Add(2*time.Second), 1, 1); !belowTarget {
 		t.Fatal("checkpoint throughput should be below default target")
 	}
 
@@ -37,7 +37,7 @@ func TestCheckpointThroughputRecordsBoundaryAndResetsInterval(t *testing.T) {
 		t.Fatalf("throughput interval start seq = %d, want %d", n.throughputIntervalStartSeq, CHECKPOINT_INTERVAL)
 	}
 	if n.targetThroughput != defaultTargetThroughput {
-		t.Fatalf("target throughput = %f, want %f", n.targetThroughput, defaultTargetThroughput)
+		t.Fatalf("target throughput = %f, want %f", n.targetThroughput, float64(defaultTargetThroughput))
 	}
 }
 
@@ -45,15 +45,15 @@ func TestCheckpointThroughputGroupsByCurrentView(t *testing.T) {
 	n, _ := newTestNodeWithKeys(t, 1, 4)
 	start := time.Unix(100, 0)
 
-	n.observeExecutedSlotForThroughput(1, start)
-	n.observeExecutedSlotForThroughput(CHECKPOINT_INTERVAL, start.Add(2*time.Second))
+	n.observeExecutedSlotForThroughput(1, start, 1, 1)
+	n.observeExecutedSlotForThroughput(CHECKPOINT_INTERVAL, start.Add(2*time.Second), 1, 1)
 
 	n.viewMu.Lock()
 	n.view = 2
 	n.viewMu.Unlock()
 
-	n.observeExecutedSlotForThroughput(CHECKPOINT_INTERVAL+1, start.Add(3*time.Second))
-	n.observeExecutedSlotForThroughput(2*CHECKPOINT_INTERVAL, start.Add(7*time.Second))
+	n.observeExecutedSlotForThroughput(CHECKPOINT_INTERVAL+1, start.Add(3*time.Second), 2, 2)
+	n.observeExecutedSlotForThroughput(2*CHECKPOINT_INTERVAL, start.Add(7*time.Second), 2, 2)
 
 	got := n.CheckpointThroughputsSnapshot()
 	if len(got[1]) != 1 {
@@ -74,8 +74,8 @@ func TestCheckpointThroughputsSnapshotIsDeepCopy(t *testing.T) {
 	n, _ := newTestNodeWithKeys(t, 1, 4)
 	start := time.Unix(100, 0)
 
-	n.observeExecutedSlotForThroughput(1, start)
-	n.observeExecutedSlotForThroughput(CHECKPOINT_INTERVAL, start.Add(2*time.Second))
+	n.observeExecutedSlotForThroughput(1, start, 1, 1)
+	n.observeExecutedSlotForThroughput(CHECKPOINT_INTERVAL, start.Add(2*time.Second), 1, 1)
 
 	snapshot := n.CheckpointThroughputsSnapshot()
 	snapshot[1][0] = 99
@@ -94,10 +94,10 @@ func TestCheckpointThroughputIncreasesTargetWhenAboveTarget(t *testing.T) {
 	n, _ := newTestNodeWithKeys(t, 1, 4)
 	start := time.Unix(100, 0)
 
-	n.observeExecutedSlotForThroughput(1, start)
+	n.observeExecutedSlotForThroughput(1, start, 1, 1)
 	n.targetThroughput = 9
 
-	if belowTarget := n.observeExecutedSlotForThroughput(CHECKPOINT_INTERVAL, start.Add(2*time.Second)); belowTarget {
+	if belowTarget := n.observeExecutedSlotForThroughput(CHECKPOINT_INTERVAL, start.Add(2*time.Second), 1, 1); belowTarget {
 		t.Fatal("checkpoint throughput should not be below target")
 	}
 	if n.targetThroughput != 9.09 {
@@ -131,7 +131,7 @@ func TestMaxRecentViewThroughputLockedReturnsDefaultWhenEmpty(t *testing.T) {
 	n.throughputMu.Unlock()
 
 	if got != defaultTargetThroughput {
-		t.Fatalf("max recent throughput = %f, want %f", got, defaultTargetThroughput)
+		t.Fatalf("max recent throughput = %f, want %f", got, float64(defaultTargetThroughput))
 	}
 }
 
@@ -161,7 +161,7 @@ func TestMaxRecentViewFinalThroughputLockedReturnsDefaultWhenEmpty(t *testing.T)
 	n.throughputMu.Unlock()
 
 	if got != defaultTargetThroughput {
-		t.Fatalf("max recent final throughput = %f, want %f", got, defaultTargetThroughput)
+		t.Fatalf("max recent final throughput = %f, want %f", got, float64(defaultTargetThroughput))
 	}
 }
 

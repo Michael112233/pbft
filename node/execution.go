@@ -53,6 +53,7 @@ func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.C
 	n.viewMu.RLock()
 	periodInterval := n.periodInterval
 	view := n.view
+	leaderId := n.leaderId
 	n.viewMu.RUnlock()
 	n.executionMu.Lock()
 	defer n.executionMu.Unlock()
@@ -119,7 +120,7 @@ func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.C
 
 		n.lastExecuted = nextSeq
 		if (n.lastExecuted == 1 || n.lastExecuted%CHECKPOINT_INTERVAL == 0) && n.cfg.Performance {
-			performanceTriggert := n.observeExecutedSlotForThroughput(n.lastExecuted, time.Now(), view)
+			performanceTriggert := n.observeExecutedSlotForThroughput(n.lastExecuted, time.Now(), view, leaderId)
 			if performanceTriggert {
 				performanceTrigger += 1
 			}
@@ -164,7 +165,7 @@ func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.C
 	return postActions, periodicTrigger, periodInterval, checkpointTriggered, performanceTriggered, checkpointDigest, checkpointSeq
 }
 
-func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view int64) bool {
+func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view int64, leaderId int) bool {
 	if seq <= 0 {
 		return false
 	}
@@ -188,6 +189,15 @@ func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view i
 	throughput := 0.0
 	if elapsedSeconds > 0 {
 		throughput = float64(executedSlots) / elapsedSeconds
+		n.emitThroughputMeasurement(throughputMeasurement{
+			MeasurementTime: now,
+			View:            view,
+			LeaderID:        leaderId,
+			Seq:             seq,
+			ExecutedSlots:   executedSlots,
+			ElapsedSeconds:  elapsedSeconds,
+			Throughput:      throughput,
+		})
 		if throughput < 100 {
 			n.log.Info(" Grace Period as throughput less than 100 for view %d and seq %d is %.2f with elapsed time %.2f seconds, executed slots %d", view, seq, throughput, elapsedSeconds, executedSlots)
 			return false

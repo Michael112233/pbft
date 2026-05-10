@@ -100,16 +100,22 @@ type Node struct {
 	checkpoints          map[checkpoint]checkpointVotes
 	lastStableCheckpoint checkpoint
 
-	throughputMu               sync.RWMutex
-	checkpointThroughputs      map[int64][]float64
-	throughputIntervalStart    time.Time
-	throughputIntervalStartSeq int64
-	targetThroughput           float64
+	throughputMu                  sync.RWMutex
+	checkpointThroughputs         map[int64][]float64
+	throughputIntervalStart       time.Time
+	throughputIntervalStartSeq    int64
+	targetThroughput              float64
+	throughputMeasurementsChan    chan throughputMeasurement
+	throughputMeasurementsStop    chan struct{}
+	throughputMeasurementsDone    chan struct{}
+	throughputMeasurementsStarted atomic.Bool
+	throughputMeasurementsOnce    sync.Once
 
-	dead        bool
-	split       bool
-	periodic    bool
-	peakTpsTest bool
+	dead          bool
+	split         bool
+	periodic      bool
+	peakTpsTest   bool
+	proposalDelay bool
 }
 
 func NewNode(nodeID int, cfg *config.Config) *Node {
@@ -122,40 +128,47 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		log:        log,
 		messageHub: NewNodeMessageHub(),
 
-		encryptionKeyStore:       NewKeyStore(nodeID, cfg.NodeNum),
-		unverifiedClientMsgsChan: make(chan []core.ClientMsgSignature, 100), // buffer size can be tuned
-		verifiedClientMsgsChan:   make(chan core.ClientMsgSignature, 100),   // buffer size can be tuned
-		preprepareSem:            make(chan struct{}, 5000),
-		preprepareSeqNumber:      atomic.Int64{},
-		view:                     1,
-		forView:                  1,
-		vcType:                   cfg.LeaderTypeEnum,
-		leaderId:                 1,
-		leaderIdForView:          map[int64]int{1: 1},
-		consensusLog:             NewConsensusLog(),
-		viewChangeRunning:        false,
-		bufferedMsgs:             make([]bufferedConsensusMessage, 0),
-		fNodes:                   (int(cfg.NodeNum) - 1) / 3,
-		pbftTimerManager:         NewTimerManager(log),
-		viewChangeMsgsLog:        make(map[int64][]*core.ViewChangeMsgSig),
-		voteLog:                  make(map[int64][]int),
-		pool:                     NewPool(),
-		executionMachine:         execution.NewAccountStateMachine(),
-		pendingExecutions:        make(map[int64]pendingExecution),
-		checkpoints:              make(map[checkpoint]checkpointVotes),
-		lastStableCheckpoint:     checkpoint{seq: 0, digest: [32]byte{}},
-		checkpointThroughputs:    make(map[int64][]float64),
-		split:                    false,
-		dead:                     cfg.NodesDead[nodeID],
-		periodic:                 cfg.Periodic,
-		peakTpsTest:              cfg.PeakTpsTest,
-		periodInterval:           cfg.Period,
+		encryptionKeyStore:         NewKeyStore(nodeID, cfg.NodeNum),
+		unverifiedClientMsgsChan:   make(chan []core.ClientMsgSignature, 100), // buffer size can be tuned
+		verifiedClientMsgsChan:     make(chan core.ClientMsgSignature, 100),   // buffer size can be tuned
+		preprepareSem:              make(chan struct{}, 5000),
+		preprepareSeqNumber:        atomic.Int64{},
+		view:                       1,
+		forView:                    1,
+		vcType:                     cfg.LeaderTypeEnum,
+		leaderId:                   1,
+		leaderIdForView:            map[int64]int{1: 1},
+		consensusLog:               NewConsensusLog(),
+		viewChangeRunning:          false,
+		bufferedMsgs:               make([]bufferedConsensusMessage, 0),
+		fNodes:                     (int(cfg.NodeNum) - 1) / 3,
+		pbftTimerManager:           NewTimerManager(log),
+		viewChangeMsgsLog:          make(map[int64][]*core.ViewChangeMsgSig),
+		voteLog:                    make(map[int64][]int),
+		pool:                       NewPool(),
+		executionMachine:           execution.NewAccountStateMachine(),
+		pendingExecutions:          make(map[int64]pendingExecution),
+		checkpoints:                make(map[checkpoint]checkpointVotes),
+		lastStableCheckpoint:       checkpoint{seq: 0, digest: [32]byte{}},
+		checkpointThroughputs:      make(map[int64][]float64),
+		throughputMeasurementsChan: make(chan throughputMeasurement, throughputMeasurementBufferSize),
+		throughputMeasurementsStop: make(chan struct{}),
+		throughputMeasurementsDone: make(chan struct{}),
+		split:                      false,
+		dead:                       cfg.NodesDead[nodeID],
+		proposalDelay:              cfg.ProposalDelayNode == nodeID,
+		periodic:                   cfg.Periodic,
+		peakTpsTest:                cfg.PeakTpsTest,
+		periodInterval:             cfg.Period,
 	}
 }
 
 func (n *Node) Start() {
 	n.messageHub.Start(n, &sync.WaitGroup{})
 	// n.StartGarbageCollection()
+	if n.throughputMeasurementsStarted.CompareAndSwap(false, true) {
+		go n.throughputMeasurementCSVWriter()
+	}
 	go n.ClientSignatureVerifier()
 	go n.VerifiedClientMessageHandler()
 	if n.pbftTimerManager.pbftTimerStarted.CompareAndSwap(false, true) {
@@ -177,6 +190,12 @@ func (n *Node) Stop() {
 	n.pbftTimerManager.lock.Lock()
 	n.pbftTimerManager.stopPBFTTimerLocked()
 	n.pbftTimerManager.lock.Unlock()
+	n.throughputMeasurementsOnce.Do(func() {
+		close(n.throughputMeasurementsStop)
+	})
+	if n.throughputMeasurementsStarted.Load() {
+		<-n.throughputMeasurementsDone
+	}
 	n.log.Info("node stopped")
 }
 
@@ -383,6 +402,10 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 	n.pbftTimerManager.trackPreprepareRequest()
 	n.log.Test("PrePrepare sent for view %d seq %d with batch size %d", view, seqNum, 1)
 	go func() {
+		if n.proposalDelay {
+			time.Sleep(time.Duration(n.cfg.ProposalDelayMS) * time.Millisecond)
+
+		}
 		for _, othersIp := range config.NodeAddr {
 			if othersIp == n.GetAddr() {
 				continue

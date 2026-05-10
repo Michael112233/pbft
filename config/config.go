@@ -13,17 +13,19 @@ type Config struct {
 	InjectSpeed  int64 `json:"inject_speed"`
 	MaxBlockSize int64 `json:"max_block_size"`
 
-	NodeNum        int64        `json:"node_num"`
-	NodesDead      map[int]bool `json:"nodes_dead"`
-	Periodic       bool         `json:"periodic"`
-	Period         int64        `json:"period"`
-	PeakTpsTest    bool         `json:"peak_tps_test"`
-	LeaderType     string       `json:"leader_type"`
-	FarNodeID      int          `json:"far_node_id"`
-	FarNodeDelayMs int64        `json:"far_node_delay_ms"`
-	LeaderTypeEnum core.VCType
-	ActiveL        bool `json:"active_l"`
-	Performance    bool `json:"performance"`
+	NodeNum           int64        `json:"node_num"`
+	NodesDead         map[int]bool `json:"nodes_dead"`
+	Periodic          bool         `json:"periodic"`
+	Period            int64        `json:"period"`
+	PeakTpsTest       bool         `json:"peak_tps_test"`
+	LeaderType        string       `json:"leader_type"`
+	FarNodeID         int          `json:"far_node_id"`
+	FarNodeDelayMs    int64        `json:"far_node_delay_ms"`
+	LeaderTypeEnum    core.VCType
+	ActiveL           bool `json:"active_l"`
+	Performance       bool `json:"performance"`
+	ProposalDelayNode int  `json:"proposal_delay_node"`
+	ProposalDelayMS   int  `json:"proposal_delay_ms"`
 }
 
 func ReadCfg(filename string) *Config {
