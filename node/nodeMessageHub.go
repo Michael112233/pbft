@@ -234,10 +234,10 @@ func (hub *NodeMessageHub) ClientNodeChannel(stream transportpb.PBFTTransport_Cl
 }
 
 func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope) (*transportpb.Ack, error) {
-	if hub.node_ref.dead {
-		hub.log.Info("Node is dead. Ignoring message from %d", env.From)
-		return &transportpb.Ack{Ok: true}, nil
-	}
+	// if hub.node_ref.dead {
+	// 	hub.log.Info("Node is dead. Ignoring message from %d", env.From)
+	// 	return &transportpb.Ack{Ok: true}, nil
+	// }
 	switch env.MsgType {
 	case core.MsgRequestMessage:
 		request := env.GetRequest()
@@ -551,6 +551,10 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}, signat
 }
 
 func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, signature []byte) {
+	if hub.node_ref.dead {
+		hub.log.Info("Node is dead. Not sending message. msgType=%s target=%s", msgType, ip)
+		return
+	}
 	if msgType == core.MsgReplyMessage || msgType == core.MsgCommitTpsMessage || msgType == core.MsgLeaderIdUpdateMessage || msgType == core.MsgVCRunningStatusMessage {
 		env, err := hub.buildEnvelope(msgType, msg, signature)
 		if err != nil {

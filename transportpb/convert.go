@@ -534,6 +534,14 @@ func ViewChangeToPB(msg core.ViewChangeMsg) *ViewChangeMsg {
 				},
 			}
 		}
+	case core.VCTypeWRR:
+		if msg.WRRData != nil {
+			out.VcData = &ViewChangeMsg_Wrr{
+				Wrr: &WRRVCData{
+					Throughput: msg.WRRData.Throughput,
+				},
+			}
+		}
 	}
 
 	return out
@@ -572,6 +580,10 @@ func ViewChangeFromPB(msg *ViewChangeMsg) (core.ViewChangeMsg, error) {
 	case *ViewChangeMsg_RoundRobin:
 		out.RoundRobinData = &core.RoundRobinVCData{
 			GrantVote: data.RoundRobin.GrantVote,
+		}
+	case *ViewChangeMsg_Wrr:
+		out.WRRData = &core.WRRVCData{
+			Throughput: data.Wrr.Throughput,
 		}
 	case nil:
 	default:

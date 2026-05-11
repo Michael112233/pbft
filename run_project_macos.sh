@@ -4,6 +4,9 @@ echo "Cleaning up log files..."
 rm -f logs/*.log
 echo "Log files cleaned up."
 
+rm -f logs/*.csv
+rm -f logs/*.txt
+
 echo "Cleaning up keys directory..."
 rm -f keys/*.pem
 echo "Keys directory cleaned."

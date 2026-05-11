@@ -3,7 +3,11 @@ package node
 import (
 	"bytes"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/michael112233/pbft/core"
 )
@@ -185,6 +189,55 @@ func (n *Node) PrintSlot(seqNum int64) {
 func (n *Node) PrintExecutedSlots() {
 
 	n.consensusLog.PrintExecutedSlots(n.view)
+}
+func (n *Node) TimesLeader() {
+	n.viewMu.RLock()
+	leaderIdForView := make(map[int64]int, len(n.leaderIdForView))
+	for view, leaderID := range n.leaderIdForView {
+		leaderIdForView[view] = leaderID
+	}
+	nodeNum := int64(0)
+	if n.cfg != nil {
+		nodeNum = n.cfg.NodeNum
+	}
+	n.viewMu.RUnlock()
+
+	timesLeader := make(map[int]int)
+	for nodeID := 1; nodeID <= int(nodeNum); nodeID++ {
+		timesLeader[nodeID] = 0
+	}
+	for _, leaderID := range leaderIdForView {
+		timesLeader[leaderID]++
+	}
+
+	nodeIDs := make([]int, 0, len(timesLeader))
+	for nodeID := range timesLeader {
+		nodeIDs = append(nodeIDs, nodeID)
+	}
+	sort.Ints(nodeIDs)
+
+	parts := make([]string, 0, len(nodeIDs))
+	for _, nodeID := range nodeIDs {
+		parts = append(parts, fmt.Sprintf("%d,%d", nodeID, timesLeader[nodeID]))
+	}
+
+	output := fmt.Sprintf("times leader\n%s\n", strings.Join(parts, "; "))
+	fmt.Print(output)
+
+	if err := os.MkdirAll("logs", 0755); err != nil {
+		if n.log != nil {
+			n.log.Error("Failed to create logs directory for TimesLeader: %v", err)
+		}
+		return
+	}
+
+	path := filepath.Join("logs", "node_"+strconv.Itoa(n.NodeID)+"_timesleader.txt")
+	if err := os.WriteFile(path, []byte(output), 0644); err != nil {
+		if n.log != nil {
+			n.log.Error("Failed to write TimesLeader file %s: %v", path, err)
+		}
+	}
+
 }
 
 func (n *Node) PrintCommitSentSummary() {

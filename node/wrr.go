@@ -6,57 +6,26 @@ import (
 	"github.com/michael112233/pbft/transportpb"
 )
 
-func (n *Node) roundRobinVCTimeout() {
+func (n *Node) WRRVCTimeout() {
 	// reqVote := false
-	grantVote := false
 
-	// if len(n.viewChangeMsgsLog[n.forView]) == 0 || n.split {
-	// 	n.log.Info("Length of view change log forView %d is len: %d and i am requesting vote and my current view is %d", n.forView, len(n.viewChangeMsgsLog[n.forView]), n.view)
-
-	// 	reqVote = true
-	// 	grantVote = true
-	// 	n.votedFor = n.GetNodeID()
-	// 	// n.viewChangeMsgsLog[n.forView] = make([]*core.ViewChangeMsgSig, 0)
-
-	// 	if _, exists := n.voteLog[n.forView]; !exists {
-	// 		n.voteLog[n.forView] = make([]int, 0)
-
-	// 	} else {
-	// 		n.log.Error("vote log already exists for view %d, this should not happen in dummy timeout handler", n.forView)
-	// 	}
-	// 	n.voteLog[n.forView] = append(n.voteLog[n.forView], n.GetNodeID())
-	// } else {
-	// 	n.log.Info("my forView is %d and my curr views is %d and first req vote is from node %d and last req vote is from node %d", n.forView, n.view, n.viewChangeMsgsLog[n.forView][0].ViewChangeMsg.From, n.viewChangeMsgsLog[n.forView][len(n.viewChangeMsgsLog[n.forView])-1].ViewChangeMsg.From)
-	// 	for _, vcMsgSig := range n.viewChangeMsgsLog[n.forView] {
-	// 		if vcMsgSig == nil {
-	// 			continue
-	// 		}
-	// 		if vcMsgSig.ViewChangeMsg.ElectionData.ReqVote {
-	// 			n.votedFor = vcMsgSig.ViewChangeMsg.From
-	// 			grantVote = true
-
-	// 			break
-	// 		}
-	// 	}
-	// 	if !grantVote {
-	// 		// will vote what if f first byz and dont send req vote
-	// 		n.log.Info("No req vote found in view change messages for view %d, not granting vote", n.forView)
-	// 	}
-
-	// }
 	n.checkpointMu.Lock()
 	checkpointSeq := n.lastStableCheckpoint.seq
 	n.checkpointMu.Unlock()
 	preparedCerts := n.createVCContent(checkpointSeq)
+	throughput := n.CurrentViewThroughput(n.view)
+	if throughput <= 0 {
+		n.log.Error("Throughput is non-positive/zero for n.view %d and n.forView %d", n.view, n.forView)
+	}
 
 	vcPayload := core.ViewChangeMsg{
 		ViewNumber:          n.forView,
 		CheckpointSeqNumber: checkpointSeq,
 		From:                n.GetNodeID(),
 		PreparedCerts:       preparedCerts,
-		Type:                core.VCTypeRoundRobin,
-		RoundRobinData: &core.RoundRobinVCData{
-			GrantVote: grantVote,
+		Type:                core.VCTypeWRR,
+		WRRData: &core.WRRVCData{
+			Throughput: throughput,
 		},
 	}
 	pbMsg := transportpb.ViewChangeToPB(vcPayload)
@@ -81,20 +50,20 @@ func (n *Node) roundRobinVCTimeout() {
 		n.pbftTimerManager.startNewViewTimer(n)
 		expectedLeader := n.primaryForView(n.forView, n.view)
 		if expectedLeader == n.GetNodeID() {
-			n.log.Info("I am the new leader for view %d in round robin vc, starting new view immediately (leader=%d)", n.forView, expectedLeader)
+			n.log.Info("I am the new leader for view %d in wrr vc, starting new view immediately (leader=%d)", n.forView, expectedLeader)
 			n.newView()
 		}
 	}
 }
 
-func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signature []byte) {
+func (n *Node) HandleViewChangeWRR(viewChange core.ViewChangeMsg, signature []byte) {
 	n.viewMu.Lock()
 	defer n.viewMu.Unlock()
 
 	if viewChange.ViewNumber <= n.view {
 		return
 	}
-	n.log.Info("received vc as round robin type from node %d for view %d", viewChange.From, viewChange.ViewNumber)
+	n.log.Info("received vc as wrr type from node %d for view %d and throughput %f", viewChange.From, viewChange.ViewNumber, viewChange.WRRData.Throughput)
 	verifiedVC := n.verifyVC(viewChange)
 	if !verifiedVC {
 		return
@@ -113,9 +82,9 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 			n.log.Info("Starting new view timer for view CHANGE %d", viewChange.ViewNumber)
 			n.pbftTimerManager.startNewViewTimer(n)
 		}
-		expectedLeader := n.primaryForView(n.forView, -1)
+		expectedLeader := n.primaryForView(n.forView, n.view)
 		if len(n.viewChangeMsgsLog[viewChange.ViewNumber]) == 2*n.fNodes+1 && expectedLeader == n.GetNodeID() {
-			n.log.Info("Node %d is the round robin leader for view %d; starting new view immediately", expectedLeader, n.forView)
+			n.log.Info("I node id %d is the wrr leader for view %d; starting new view immediately", expectedLeader, n.forView)
 
 			n.newView()
 

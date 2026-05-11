@@ -106,11 +106,16 @@ message RoundRobinVCData {
   bool grant_vote = 1;
 }
 
+message WRRVCData {
+  double throughput = 1;
+}
+
 message ViewChangeMsg {
   enum VCType {
     VC_TYPE_UNSPECIFIED = 0;
     VC_TYPE_ELECTION = 1;
     VC_TYPE_ROUND_ROBIN = 2;
+    VC_TYPE_WRR = 3;
   }
 
   int64 view_number = 1;
@@ -122,6 +127,7 @@ message ViewChangeMsg {
   oneof vc_data {
     ElectionVCData election = 6;
     RoundRobinVCData round_robin = 7;
+    WRRVCData wrr = 8;
   }
 }
 

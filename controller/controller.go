@@ -52,6 +52,8 @@ func runNode(nodeID int64, cfg *config.Config) {
 			Node.PrintExecutedSlots()
 		} else if input[0] == 'c' {
 			Node.PrintCommitSentSummary()
+		} else if input[0] == 'l' {
+			Node.TimesLeader()
 		}
 
 	}

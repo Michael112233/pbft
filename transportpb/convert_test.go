@@ -112,6 +112,28 @@ func TestLeaderIdUpdateRoundTrip(t *testing.T) {
 	}
 }
 
+func TestViewChangeWRRRoundTrip(t *testing.T) {
+	in := core.ViewChangeMsg{
+		ViewNumber:          7,
+		CheckpointSeqNumber: 40,
+		From:                2,
+		PreparedCerts:       map[int64]*core.PreparedCert{},
+		Type:                core.VCTypeWRR,
+		WRRData: &core.WRRVCData{
+			Throughput: 123.45,
+		},
+	}
+
+	out, err := ViewChangeFromPB(ViewChangeToPB(in))
+	if err != nil {
+		t.Fatalf("ViewChangeFromPB returned error: %v", err)
+	}
+
+	if !reflect.DeepEqual(out, in) {
+		t.Fatalf("round trip mismatch:\n got: %+v\nwant: %+v", out, in)
+	}
+}
+
 func TestVCRunningStatusRoundTrip(t *testing.T) {
 	in := core.VCRunningStatus{
 		VCRunning: true,

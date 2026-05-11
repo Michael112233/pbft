@@ -24,6 +24,8 @@ const (
 	CHECKPOINT_INTERVAL                = 250
 	defaultTargetThroughput            = 160
 	targetThroughputMaxFactor          = 0.80
+	ALPHA                              = 1 / float64(10) // for exponential moving average calculation of throughput
+	D                                  = 3
 )
 
 type clientRequestKey struct {
@@ -111,6 +113,9 @@ type Node struct {
 	throughputMeasurementsStarted atomic.Bool
 	throughputMeasurementsOnce    sync.Once
 
+	//locked by viewmu
+	scoreboard *Scoreboard
+
 	dead          bool
 	split         bool
 	periodic      bool
@@ -160,6 +165,7 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		periodic:                   cfg.Periodic,
 		peakTpsTest:                cfg.PeakTpsTest,
 		periodInterval:             cfg.Period,
+		scoreboard:                 NewScoreboard(cfg.NodeNum),
 	}
 }
 
@@ -919,8 +925,8 @@ func makeClientRequestKey(msg core.ClientMsg) clientRequestKey {
 	}
 }
 
-func (n *Node) primaryForView(view int64) int {
-	if n.cfg == nil || n.cfg.NodeNum <= 0 || view <= 0 {
+func (n *Node) primaryForView(forView int64, currView int64) int {
+	if n.cfg == nil || n.cfg.NodeNum <= 0 || forView <= 0 {
 		return 0
 	}
 	if n.cfg.ActiveL {
@@ -928,7 +934,16 @@ func (n *Node) primaryForView(view int64) int {
 			return leaderID
 		}
 	}
-	return int((view-1)%n.cfg.NodeNum) + 1
+	if n.vcType == core.VCTypeWRR {
+		if leaderId := n.scoreboard.GetLeader(forView, currView); leaderId != 0 {
+
+			return leaderId
+		} else {
+			n.log.Error("WRR enabled but no leader found in scoreboard for n.view %d (forView %d)", currView, forView)
+		}
+
+	}
+	return int((forView-1)%n.cfg.NodeNum) + 1
 }
 
 func (n *Node) primaryFromStableCheckpointVotes() int {
@@ -965,7 +980,7 @@ func (n *Node) leaderForView(view int64) int {
 		return leaderID
 	}
 	if n.vcType == core.VCTypeRoundRobin {
-		return n.primaryForView(view)
+		return n.primaryForView(view, -1)
 	}
 	return 0
 }
@@ -1178,7 +1193,11 @@ func (n *Node) HandleViewChange(viewChange core.ViewChangeMsg, signature []byte)
 		n.log.Info("Election Path received view change")
 		n.HandleViewChangeElection(viewChange, signature)
 	} else if n.vcType == core.VCTypeRoundRobin {
+		n.log.Info("Round Robin Path received view change")
 		n.HandleViewChangeRoundRobin(viewChange, signature)
+	} else if n.vcType == core.VCTypeWRR {
+		n.log.Info("WRR Path received view change")
+		n.HandleViewChangeWRR(viewChange, signature)
 	}
 
 }
@@ -1325,6 +1344,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	}
 	n.preprepareSeqNumber.Store(maxSeq)
 	n.periodInterval = maxSeq + n.cfg.Period
+	oldView := n.view
 	n.view = newViewMsg.NewViewNumber
 	n.forView = newViewMsg.NewViewNumber
 	n.leaderId = newViewMsg.From
@@ -1343,6 +1363,30 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 		n.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput
 		n.log.Info("Max recent throughput for new view %d is %.2f; target throughput set to %.2f", n.view, maxRecentThroughput, n.targetThroughput)
 		n.throughputMu.Unlock()
+
+	}
+	if n.vcType == core.VCTypeWRR {
+		n.log.Info("Scoreboard before update oldview %d new view %d", oldView, n.view)
+		n.log.Info("%s", n.scoreboard.String())
+		rleaderId := n.scoreboard.UpdatePriorities(n.view, oldView)
+		n.log.Info("Returned leaderid from UpdatePriorities is %d and my id is %d", rleaderId, n.GetNodeID())
+		throughputs := n.ThroughputListFromVC(newViewMsg.ViewChangeLog)
+		if throughputs == nil || len(throughputs) == 0 {
+			n.log.Error("Throughputs missing for WRR scoreboard update at new view %d", n.view)
+		}
+		leaderId, exists := n.leaderIdForView[oldView]
+		if !exists {
+			n.log.Error("Old leader ID missing for WRR scoreboard update at new view %d", n.view)
+		}
+
+		score, err := n.scoreboard.UpdateScore(leaderId, throughputs, ALPHA, D)
+		if err != nil {
+			n.log.Error("Failed to update scoreboard for node %d: %v", leaderId, err)
+		}
+		n.log.Info("Updated score for leader %d is %d for old view %d", leaderId, score, oldView)
+		n.scoreboard.Update(oldView, score, leaderId)
+		n.log.Info("Scoreboard after update oldview %d new view %d", oldView, n.view)
+		n.log.Info("%s", n.scoreboard.String())
 
 	}
 
@@ -1389,6 +1433,7 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView i
 
 		}
 	}
+
 	if maxS < minS {
 		n.log.Error("no suffix at o primary")
 		return O, minS - 1
@@ -1510,6 +1555,16 @@ func (n *Node) broadcastNewView(newViewMsg core.NewViewMsg, signature []byte) {
 }
 
 func (n *Node) newView() {
+	if n.dead {
+		n.log.Info("Node is dead, not transitioning to new view")
+		return
+	} else {
+		if n.scoreboard.scores[n.GetNodeID()] >= 17 {
+			n.log.Info("Node %d has score %d which is above threshold, not transitioning to new view", n.GetNodeID(), n.scoreboard.scores[n.GetNodeID()])
+			n.dead = true
+			return
+		}
+	}
 	oldView := n.view
 	n.view = n.forView
 	n.leaderId = n.GetNodeID()
@@ -1530,7 +1585,30 @@ func (n *Node) newView() {
 		n.log.Info("Max recent throughput for new view %d is %.2f; target throughput set to %.2f", n.view, maxRecentThroughput, n.targetThroughput)
 		n.throughputMu.Unlock()
 	}
+	if n.vcType == core.VCTypeWRR {
+		n.log.Info("Scoreboard before update oldview %d new view %d", oldView, n.view)
+		n.log.Info("%s", n.scoreboard.String())
+		rleaderId := n.scoreboard.UpdatePriorities(n.view, oldView)
+		n.log.Info("Returned leaderid from UpdatePriorities is %d and my id is %d", rleaderId, n.GetNodeID())
+		throughputs := n.ThroughputListFromVC(n.viewChangeMsgsLog[n.view])
+		if throughputs == nil || len(throughputs) == 0 {
+			n.log.Error("Throughputs missing for WRR scoreboard update at new view %d", n.view)
+		}
+		leaderId, exists := n.leaderIdForView[oldView]
+		if !exists {
+			n.log.Error("Old leader ID missing for WRR scoreboard update at new view %d", n.view)
+		}
 
+		score, err := n.scoreboard.UpdateScore(leaderId, throughputs, ALPHA, D)
+		if err != nil {
+			n.log.Error("Failed to update scoreboard for node %d: %v", leaderId, err)
+		}
+		n.log.Info("Updated score for leader %d is %d for old view %d", leaderId, score, oldView)
+		n.scoreboard.Update(oldView, score, leaderId)
+		n.log.Info("Scoreboard after update oldview %d new view %d", oldView, n.view)
+		n.log.Info("%s", n.scoreboard.String())
+
+	}
 	O, maxSeq := n.createO(n.viewChangeMsgsLog[n.view], n.view, oldView)
 	n.log.Info("Created O with maxSeq %d for new view %d at primary and last stable checkpoint seq is %d", maxSeq, n.view, n.lastStableCheckpoint.seq)
 	n.preprepareSeqNumber.Store(maxSeq)
@@ -1609,6 +1687,8 @@ func (n *Node) handleViewChangeTimeoutDummy() {
 		n.electionVCTimeout()
 	} else if n.vcType == core.VCTypeRoundRobin {
 		n.roundRobinVCTimeout()
+	} else if n.vcType == core.VCTypeWRR {
+		n.WRRVCTimeout()
 	}
 
 }

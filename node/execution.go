@@ -282,6 +282,18 @@ func (n *Node) maxRecentViewFinalThroughputLocked(currentView int64) float64 {
 	return maxThroughput
 }
 
+func (n *Node) CurrentViewThroughput(currentView int64) float64 {
+	n.throughputMu.RLock()
+	defer n.throughputMu.RUnlock()
+
+	throughputs, exists := n.checkpointThroughputs[currentView]
+	if !exists || len(throughputs) == 0 {
+		n.log.Error("No throughputs recorded for current view %d, returning 0", currentView)
+		return 0.0
+	}
+	return throughputs[len(throughputs)-1]
+}
+
 func (n *Node) CheckpointThroughputsSnapshot() map[int64][]float64 {
 	n.throughputMu.RLock()
 	defer n.throughputMu.RUnlock()
@@ -291,4 +303,16 @@ func (n *Node) CheckpointThroughputsSnapshot() map[int64][]float64 {
 		snapshot[view] = append([]float64(nil), throughputs...)
 	}
 	return snapshot
+}
+
+func (n *Node) ThroughputListFromVC(vcMsgs []*core.ViewChangeMsgSig) []float64 {
+	throughputs := make([]float64, 0)
+	for _, vcMsgSig := range vcMsgs {
+		if vcMsgSig == nil || vcMsgSig.ViewChangeMsg.WRRData == nil {
+			continue
+		}
+		throughputs = append(throughputs, vcMsgSig.ViewChangeMsg.WRRData.Throughput)
+	}
+	n.log.Info("Extracted throughputs from view change messages: %v", throughputs)
+	return throughputs
 }

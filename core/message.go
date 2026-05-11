@@ -110,6 +110,7 @@ type VCType int
 const (
 	VCTypeElection VCType = iota + 1
 	VCTypeRoundRobin
+	VCTypeWRR
 )
 
 type ElectionVCData struct {
@@ -121,6 +122,9 @@ type ElectionVCData struct {
 type RoundRobinVCData struct {
 	GrantVote bool
 }
+type WRRVCData struct {
+	Throughput float64
+}
 
 type ViewChangeMsg struct {
 	ViewNumber          int64
@@ -130,6 +134,7 @@ type ViewChangeMsg struct {
 	Type                VCType
 	ElectionData        *ElectionVCData
 	RoundRobinData      *RoundRobinVCData
+	WRRData             *WRRVCData
 }
 
 type ViewChangeMsgSig struct {
