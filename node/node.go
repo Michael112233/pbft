@@ -22,8 +22,8 @@ const (
 	defaultPBFTRequestTimeout          = 5 * time.Second
 	defaultPBFTRequestTimeoutJitterMax = 500 * time.Millisecond
 	CHECKPOINT_INTERVAL                = 250
-	defaultTargetThroughput            = 160
-	targetThroughputMaxFactor          = 0.80
+	defaultTargetThroughput            = 0.90 * 200
+	targetThroughputMaxFactor          = 0.90
 	ALPHA                              = 1 / float64(10) // for exponential moving average calculation of throughput
 	D                                  = 3
 )
@@ -1555,16 +1555,16 @@ func (n *Node) broadcastNewView(newViewMsg core.NewViewMsg, signature []byte) {
 }
 
 func (n *Node) newView() {
-	if n.dead {
-		n.log.Info("Node is dead, not transitioning to new view")
-		return
-	} else {
-		if n.scoreboard.scores[n.GetNodeID()] >= 17 {
-			n.log.Info("Node %d has score %d which is above threshold, not transitioning to new view", n.GetNodeID(), n.scoreboard.scores[n.GetNodeID()])
-			n.dead = true
-			return
-		}
-	}
+	// if n.dead {
+	// 	n.log.Info("Node is dead, not transitioning to new view")
+	// 	return
+	// } else {
+	// 	if n.scoreboard.scores[n.GetNodeID()] >= 17 {
+	// 		n.log.Info("Node %d has score %d which is above threshold, not transitioning to new view", n.GetNodeID(), n.scoreboard.scores[n.GetNodeID()])
+	// 		n.dead = true
+	// 		return
+	// 	}
+	// }
 	oldView := n.view
 	n.view = n.forView
 	n.leaderId = n.GetNodeID()

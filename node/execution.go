@@ -199,11 +199,11 @@ func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view i
 			Throughput:      throughput,
 		})
 		if throughput < 100 {
-			n.log.Info(" Grace Period as throughput less than 100 for view %d and seq %d is %.2f with elapsed time %.2f seconds, executed slots %d", view, seq, throughput, elapsedSeconds, executedSlots)
+			n.log.Warn(" Grace Period as throughput less than 100 for view %d and seq %d is %.2f with elapsed time %.2f seconds, executed slots %d", view, seq, throughput, elapsedSeconds, executedSlots)
 			return false
 		}
 	} else { // grace period
-		n.log.Info("In grace period as elapsed time is zero for view %d and seq %d, executed slots %d", view, seq, executedSlots)
+		n.log.Warn("In grace period as elapsed time is zero for view %d and seq %d, executed slots %d", view, seq, executedSlots)
 		return false
 
 	}

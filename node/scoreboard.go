@@ -155,8 +155,31 @@ func runWeightedRoundRobin(rounds int64, nodeIDs []int, scores map[int]int, prio
 		}
 
 		priorities[leaderID] -= totalScore
+		if round < rounds-1 {
+			oldScore := scores[leaderID]
+			newScore := decayedScore(oldScore)
+			scores[leaderID] = newScore
+			totalScore -= oldScore - newScore
+		}
 	}
 	return leaderID
+}
+
+func decayedScore(score int) int {
+	if score <= 1 {
+		return 1
+	}
+
+	decay := int(math.Ceil(float64(score) * 0.1))
+	if decay < 1 {
+		decay = 1
+	}
+
+	score -= decay
+	if score < 1 {
+		return 1
+	}
+	return score
 }
 
 func BucketThroughput(throughput float64, alpha float64) (int, error) {

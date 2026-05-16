@@ -1,0 +1,12 @@
+times leader
+1,42; 2,6; 3,28; 4,23
+
+114 views
+
+15 dead / dummy rounds
+
+decay by 0.1 
+
+switchy node 2 die around vc some of the times when score above 20 but become live when score below 8
+
+so more live rounds 6 

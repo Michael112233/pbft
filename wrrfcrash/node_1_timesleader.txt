@@ -1,0 +1,8 @@
+times leader
+1,39; 2,3; 3,29; 4,29
+
+no decay
+
+136
+
+node 2 die after score >=18
