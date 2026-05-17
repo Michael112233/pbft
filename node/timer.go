@@ -87,7 +87,7 @@ func (tm *TimerManager) startNewViewTimer(n *Node) {
 		n.viewMu.Lock()
 		tm.log.Error("New-view timer expired for view %d; triggering dummy view-change", n.forView)
 		if !n.peakTpsTest || false {
-			tm.log.Time("Triggering dummy view-change due to new-view timer expiry")
+			tm.log.Error("Triggering dummy view-change due to new-view timer expiry")
 			n.handleViewChangeTimeoutDummy()
 		}
 		n.viewMu.Unlock()
@@ -127,7 +127,7 @@ func (tm *TimerManager) startPeriodicElectionTimer(n *Node) {
 		n.viewMu.Lock()
 		tm.log.Error("Periodic election timer expired for view %d; triggering dummy view-change", n.forView)
 		if !n.peakTpsTest || true {
-			tm.log.Time("Triggering dummy view-change due to periodic election timer expiry")
+			tm.log.Error("Triggering dummy view-change due to periodic election timer expiry")
 			n.handleViewChangeTimeoutDummy()
 		}
 		n.viewMu.Unlock()
@@ -288,13 +288,13 @@ func (tm *TimerManager) handlePBFTTimerExpiry(n *Node) {
 	if !n.viewChangeRunning {
 
 		if !n.peakTpsTest {
-			n.log.Time("Triggering dummy view-change due to PBFT timer expiry")
+			n.log.Error("Triggering dummy view-change due to PBFT timer expiry")
 			n.handleViewChangeTimeoutDummy()
 		} else {
-			tm.log.Time("PBFT timer expired but peak TPS test is enabled; not triggering dummy view-change")
+			tm.log.Error("PBFT timer expired but peak TPS test is enabled; not triggering dummy view-change")
 		}
 	} else {
-		tm.log.Time("View change already running at timer expiry; not triggering another dummy view-change")
+		tm.log.Error("View change already running at timer expiry; not triggering another dummy view-change")
 	}
 	n.viewMu.Unlock()
 }

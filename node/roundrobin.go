@@ -75,7 +75,7 @@ func (n *Node) roundRobinVCTimeout() {
 
 	go n.broadcastViewChange(vcPayload, signature)
 
-	if len(n.viewChangeMsgsLog[n.forView]) >= 2*n.fNodes+1 {
+	if len(n.viewChangeMsgsLog[n.forView]) == 2*n.fNodes+1 {
 		// timer start
 		n.log.Info("Starting new view timer from timeout dummy %d", n.forView)
 		n.pbftTimerManager.startNewViewTimer(n)
@@ -133,11 +133,11 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 
 	} else if n.forView < viewChange.ViewNumber {
 		n.log.Info("Received view change for view %d which is higher than my for view %d, ", viewChange.ViewNumber, n.forView)
-		if viewChange.ViewNumber == n.forView+1 && len(n.viewChangeMsgsLog[viewChange.ViewNumber]) >= n.fNodes+1 {
-			// n.pbftTimerManager.forceStopPBFTTimer()
-			// n.pbftTimerManager.stopNewViewTimer()
+		if viewChange.ViewNumber == n.forView+1 && len(n.viewChangeMsgsLog[viewChange.ViewNumber]) == n.fNodes+1 {
+			n.pbftTimerManager.forceStopPBFTTimer()
+			n.pbftTimerManager.stopNewViewTimer()
 			// n.log.Info(" Round Robin Triggering dummy view-change due to receiving higher view change message for view %d", viewChange.ViewNumber)
-			// n.handleViewChangeTimeoutDummy()
+			n.handleViewChangeTimeoutDummy()
 		}
 	} else {
 
