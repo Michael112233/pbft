@@ -109,7 +109,7 @@ func (hub *ClientMessageHub) clearNodeStream(addr string, expected *nodeStreamSt
 
 func (hub *ClientMessageHub) getNodeStream(addr string) *nodeStreamState {
 	hub.mu.RLock()
-	hub.log.Debug("getNodeStream: target=%s streamExists=%t", addr, hub.streams[addr] != nil)
+	// hub.log.Debug("getNodeStream: target=%s streamExists=%t", addr, hub.streams[addr] != nil)
 	stream := hub.streams[addr]
 	hub.mu.RUnlock()
 	return stream
@@ -340,8 +340,8 @@ func (hub *ClientMessageHub) Send(msgType string, from string, to string, msg in
 	}
 
 	if msgType == core.MsgRequestMessage {
-		if request, ok := msg.(core.RequestMessage); ok {
-			hub.log.Info("Msg Sent: MsgRequestMessage, From %s, To %s, Txs %d", from, to, len(request.Txs))
-		}
+		// if request, ok := msg.(core.RequestMessage); ok {
+		// 	// hub.log.Info("Msg Sent: MsgRequestMessage, From %s, To %s, Txs %d", from, to, len(request.Txs))
+		// }
 	}
 }

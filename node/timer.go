@@ -164,7 +164,7 @@ func (tm *TimerManager) trackPreprepareRequest() {
 	defer tm.lock.Unlock()
 
 	if !tm.pbftTimerInitiated {
-		tm.log.Time("Starting PBFT timer for new pending request")
+		// tm.log.Time("Starting PBFT timer for new pending request")
 		tm.startPBFTTimerLocked()
 	}
 }
@@ -190,7 +190,7 @@ func (tm *TimerManager) forceStopPBFTTimer() {
 func (tm *TimerManager) onRequestExecuted(msg core.ClientMsg, n *Node) {
 
 	if n.pool.PendingRequests() == 0 { // imp in case gap in client req then for new req premature timeout
-		tm.log.Time("No more pending requests; stopping PBFT timer at execute")
+		// tm.log.Time("No more pending requests; stopping PBFT timer at execute")
 		tm.lock.Lock()
 		tm.stopPBFTTimerLocked()
 		tm.lock.Unlock()

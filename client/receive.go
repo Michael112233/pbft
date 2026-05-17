@@ -23,7 +23,13 @@ func (c *Client) HandleCommitTpsMessage(data core.CommitTps) {
 
 func (c *Client) HandleLeaderUpdate(data core.LeaderIdUpdate) {
 	c.leaderMu.Lock()
+	if data.View <= c.currentView {
+		c.leaderMu.Unlock()
+		c.log.Info(fmt.Sprintf("Received old leader update message with view %d, current view is %d, ignore the message", data.View, c.currentView))
+		return
+	}
 	c.leaderAddr = config.NodeAddr[data.NewLeaderId]
+	c.currentView = data.View
 	leaderAddr := c.leaderAddr
 	c.leaderMu.Unlock()
 	c.log.Info(fmt.Sprintf("Received leader update message, new leader id %d, new leader addr %s", data.NewLeaderId, leaderAddr))

@@ -338,6 +338,7 @@ func LeaderIdUpdateToPB(msg core.LeaderIdUpdate) *LeaderIdUpdate {
 		To:          msg.To,
 		From:        msg.From,
 		NewLeaderId: int32(msg.NewLeaderId),
+		View:        msg.View,
 	}
 }
 
@@ -349,6 +350,7 @@ func LeaderIdUpdateFromPB(msg *LeaderIdUpdate) (core.LeaderIdUpdate, error) {
 		To:          msg.To,
 		From:        msg.From,
 		NewLeaderId: int(msg.NewLeaderId),
+		View:        msg.View,
 	}, nil
 }
 

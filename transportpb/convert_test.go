@@ -93,6 +93,7 @@ func TestLeaderIdUpdateRoundTrip(t *testing.T) {
 		To:          "client-1",
 		From:        "node-3",
 		NewLeaderId: 4,
+		View:        7,
 	}
 
 	pb := LeaderIdUpdateToPB(in)
@@ -109,6 +110,9 @@ func TestLeaderIdUpdateRoundTrip(t *testing.T) {
 	}
 	if out.NewLeaderId != in.NewLeaderId {
 		t.Fatalf("NewLeaderId mismatch: got %d want %d", out.NewLeaderId, in.NewLeaderId)
+	}
+	if out.View != in.View {
+		t.Fatalf("View mismatch: got %d want %d", out.View, in.View)
 	}
 }
 

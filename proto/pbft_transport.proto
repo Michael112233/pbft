@@ -177,6 +177,7 @@ message LeaderIdUpdate {
   string to = 1;
   string from = 2;
   int32 new_leader_id = 3;
+  int64 view = 4;
 }
 
 message CloseMessage {

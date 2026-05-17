@@ -409,6 +409,7 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 	n.log.Test("PrePrepare sent for view %d seq %d with batch size %d", view, seqNum, 1)
 	go func() {
 		if n.proposalDelay {
+
 			time.Sleep(time.Duration(n.cfg.ProposalDelayMS) * time.Millisecond)
 
 		}
@@ -901,11 +902,12 @@ func (n *Node) sendCommitTps(clientMsg core.ClientMsg) {
 	n.messageHub.Send(core.MsgCommitTpsMessage, config.ClientAddr, commitTpsMsg, nil)
 }
 
-func (n *Node) sendLeaderIdUpdate(newLeaderID int) {
+func (n *Node) sendLeaderIdUpdate(newLeaderID int, view int64) {
 	leaderUpdateMsg := core.LeaderIdUpdate{
 		From:        n.GetAddr(),
 		To:          config.ClientAddr,
 		NewLeaderId: newLeaderID,
+		View:        view,
 	}
 	n.messageHub.Send(core.MsgLeaderIdUpdateMessage, config.ClientAddr, leaderUpdateMsg, nil)
 }
@@ -1357,10 +1359,11 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 		lastexe := n.lastExecuted //locking check
 		n.executionMu.Unlock()
 		n.throughputMu.Lock()
-		n.throughputIntervalStart = time.Now().Add(500 * time.Millisecond)
+		n.throughputIntervalStart = time.Now().Add(10 * time.Millisecond)
 		n.throughputIntervalStartSeq = lastexe
 		maxRecentThroughput := n.maxRecentViewFinalThroughputLocked(n.view)
 		n.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput
+		n.log.Info("Length of preprepare log in new view message for view %d is %d and max seq number is %d and last executed is %d", n.view, len(newViewMsg.PreprepareLog), maxSeq, lastexe)
 		n.log.Info("Max recent throughput for new view %d is %.2f; target throughput set to %.2f", n.view, maxRecentThroughput, n.targetThroughput)
 		n.throughputMu.Unlock()
 
@@ -1401,7 +1404,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	}
 	replayView := n.view
 	n.viewMu.Unlock()
-	go n.sendLeaderIdUpdate(n.leaderId)
+	go n.sendLeaderIdUpdate(n.leaderId, n.view)
 	n.pbftTimerManager.forceResetPBFTTimer()
 	n.replayBufferedMessagesForView(replayView)
 }
@@ -1578,7 +1581,7 @@ func (n *Node) newView() {
 		lastexe := n.lastExecuted //locking check
 		n.executionMu.Unlock()
 		n.throughputMu.Lock()
-		n.throughputIntervalStart = time.Now().Add(500 * time.Millisecond)
+		n.throughputIntervalStart = time.Now().Add(10 * time.Millisecond)
 		n.throughputIntervalStartSeq = lastexe
 		maxRecentThroughput := n.maxRecentViewFinalThroughputLocked(n.view)
 		n.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput

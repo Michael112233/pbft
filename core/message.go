@@ -45,6 +45,7 @@ type LeaderIdUpdate struct {
 	To          string
 	From        string
 	NewLeaderId int
+	View        int64
 }
 
 type CloseMessage struct {

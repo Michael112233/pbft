@@ -200,7 +200,7 @@ func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view i
 		})
 		if throughput < 100 {
 			n.log.Warn(" Grace Period as throughput less than 100 for view %d and seq %d is %.2f with elapsed time %.2f seconds, executed slots %d", view, seq, throughput, elapsedSeconds, executedSlots)
-			return false
+			// return false
 		}
 	} else { // grace period
 		n.log.Warn("In grace period as elapsed time is zero for view %d and seq %d, executed slots %d", view, seq, executedSlots)
@@ -292,17 +292,6 @@ func (n *Node) CurrentViewThroughput(currentView int64) float64 {
 		return 0.0
 	}
 	return throughputs[len(throughputs)-1]
-}
-
-func (n *Node) CheckpointThroughputsSnapshot() map[int64][]float64 {
-	n.throughputMu.RLock()
-	defer n.throughputMu.RUnlock()
-
-	snapshot := make(map[int64][]float64, len(n.checkpointThroughputs))
-	for view, throughputs := range n.checkpointThroughputs {
-		snapshot[view] = append([]float64(nil), throughputs...)
-	}
-	return snapshot
 }
 
 func (n *Node) ThroughputListFromVC(vcMsgs []*core.ViewChangeMsgSig) []float64 {

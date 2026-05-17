@@ -27,8 +27,9 @@ type Client struct {
 	TransactionManager *TransactionManager
 	leaderMu           sync.RWMutex
 	leaderAddr         string
-	cchan              chan struct{}
-	vcrunChan          chan core.VCRunningStatus
+
+	cchan     chan struct{}
+	vcrunChan chan core.VCRunningStatus
 }
 
 func NewClient(addr string, name string, config *config.Config, leaderAddr string) *Client {
@@ -40,7 +41,7 @@ func NewClient(addr string, name string, config *config.Config, leaderAddr strin
 	return &Client{
 		addr:        addr,
 		name:        name,
-		currentView: 0,
+		currentView: 1,
 		config:      config,
 
 		WaitGroup:  sync.WaitGroup{},
@@ -51,7 +52,7 @@ func NewClient(addr string, name string, config *config.Config, leaderAddr strin
 		messageHub:         NewClientMessageHub(),
 		privateKey:         privKey,
 		TransactionManager: NewTransactionManager(),
-		cchan:              make(chan struct{}, 1),
+		cchan:              make(chan struct{}, 4), // buffer to number of nodes
 		vcrunChan:          make(chan core.VCRunningStatus, 1),
 	}
 }

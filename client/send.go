@@ -1,7 +1,6 @@
 package client
 
 import (
-	"fmt"
 	"math/big"
 	"time"
 
@@ -29,7 +28,7 @@ func (c *Client) InjectTxs() {
 		defer c.WaitGroup.Done()
 
 		// Create signed ClientMsgSignature array for all transactions
-		txns := GenerateDummyTxs(int(c.config.Period) * 5)
+		txns := GenerateDummyTxs(int(c.config.Period) * 9)
 		signedMsgs := make([]core.ClientMsgSignature, len(txns))
 		for i, tx := range txns {
 			clientMsg := core.ClientMsg{
@@ -81,19 +80,19 @@ func (c *Client) InjectTxs() {
 				leader := c.leaderAddr
 				c.leaderMu.RUnlock()
 
-				c.log.Info(fmt.Sprintf("Send request message to %s with batch %d and %d transactions", leader, int64(i), len(injectTxs)))
+				// c.log.Info(fmt.Sprintf("Send request message to %s with batch %d and %d transactions", leader, int64(i), len(injectTxs)))
 				c.messageHub.Send(core.MsgRequestMessage, c.addr, leader, msg, nil) // couuld be go as stream locked
 
 				vcStatus := <-c.vcrunChan
 				if !vcStatus.VCRunning {
-					c.log.Info("Received view change not running status, moving to next batch")
-					time.Sleep(500 * time.Millisecond) // small sleep to allow system to stabilize before next wave
+					// c.log.Info("Received view change not running status, moving to next batch")
+					time.Sleep(50 * time.Millisecond) // small sleep to allow system to stabilize before next wave
 					break
 				}
 
 				c.log.Info("Received view change running status with %d transactions in flight, pausing injection until view change completes", len(vcStatus.Txs))
-				<-c.cchan                   // wait for signal to continue injection after view change completes
-				time.Sleep(1 * time.Second) // small sleep to allow system to stabilize after view change before retry
+				<-c.cchan                         // wait for signal to continue injection after view change completes
+				time.Sleep(20 * time.Millisecond) // small sleep to allow system to stabilize after view change before retry
 			}
 
 			// Wait for the next leader update before sending the next periodic wave.

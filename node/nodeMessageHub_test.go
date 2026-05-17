@@ -19,6 +19,7 @@ func TestBuildEnvelopeLeaderIdUpdate(t *testing.T) {
 		From:        "localhost:28100",
 		To:          "localhost:20000",
 		NewLeaderId: 4,
+		View:        7,
 	}, nil)
 	if err != nil {
 		t.Fatalf("buildEnvelope returned error: %v", err)
@@ -41,6 +42,9 @@ func TestBuildEnvelopeLeaderIdUpdate(t *testing.T) {
 	}
 	if data.From != "localhost:28100" {
 		t.Fatalf("From = %q, want %q", data.From, "localhost:28100")
+	}
+	if data.View != 7 {
+		t.Fatalf("View = %d, want 7", data.View)
 	}
 }
 

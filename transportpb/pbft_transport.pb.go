@@ -1668,6 +1668,7 @@ type LeaderIdUpdate struct {
 	To            string                 `protobuf:"bytes,1,opt,name=to,proto3" json:"to,omitempty"`
 	From          string                 `protobuf:"bytes,2,opt,name=from,proto3" json:"from,omitempty"`
 	NewLeaderId   int32                  `protobuf:"varint,3,opt,name=new_leader_id,json=newLeaderId,proto3" json:"new_leader_id,omitempty"`
+	View          int64                  `protobuf:"varint,4,opt,name=view,proto3" json:"view,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1719,6 +1720,13 @@ func (x *LeaderIdUpdate) GetFrom() string {
 func (x *LeaderIdUpdate) GetNewLeaderId() int32 {
 	if x != nil {
 		return x.NewLeaderId
+	}
+	return 0
+}
+
+func (x *LeaderIdUpdate) GetView() int64 {
+	if x != nil {
+		return x.View
 	}
 	return 0
 }
@@ -2254,11 +2262,12 @@ const file_proto_pbft_transport_proto_rawDesc = "" +
 	"\x02to\x18\x01 \x01(\tR\x02to\x12\x12\n" +
 	"\x04from\x18\x02 \x01(\tR\x04from\x12;\n" +
 	"\n" +
-	"client_msg\x18\x03 \x01(\v2\x1c.pbft.transport.v1.ClientMsgR\tclientMsg\"X\n" +
+	"client_msg\x18\x03 \x01(\v2\x1c.pbft.transport.v1.ClientMsgR\tclientMsg\"l\n" +
 	"\x0eLeaderIdUpdate\x12\x0e\n" +
 	"\x02to\x18\x01 \x01(\tR\x02to\x12\x12\n" +
 	"\x04from\x18\x02 \x01(\tR\x04from\x12\"\n" +
-	"\rnew_leader_id\x18\x03 \x01(\x05R\vnewLeaderId\"P\n" +
+	"\rnew_leader_id\x18\x03 \x01(\x05R\vnewLeaderId\x12\x12\n" +
+	"\x04view\x18\x04 \x01(\x03R\x04view\"P\n" +
 	"\fCloseMessage\x12\x1c\n" +
 	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\x12\x12\n" +
 	"\x04from\x18\x02 \x01(\tR\x04from\x12\x0e\n" +

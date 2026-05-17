@@ -16,7 +16,7 @@ func (n *Node) HandleRequestMessage(data core.RequestMessage) {
 		return
 	}
 	go n.sendVCRunningStatus(data.Txs, false) // notify client that view change is not running and batch can proceed
-	n.log.Info(fmt.Sprintf("Received request message from client %s, id %d, length of batch is %d", data.Txs[0].Data.ClientName, data.Txs[0].Data.Id, len(data.Txs)))
+	n.log.Test(fmt.Sprintf("Received request message from client %s, id %d, length of batch is %d", data.Txs[0].Data.ClientName, data.Txs[0].Data.Id, len(data.Txs)))
 	if n.leaderId == n.GetNodeID() {
 
 		// select {

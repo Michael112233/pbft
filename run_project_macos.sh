@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 echo "Cleaning up log files..."
 rm -f logs/*.log
@@ -40,6 +41,7 @@ chmod +x crypto_main
 
 
 echo "Building PBFT project..."
+rm -f pbft_main
 go mod tidy
 go build -o pbft_main main.go
 
