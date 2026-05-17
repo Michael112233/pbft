@@ -116,6 +116,30 @@ func TestLeaderIdUpdateRoundTrip(t *testing.T) {
 	}
 }
 
+func TestNewViewRoundTripIncludesThroughput(t *testing.T) {
+	in := core.NewViewMsg{
+		NewViewNumber: 7,
+		From:          2,
+		Throughput:    321.45,
+	}
+
+	pb := NewViewToPB(in)
+	out, err := NewViewFromPB(pb)
+	if err != nil {
+		t.Fatalf("NewViewFromPB returned error: %v", err)
+	}
+
+	if out.NewViewNumber != in.NewViewNumber {
+		t.Fatalf("NewViewNumber mismatch: got %d want %d", out.NewViewNumber, in.NewViewNumber)
+	}
+	if out.From != in.From {
+		t.Fatalf("From mismatch: got %d want %d", out.From, in.From)
+	}
+	if out.Throughput != in.Throughput {
+		t.Fatalf("Throughput mismatch: got %f want %f", out.Throughput, in.Throughput)
+	}
+}
+
 func TestViewChangeWRRRoundTrip(t *testing.T) {
 	in := core.ViewChangeMsg{
 		ViewNumber:          7,

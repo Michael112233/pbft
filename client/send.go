@@ -28,7 +28,7 @@ func (c *Client) InjectTxs() {
 		defer c.WaitGroup.Done()
 
 		// Create signed ClientMsgSignature array for all transactions
-		txns := GenerateDummyTxs(int(c.config.Period) * 9)
+		txns := GenerateDummyTxs(int(c.config.Period) * 6)
 		signedMsgs := make([]core.ClientMsgSignature, len(txns))
 		for i, tx := range txns {
 			clientMsg := core.ClientMsg{
@@ -91,8 +91,8 @@ func (c *Client) InjectTxs() {
 				}
 
 				c.log.Info("Received view change running status with %d transactions in flight, pausing injection until view change completes", len(vcStatus.Txs))
-				<-c.cchan                         // wait for signal to continue injection after view change completes
-				time.Sleep(20 * time.Millisecond) // small sleep to allow system to stabilize after view change before retry
+				<-c.cchan                        // wait for signal to continue injection after view change completes
+				time.Sleep(5 * time.Millisecond) // small sleep to allow system to stabilize after view change before retry
 			}
 
 			// Wait for the next leader update before sending the next periodic wave.

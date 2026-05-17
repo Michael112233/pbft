@@ -660,6 +660,7 @@ func NewViewToPB(msg core.NewViewMsg) *NewViewMsg {
 		ViewChangeLog: make([]*ViewChangeMsgSig, 0, len(msg.ViewChangeLog)),
 		NewViewNumber: msg.NewViewNumber,
 		From:          int32(msg.From),
+		Throughput:    msg.Throughput,
 	}
 	for _, p := range msg.PreprepareLog {
 		out.PreprepareLog = append(out.PreprepareLog, PreprepareMsgSigToPB(p))
@@ -683,6 +684,7 @@ func NewViewFromPB(msg *NewViewMsg) (core.NewViewMsg, error) {
 		ViewChangeLog: make([]*core.ViewChangeMsgSig, 0, len(msg.ViewChangeLog)),
 		NewViewNumber: msg.NewViewNumber,
 		From:          int(msg.From),
+		Throughput:    msg.Throughput,
 	}
 	for _, p := range msg.PreprepareLog {
 		preprepare, err := PreprepareMsgSigFromPB(p)

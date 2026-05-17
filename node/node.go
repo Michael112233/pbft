@@ -1359,9 +1359,10 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 		lastexe := n.lastExecuted //locking check
 		n.executionMu.Unlock()
 		n.throughputMu.Lock()
-		n.throughputIntervalStart = time.Now().Add(10 * time.Millisecond)
+		n.throughputIntervalStart = time.Now().Add(5 * time.Millisecond)
 		n.throughputIntervalStartSeq = lastexe
-		maxRecentThroughput := n.maxRecentViewFinalThroughputLocked(n.view)
+		// maxRecentThroughput := n.maxRecentViewFinalThroughputLocked(n.view)
+		maxRecentThroughput := newViewMsg.Throughput
 		n.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput
 		n.log.Info("Length of preprepare log in new view message for view %d is %d and max seq number is %d and last executed is %d", n.view, len(newViewMsg.PreprepareLog), maxSeq, lastexe)
 		n.log.Info("Max recent throughput for new view %d is %.2f; target throughput set to %.2f", n.view, maxRecentThroughput, n.targetThroughput)
@@ -1576,15 +1577,22 @@ func (n *Node) newView() {
 	n.pbftTimerManager.stopNewViewTimer()
 	n.pbftTimerManager.stopPeriodicElectionTimer()
 	n.log.Info("Became leader for new view %d and my id is %d", n.view, n.GetNodeID())
+
+	O, maxSeq := n.createO(n.viewChangeMsgsLog[n.view], n.view, oldView)
+
+	n.preprepareSeqNumber.Store(maxSeq)
+	n.periodInterval = maxSeq + n.cfg.Period
+	maxRecentThroughput := 0.0
 	if n.cfg.Performance {
 		n.executionMu.Lock()
 		lastexe := n.lastExecuted //locking check
 		n.executionMu.Unlock()
 		n.throughputMu.Lock()
-		n.throughputIntervalStart = time.Now().Add(10 * time.Millisecond)
+		n.throughputIntervalStart = time.Now().Add(20 * time.Millisecond)
 		n.throughputIntervalStartSeq = lastexe
-		maxRecentThroughput := n.maxRecentViewFinalThroughputLocked(n.view)
+		maxRecentThroughput = n.maxRecentViewFinalThroughputLocked(n.view)
 		n.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput
+		n.log.Info("Created O with maxSeq %d for new view %d at primary and len O is %d and last executed is %d", maxSeq, n.view, len(O), lastexe)
 		n.log.Info("Max recent throughput for new view %d is %.2f; target throughput set to %.2f", n.view, maxRecentThroughput, n.targetThroughput)
 		n.throughputMu.Unlock()
 	}
@@ -1612,13 +1620,7 @@ func (n *Node) newView() {
 		n.log.Info("%s", n.scoreboard.String())
 
 	}
-	O, maxSeq := n.createO(n.viewChangeMsgsLog[n.view], n.view, oldView)
-	n.log.Info("Created O with maxSeq %d for new view %d at primary and last stable checkpoint seq is %d", maxSeq, n.view, n.lastStableCheckpoint.seq)
-	n.preprepareSeqNumber.Store(maxSeq)
-	n.periodInterval = maxSeq + n.cfg.Period
-	if len(O) == 0 {
-		n.log.Info("O is empty for new view %d at primary, maxSeq is %d", n.view, maxSeq)
-	}
+
 	for _, preprepareMsg := range O {
 		slot := n.consensusLog.getOrCreateLog(preprepareMsg.PreprepareMsgMini.SeqNum, preprepareMsg.PreprepareMsgMini.View)
 		slot.mu.Lock()
@@ -1665,6 +1667,7 @@ func (n *Node) newView() {
 		From:          n.GetNodeID(),
 		PreprepareLog: O,
 		ViewChangeLog: n.viewChangeMsgsLog[n.view],
+		Throughput:    maxRecentThroughput,
 	}
 	pbMsg := transportpb.NewViewToPB(newViewMsg)
 	payloadBytes, err := marshalDeterministic(pbMsg)

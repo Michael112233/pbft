@@ -151,6 +151,7 @@ message NewViewMsg {
   repeated ViewChangeMsgSig view_change_log = 2;
   int64 new_view_number = 3;
   int32 from = 4;
+  double throughput = 5;
 }
 
 message NewViewMsgSig {

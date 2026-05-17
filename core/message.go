@@ -157,6 +157,7 @@ type NewViewMsg struct {
 	PreprepareLog []PreprepareMsgSig
 	ViewChangeLog []*ViewChangeMsgSig
 	NewViewNumber int64
+	Throughput    float64
 	From          int
 }
 

@@ -1405,6 +1405,7 @@ type NewViewMsg struct {
 	ViewChangeLog []*ViewChangeMsgSig    `protobuf:"bytes,2,rep,name=view_change_log,json=viewChangeLog,proto3" json:"view_change_log,omitempty"`
 	NewViewNumber int64                  `protobuf:"varint,3,opt,name=new_view_number,json=newViewNumber,proto3" json:"new_view_number,omitempty"`
 	From          int32                  `protobuf:"varint,4,opt,name=from,proto3" json:"from,omitempty"`
+	Throughput    float64                `protobuf:"fixed64,5,opt,name=throughput,proto3" json:"throughput,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1463,6 +1464,13 @@ func (x *NewViewMsg) GetNewViewNumber() int64 {
 func (x *NewViewMsg) GetFrom() int32 {
 	if x != nil {
 		return x.From
+	}
+	return 0
+}
+
+func (x *NewViewMsg) GetThroughput() float64 {
+	if x != nil {
+		return x.Throughput
 	}
 	return 0
 }
@@ -2239,13 +2247,16 @@ const file_proto_pbft_transport_proto_rawDesc = "" +
 	"\x04from\x18\x02 \x01(\x05R\x04from\"v\n" +
 	"\x0fGrantVoteMsgSig\x12E\n" +
 	"\x0egrant_vote_msg\x18\x01 \x01(\v2\x1f.pbft.transport.v1.GrantVoteMsgR\fgrantVoteMsg\x12\x1c\n" +
-	"\tsignature\x18\x02 \x01(\fR\tsignature\"\xe1\x01\n" +
+	"\tsignature\x18\x02 \x01(\fR\tsignature\"\x81\x02\n" +
 	"\n" +
 	"NewViewMsg\x12J\n" +
 	"\x0epreprepare_log\x18\x01 \x03(\v2#.pbft.transport.v1.PreprepareMsgSigR\rpreprepareLog\x12K\n" +
 	"\x0fview_change_log\x18\x02 \x03(\v2#.pbft.transport.v1.ViewChangeMsgSigR\rviewChangeLog\x12&\n" +
 	"\x0fnew_view_number\x18\x03 \x01(\x03R\rnewViewNumber\x12\x12\n" +
-	"\x04from\x18\x04 \x01(\x05R\x04from\"n\n" +
+	"\x04from\x18\x04 \x01(\x05R\x04from\x12\x1e\n" +
+	"\n" +
+	"throughput\x18\x05 \x01(\x01R\n" +
+	"throughput\"n\n" +
 	"\rNewViewMsgSig\x12?\n" +
 	"\fnew_view_msg\x18\x01 \x01(\v2\x1d.pbft.transport.v1.NewViewMsgR\n" +
 	"newViewMsg\x12\x1c\n" +
