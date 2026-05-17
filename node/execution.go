@@ -44,7 +44,8 @@ func (n *Node) queueCommittedExecution(seq int64, slot *consensusSlot, msg core.
 		go n.checkpointVC(checkpointSeq, checkpointDigest)
 	}
 	if performanceTrigger {
-		n.log.Info("Performance trigger for seq %d", seq)
+		// n.log.Info("Performance trigger for seq %d", seq)
+		go n.perfVC()
 	}
 
 }
@@ -212,7 +213,7 @@ func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view i
 
 	belowTarget := false
 	if elapsedSeconds > 4 {
-		belowTarget = throughput <= n.targetThroughput
+		belowTarget = throughput <= n.targetThroughput-5
 		if belowTarget {
 			n.log.Info("Elapsed secs greater than 4 and Throughput %.2f is below target %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, n.targetThroughput, view, seq, elapsedSeconds, executedSlots)
 		} else {

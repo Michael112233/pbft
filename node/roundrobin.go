@@ -81,7 +81,7 @@ func (n *Node) roundRobinVCTimeout() {
 		n.pbftTimerManager.startNewViewTimer(n)
 		expectedLeader := n.primaryForView(n.forView, n.view)
 		if expectedLeader == n.GetNodeID() {
-			n.log.Info("I am the new leader for view %d in round robin vc, starting new view immediately (leader=%d)", n.forView, expectedLeader)
+			n.log.Info("I am the new leader for view %d in round robin vc, starting new view immediately (leader=%d) from timeout dummy", n.forView, expectedLeader)
 			n.newView()
 		}
 	}
@@ -136,7 +136,7 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 		if viewChange.ViewNumber == n.forView+1 && len(n.viewChangeMsgsLog[viewChange.ViewNumber]) == n.fNodes+1 {
 			n.pbftTimerManager.forceStopPBFTTimer()
 			n.pbftTimerManager.stopNewViewTimer()
-			// n.log.Info(" Round Robin Triggering dummy view-change due to receiving higher view change message for view %d", viewChange.ViewNumber)
+			n.log.Info(" Round Robin Triggering dummy view-change due to receiving higher view change message for view %d and my for view %d", viewChange.ViewNumber, n.forView)
 			n.handleViewChangeTimeoutDummy()
 		}
 	} else {

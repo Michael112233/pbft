@@ -1359,7 +1359,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 		lastexe := n.lastExecuted //locking check
 		n.executionMu.Unlock()
 		n.throughputMu.Lock()
-		n.throughputIntervalStart = time.Now().Add(5 * time.Millisecond)
+		n.throughputIntervalStart = time.Now()
 		n.throughputIntervalStartSeq = lastexe
 		// maxRecentThroughput := n.maxRecentViewFinalThroughputLocked(n.view)
 		maxRecentThroughput := newViewMsg.Throughput
@@ -1420,9 +1420,24 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView i
 	for _, vcMsgSig := range vcMsgSigs {
 		if vcMsgSig.ViewChangeMsg.CheckpointSeqNumber > myStableCheckpoint.seq {
 			n.log.Error("missing the latest stable checkpoint at o primary") // would need to pass digest and application state in vc message for sync
+			n.lastStableCheckpoint = checkpoint{
+				seq: vcMsgSig.ViewChangeMsg.CheckpointSeqNumber,
+			}
+			myStableCheckpoint = n.lastStableCheckpoint // unsafe checkpoint forwarding
+			minS = myStableCheckpoint.seq + 1
+
 		}
 	}
 	n.checkpointMu.Unlock()
+	n.executionMu.Lock()
+	if myStableCheckpoint.seq > n.lastExecuted {
+		n.lastExecuted = myStableCheckpoint.seq // unsafe checkpoint forwarding
+		n.log.Error("updating last executed to stable checkpoint seq %d", n.lastExecuted)
+
+	} else if myStableCheckpoint.seq < n.lastExecuted {
+		n.log.Error("my stable checkpoint seq %d is less than my last executed %d, this should not happen", myStableCheckpoint.seq, n.lastExecuted)
+	}
+	n.executionMu.Unlock()
 	maxS := minS - 1
 	for _, viewChangeMsg := range vcMsgSigs {
 		for seqNumber, pm := range viewChangeMsg.ViewChangeMsg.PreparedCerts {
@@ -1491,9 +1506,25 @@ func (n *Node) createOReplica(vcMsgSigs []*core.ViewChangeMsgSig, view int64) (m
 	for _, vcMsgSig := range vcMsgSigs {
 		if vcMsgSig.ViewChangeMsg.CheckpointSeqNumber > myStableCheckpoint.seq {
 			n.log.Error("missing the latest stable checkpoint at o replica") // would need to pass digest and application state in vc message for sync
+			n.lastStableCheckpoint = checkpoint{
+				seq: vcMsgSig.ViewChangeMsg.CheckpointSeqNumber,
+			}
+			myStableCheckpoint = n.lastStableCheckpoint // unsafe checkpoint forwarding
+			minS = myStableCheckpoint.seq + 1
 		}
+
 	}
 	n.checkpointMu.Unlock()
+
+	n.executionMu.Lock()
+	if myStableCheckpoint.seq > n.lastExecuted {
+		n.lastExecuted = myStableCheckpoint.seq // unsafe checkpoint forwarding
+		n.log.Error("updating last executed to stable checkpoint seq %d", n.lastExecuted)
+
+	} else if myStableCheckpoint.seq < n.lastExecuted {
+		n.log.Error("my stable checkpoint seq %d is less than my last executed %d, this should not happen", myStableCheckpoint.seq, n.lastExecuted)
+	}
+	n.executionMu.Unlock()
 	maxS := minS - 1
 	// maxS := minS
 	for _, viewChangeMsg := range vcMsgSigs {
@@ -1588,7 +1619,7 @@ func (n *Node) newView() {
 		lastexe := n.lastExecuted //locking check
 		n.executionMu.Unlock()
 		n.throughputMu.Lock()
-		n.throughputIntervalStart = time.Now().Add(20 * time.Millisecond)
+		n.throughputIntervalStart = time.Now().Add(30 * time.Millisecond)
 		n.throughputIntervalStartSeq = lastexe
 		maxRecentThroughput = n.maxRecentViewFinalThroughputLocked(n.view)
 		n.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput
