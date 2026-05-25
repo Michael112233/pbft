@@ -26,6 +26,7 @@ const (
 	targetThroughputMaxFactor          = 0.90
 	ALPHA                              = 1 / float64(10) // for exponential moving average calculation of throughput
 	D                                  = 3
+	THROUGHPUTINTERVAL_DELAY           = 100
 )
 
 type clientRequestKey struct {
@@ -107,6 +108,7 @@ type Node struct {
 	throughputIntervalStart       time.Time
 	throughputIntervalStartSeq    int64
 	targetThroughput              float64
+	throughputObservationStarted  bool
 	throughputMeasurementsChan    chan throughputMeasurement
 	throughputMeasurementsStop    chan struct{}
 	throughputMeasurementsDone    chan struct{}
@@ -133,39 +135,42 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		log:        log,
 		messageHub: NewNodeMessageHub(),
 
-		encryptionKeyStore:         NewKeyStore(nodeID, cfg.NodeNum),
-		unverifiedClientMsgsChan:   make(chan []core.ClientMsgSignature, 100), // buffer size can be tuned
-		verifiedClientMsgsChan:     make(chan core.ClientMsgSignature, 100),   // buffer size can be tuned
-		preprepareSem:              make(chan struct{}, 5000),
-		preprepareSeqNumber:        atomic.Int64{},
-		view:                       1,
-		forView:                    1,
-		vcType:                     cfg.LeaderTypeEnum,
-		leaderId:                   1,
-		leaderIdForView:            map[int64]int{1: 1},
-		consensusLog:               NewConsensusLog(),
-		viewChangeRunning:          false,
-		bufferedMsgs:               make([]bufferedConsensusMessage, 0),
-		fNodes:                     (int(cfg.NodeNum) - 1) / 3,
-		pbftTimerManager:           NewTimerManager(log),
-		viewChangeMsgsLog:          make(map[int64][]*core.ViewChangeMsgSig),
-		voteLog:                    make(map[int64][]int),
-		pool:                       NewPool(),
-		executionMachine:           execution.NewAccountStateMachine(),
-		pendingExecutions:          make(map[int64]pendingExecution),
-		checkpoints:                make(map[checkpoint]checkpointVotes),
-		lastStableCheckpoint:       checkpoint{seq: 0, digest: [32]byte{}},
-		checkpointThroughputs:      make(map[int64][]float64),
-		throughputMeasurementsChan: make(chan throughputMeasurement, throughputMeasurementBufferSize),
-		throughputMeasurementsStop: make(chan struct{}),
-		throughputMeasurementsDone: make(chan struct{}),
-		split:                      false,
-		dead:                       cfg.NodesDead[nodeID],
-		proposalDelay:              cfg.ProposalDelayNode == nodeID,
-		periodic:                   cfg.Periodic,
-		peakTpsTest:                cfg.PeakTpsTest,
-		periodInterval:             cfg.Period,
-		scoreboard:                 NewScoreboard(cfg.NodeNum),
+		encryptionKeyStore:           NewKeyStore(nodeID, cfg.NodeNum),
+		unverifiedClientMsgsChan:     make(chan []core.ClientMsgSignature, 100), // buffer size can be tuned
+		verifiedClientMsgsChan:       make(chan core.ClientMsgSignature, 100),   // buffer size can be tuned
+		preprepareSem:                make(chan struct{}, 5000),
+		preprepareSeqNumber:          atomic.Int64{},
+		view:                         1,
+		forView:                      1,
+		vcType:                       cfg.LeaderTypeEnum,
+		leaderId:                     1,
+		leaderIdForView:              map[int64]int{1: 1},
+		consensusLog:                 NewConsensusLog(),
+		viewChangeRunning:            false,
+		bufferedMsgs:                 make([]bufferedConsensusMessage, 0),
+		fNodes:                       (int(cfg.NodeNum) - 1) / 3,
+		pbftTimerManager:             NewTimerManager(log),
+		viewChangeMsgsLog:            make(map[int64][]*core.ViewChangeMsgSig),
+		voteLog:                      make(map[int64][]int),
+		pool:                         NewPool(),
+		executionMachine:             execution.NewAccountStateMachine(),
+		pendingExecutions:            make(map[int64]pendingExecution),
+		checkpoints:                  make(map[checkpoint]checkpointVotes),
+		lastStableCheckpoint:         checkpoint{seq: 0, digest: [32]byte{}},
+		checkpointThroughputs:        make(map[int64][]float64),
+		throughputIntervalStartSeq:   THROUGHPUTINTERVAL_DELAY,
+		targetThroughput:             defaultTargetThroughput,
+		throughputObservationStarted: false,
+		throughputMeasurementsChan:   make(chan throughputMeasurement, throughputMeasurementBufferSize),
+		throughputMeasurementsStop:   make(chan struct{}),
+		throughputMeasurementsDone:   make(chan struct{}),
+		split:                        false,
+		dead:                         cfg.NodesDead[nodeID],
+		proposalDelay:                cfg.ProposalDelayNode == nodeID,
+		periodic:                     cfg.Periodic,
+		peakTpsTest:                  cfg.PeakTpsTest,
+		periodInterval:               cfg.Period,
+		scoreboard:                   NewScoreboard(cfg.NodeNum),
 	}
 }
 
@@ -1355,16 +1360,16 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	n.pbftTimerManager.stopNewViewTimer()
 	n.pbftTimerManager.stopPeriodicElectionTimer()
 	if n.cfg.Performance {
-		n.executionMu.Lock()
-		lastexe := n.lastExecuted //locking check
-		n.executionMu.Unlock()
+		// n.executionMu.Lock()
+		// lastexe := n.lastExecuted //locking check
+		// n.executionMu.Unlock()
 		n.throughputMu.Lock()
-		n.throughputIntervalStart = time.Now()
-		n.throughputIntervalStartSeq = lastexe
+		// n.throughputIntervalStart = time.Now()
+		n.throughputIntervalStartSeq = maxSeq + THROUGHPUTINTERVAL_DELAY
 		// maxRecentThroughput := n.maxRecentViewFinalThroughputLocked(n.view)
 		maxRecentThroughput := newViewMsg.Throughput
 		n.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput
-		n.log.Info("Length of preprepare log in new view message for view %d is %d and max seq number is %d and last executed is %d", n.view, len(newViewMsg.PreprepareLog), maxSeq, lastexe)
+		n.log.Info("Length of preprepare log in new view message for view %d is %d and max seq number is %d ", n.view, len(newViewMsg.PreprepareLog), maxSeq)
 		n.log.Info("Max recent throughput for new view %d is %.2f; target throughput set to %.2f", n.view, maxRecentThroughput, n.targetThroughput)
 		n.throughputMu.Unlock()
 
@@ -1615,15 +1620,16 @@ func (n *Node) newView() {
 	n.periodInterval = maxSeq + n.cfg.Period
 	maxRecentThroughput := 0.0
 	if n.cfg.Performance {
-		n.executionMu.Lock()
-		lastexe := n.lastExecuted //locking check
-		n.executionMu.Unlock()
+		// n.executionMu.Lock()
+		// lastexe := n.lastExecuted //locking check
+		// n.executionMu.Unlock()
 		n.throughputMu.Lock()
-		n.throughputIntervalStart = time.Now().Add(30 * time.Millisecond)
-		n.throughputIntervalStartSeq = lastexe
+		// n.throughputIntervalStart = time.Now()
+		n.throughputIntervalStartSeq = maxSeq + THROUGHPUTINTERVAL_DELAY
+		// maxRecentThroughput := n.maxRecentViewFinalThroughputLocked(n.view)
 		maxRecentThroughput = n.maxRecentViewFinalThroughputLocked(n.view)
 		n.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput
-		n.log.Info("Created O with maxSeq %d for new view %d at primary and len O is %d and last executed is %d", maxSeq, n.view, len(O), lastexe)
+		n.log.Info("Created O with maxSeq %d for new view %d at primary and len O is %d", maxSeq, n.view, len(O))
 		n.log.Info("Max recent throughput for new view %d is %.2f; target throughput set to %.2f", n.view, maxRecentThroughput, n.targetThroughput)
 		n.throughputMu.Unlock()
 	}

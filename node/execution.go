@@ -120,7 +120,7 @@ func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.C
 		pending.slot.mu.Unlock()
 
 		n.lastExecuted = nextSeq
-		if (n.lastExecuted == 1 || n.lastExecuted%CHECKPOINT_INTERVAL == 0) && n.cfg.Performance {
+		if n.cfg.Performance {
 			performanceTriggert := n.observeExecutedSlotForThroughput(n.lastExecuted, time.Now(), view, leaderId)
 			if performanceTriggert {
 				performanceTrigger += 1
@@ -171,17 +171,30 @@ func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view i
 		return false
 	}
 
-	isCheckpointBoundary := seq%CHECKPOINT_INTERVAL == 0
+	// isCheckpointBoundary := seq%CHECKPOINT_INTERVAL == 0
 
 	n.throughputMu.Lock()
 	defer n.throughputMu.Unlock()
 
-	if n.throughputIntervalStart.IsZero() { // too big of a luck for just seq number one
+	// if n.throughputIntervalStart.IsZero() { // too big of a luck for just seq number one
+	// 	n.throughputIntervalStart = now
+	// 	n.throughputIntervalStartSeq = seq - 1
+	// 	n.targetThroughput = defaultTargetThroughput
+	// }
+	// if !isCheckpointBoundary { // seq 1 case
+	// 	return false
+	// }
+	if seq == n.throughputIntervalStartSeq {
+		n.log.Info("Throughput interval start seq %d is equal to current seq %d, starting timing", n.throughputIntervalStartSeq, seq)
 		n.throughputIntervalStart = now
-		n.throughputIntervalStartSeq = seq - 1
-		n.targetThroughput = defaultTargetThroughput
+		n.throughputObservationStarted = true
+		return false
 	}
-	if !isCheckpointBoundary { // seq 1 case
+
+	if seq%CHECKPOINT_INTERVAL != 0 || !n.throughputObservationStarted {
+		if seq%CHECKPOINT_INTERVAL == 0 && !n.throughputObservationStarted {
+			n.log.Info("Throughput observation not started yet, but seq %d is a checkpoint boundary, starting timing and n.throughputstartinterval is %d", seq, n.throughputIntervalStartSeq)
+		}
 		return false
 	}
 
@@ -190,7 +203,7 @@ func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view i
 	throughput := 0.0
 	if elapsedSeconds > 0 {
 		throughput = float64(executedSlots) / elapsedSeconds
-		if elapsedSeconds > 4 {
+		if elapsedSeconds > 0 {
 			n.emitThroughputMeasurement(throughputMeasurement{
 				MeasurementTime: now,
 				View:            view,
@@ -212,7 +225,7 @@ func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view i
 	}
 
 	belowTarget := false
-	if elapsedSeconds > 4 {
+	if elapsedSeconds > 3 {
 		belowTarget = throughput <= n.targetThroughput-5
 		if belowTarget {
 			n.log.Info("Elapsed secs greater than 4 and Throughput %.2f is below target %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, n.targetThroughput, view, seq, elapsedSeconds, executedSlots)
