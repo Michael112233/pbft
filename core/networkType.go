@@ -12,6 +12,8 @@ const (
 	MsgCloseMessage           string = "MsgCloseMessage"
 	MsgViewChangeMessage      string = "MsgViewChangeMessage"
 	MsgCheckpointMessage      string = "MsgCheckpointMessage"
+	MsgRequestStateTransfer   string = "MsgRequestStateTransfer"
+	MsgStateTransfer          string = "MsgStateTransfer"
 	MsgNewViewMessage         string = "MsgNewViewMessage"
 	MsgMempoolMessage         string = "MsgMempoolMessage"
 

@@ -11,6 +11,19 @@ func (n *Node) WRRVCTimeout() {
 
 	n.checkpointMu.Lock()
 	checkpointSeq := n.lastStableCheckpoint.seq
+	checkpointDigest := n.lastStableCheckpoint.digest
+	key := checkpoint{
+		seq:    checkpointSeq,
+		digest: checkpointDigest,
+	}
+	checkpointData, exists := n.checkpoints[key]
+	if !exists {
+		n.log.Error("No checkpoint data found for stable checkpoint seq %d and digest %x", checkpointSeq, checkpointDigest)
+	}
+	checkpointProof := make([]core.CheckpointMsgSig, len(checkpointData.votes))
+	for i, msg := range checkpointData.votes {
+		checkpointProof[i] = msg
+	}
 	n.checkpointMu.Unlock()
 	preparedCerts := n.createVCContent(checkpointSeq)
 	throughput := n.CurrentViewThroughput(n.view)
@@ -21,6 +34,8 @@ func (n *Node) WRRVCTimeout() {
 	vcPayload := core.ViewChangeMsg{
 		ViewNumber:          n.forView,
 		CheckpointSeqNumber: checkpointSeq,
+		CheckpointDigest:    checkpointDigest,
+		CheckpointProof:     checkpointProof,
 		From:                n.GetNodeID(),
 		PreparedCerts:       preparedCerts,
 		Type:                core.VCTypeWRR,

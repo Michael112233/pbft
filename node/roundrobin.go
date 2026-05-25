@@ -10,48 +10,30 @@ func (n *Node) roundRobinVCTimeout() {
 	// reqVote := false
 	grantVote := false
 
-	// if len(n.viewChangeMsgsLog[n.forView]) == 0 || n.split {
-	// 	n.log.Info("Length of view change log forView %d is len: %d and i am requesting vote and my current view is %d", n.forView, len(n.viewChangeMsgsLog[n.forView]), n.view)
-
-	// 	reqVote = true
-	// 	grantVote = true
-	// 	n.votedFor = n.GetNodeID()
-	// 	// n.viewChangeMsgsLog[n.forView] = make([]*core.ViewChangeMsgSig, 0)
-
-	// 	if _, exists := n.voteLog[n.forView]; !exists {
-	// 		n.voteLog[n.forView] = make([]int, 0)
-
-	// 	} else {
-	// 		n.log.Error("vote log already exists for view %d, this should not happen in dummy timeout handler", n.forView)
-	// 	}
-	// 	n.voteLog[n.forView] = append(n.voteLog[n.forView], n.GetNodeID())
-	// } else {
-	// 	n.log.Info("my forView is %d and my curr views is %d and first req vote is from node %d and last req vote is from node %d", n.forView, n.view, n.viewChangeMsgsLog[n.forView][0].ViewChangeMsg.From, n.viewChangeMsgsLog[n.forView][len(n.viewChangeMsgsLog[n.forView])-1].ViewChangeMsg.From)
-	// 	for _, vcMsgSig := range n.viewChangeMsgsLog[n.forView] {
-	// 		if vcMsgSig == nil {
-	// 			continue
-	// 		}
-	// 		if vcMsgSig.ViewChangeMsg.ElectionData.ReqVote {
-	// 			n.votedFor = vcMsgSig.ViewChangeMsg.From
-	// 			grantVote = true
-
-	// 			break
-	// 		}
-	// 	}
-	// 	if !grantVote {
-	// 		// will vote what if f first byz and dont send req vote
-	// 		n.log.Info("No req vote found in view change messages for view %d, not granting vote", n.forView)
-	// 	}
-
-	// }
 	n.checkpointMu.Lock()
 	checkpointSeq := n.lastStableCheckpoint.seq
+	checkpointDigest := n.lastStableCheckpoint.digest
+	key := checkpoint{
+		seq:    checkpointSeq,
+		digest: checkpointDigest,
+	}
+	checkpointData, exists := n.checkpoints[key]
+	if !exists {
+		n.log.Error("No checkpoint data found for stable checkpoint seq %d and digest %x", checkpointSeq, checkpointDigest)
+	}
+	checkpointProof := make([]core.CheckpointMsgSig, len(checkpointData.votes))
+	for i, msg := range checkpointData.votes {
+		checkpointProof[i] = msg
+	}
+
 	n.checkpointMu.Unlock()
 	preparedCerts := n.createVCContent(checkpointSeq)
 
 	vcPayload := core.ViewChangeMsg{
 		ViewNumber:          n.forView,
 		CheckpointSeqNumber: checkpointSeq,
+		CheckpointDigest:    checkpointDigest,
+		CheckpointProof:     checkpointProof,
 		From:                n.GetNodeID(),
 		PreparedCerts:       preparedCerts,
 		Type:                core.VCTypeRoundRobin,

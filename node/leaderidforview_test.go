@@ -76,7 +76,7 @@ func newTestNodeWithKeys(t *testing.T, nodeID int, nodeNum int64) (*Node, map[in
 		voteLog:               make(map[int64][]int),
 		pool:                  NewPool(),
 		pendingExecutions:     make(map[int64]pendingExecution),
-		checkpoints:           make(map[checkpoint]checkpointVotes),
+		checkpoints:           make(map[checkpoint]CheckpointData),
 		lastStableCheckpoint:  checkpoint{seq: 0, digest: [32]byte{}},
 		checkpointThroughputs: make(map[int64][]float64),
 		vcType:                core.VCTypeRoundRobin,

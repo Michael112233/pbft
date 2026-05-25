@@ -18,8 +18,9 @@ type Result struct {
 
 type StateMachine interface {
 	Apply(core.ClientMsg) Result
-	CheckpointMaterial() ([]byte, error)
-	CheckpointDigest() ([32]byte, error)
+	CheckpointMaterial() ([]byte, map[string]*big.Int, error)
+	CheckpointDigest() ([32]byte, map[string]*big.Int, error)
+	RestoreCheckpoint(map[string]*big.Int)
 }
 
 type AccountStateMachine struct {
@@ -64,31 +65,47 @@ func (sm *AccountStateMachine) Apply(msg core.ClientMsg) Result {
 	return Result{Success: true}
 }
 
-func (sm *AccountStateMachine) CheckpointMaterial() ([]byte, error) {
+func (sm *AccountStateMachine) CheckpointMaterial() ([]byte, map[string]*big.Int, error) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
 	accounts := make([]string, 0, len(sm.balances))
+	copyOfBalances := make(map[string]*big.Int, len(sm.balances))
 	for account := range sm.balances {
 		accounts = append(accounts, account)
+		copyOfBalances[account] = new(big.Int).Set(sm.balances[account])
 	}
 	sort.Strings(accounts)
 
 	var buf bytes.Buffer
 	for _, account := range accounts {
 		if _, err := fmt.Fprintf(&buf, "%s=%s\n", account, sm.balances[account].String()); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return buf.Bytes(), nil
+	return buf.Bytes(), copyOfBalances, nil
 }
 
-func (sm *AccountStateMachine) CheckpointDigest() ([32]byte, error) {
-	material, err := sm.CheckpointMaterial()
+func (sm *AccountStateMachine) CheckpointDigest() ([32]byte, map[string]*big.Int, error) {
+	material, copyOfBalances, err := sm.CheckpointMaterial()
 	if err != nil {
-		return [32]byte{}, err
+		return [32]byte{}, nil, err
 	}
-	return sha256.Sum256(material), nil
+	return sha256.Sum256(material), copyOfBalances, nil
+}
+
+func (sm *AccountStateMachine) RestoreCheckpoint(balances map[string]*big.Int) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	sm.balances = make(map[string]*big.Int, len(balances))
+	for account, balance := range balances {
+		if balance == nil {
+			sm.balances[account] = big.NewInt(0)
+			continue
+		}
+		sm.balances[account] = new(big.Int).Set(balance)
+	}
 }
 
 func (sm *AccountStateMachine) BalanceOf(account string) *big.Int {
@@ -118,3 +135,11 @@ func defaultAccountBalance() *big.Int {
 	}
 	return balance
 }
+
+// func (sm *AccountStateMachine) copyOfBalancesLocked() map[string]*big.Int {
+// 	copy := make(map[string]*big.Int, len(sm.balances))
+// 	for account, balance := range sm.balances {
+// 		copy[account] = new(big.Int).Set(balance)
+// 	}
+// 	return copy
+// }

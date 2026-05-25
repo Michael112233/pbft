@@ -34,9 +34,9 @@ func (n *Node) PrintDetails() {
 	n.checkpointMu.Lock()
 	lastStableCheckpoint := n.lastStableCheckpoint
 	checkpointSnapshots := make([]checkpointSnapshot, 0, len(n.checkpoints))
-	for cp, votes := range n.checkpoints {
-		voterIDs := make([]int, 0, len(votes))
-		for voterID := range votes {
+	for cp, checkpointData := range n.checkpoints {
+		voterIDs := make([]int, 0, len(checkpointData.votes))
+		for voterID := range checkpointData.votes {
 			voterIDs = append(voterIDs, voterID)
 		}
 		sort.Ints(voterIDs)
@@ -190,6 +190,37 @@ func (n *Node) PrintExecutedSlots() {
 
 	n.consensusLog.PrintExecutedSlots(n.view)
 }
+
+func (n *Node) PrintAccountBalances() {
+	n.executionMu.Lock()
+	_, balances, err := n.executionMachine.CheckpointMaterial()
+	n.executionMu.Unlock()
+	if err != nil {
+		fmt.Printf("Failed to get account balances: %v\n", err)
+		return
+	}
+
+	accounts := make([]string, 0, len(balances))
+	for account := range balances {
+		accounts = append(accounts, account)
+	}
+	sort.Strings(accounts)
+
+	fmt.Printf("------ Account Balances ------\n")
+	if len(accounts) == 0 {
+		fmt.Printf("No accounts recorded\n")
+		return
+	}
+	for _, account := range accounts {
+		balance := balances[account]
+		if balance == nil {
+			fmt.Printf("%s=0\n", account)
+			continue
+		}
+		fmt.Printf("%s=%s\n", account, balance.String())
+	}
+}
+
 func (n *Node) TimesLeader() {
 	n.viewMu.RLock()
 	leaderIdForView := make(map[int64]int, len(n.leaderIdForView))

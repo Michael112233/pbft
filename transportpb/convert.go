@@ -279,6 +279,70 @@ func CheckpointFromPB(msg *CheckpointMsg) (core.CheckpointMsg, error) {
 	}, nil
 }
 
+func RequestStateTransferToPB(msg core.RequestStateTransferMsg) *RequestStateTransferMsg {
+	return &RequestStateTransferMsg{
+		SeqNum: msg.SeqNum,
+		Digest: digestToPB(msg.Digest),
+		From:   int32(msg.From),
+	}
+}
+
+func RequestStateTransferFromPB(msg *RequestStateTransferMsg) (core.RequestStateTransferMsg, error) {
+	if msg == nil {
+		return core.RequestStateTransferMsg{}, nil
+	}
+	digest, err := digestFromPB(msg.Digest)
+	if err != nil {
+		return core.RequestStateTransferMsg{}, err
+	}
+	return core.RequestStateTransferMsg{
+		SeqNum: msg.SeqNum,
+		Digest: digest,
+		From:   int(msg.From),
+	}, nil
+}
+
+func StateTransferToPB(msg core.StateTransferMsg) *StateTransferMsg {
+	out := &StateTransferMsg{
+		SeqNum:   msg.SeqNum,
+		Digest:   digestToPB(msg.Digest),
+		From:     int32(msg.From),
+		Balances: make(map[string]string, len(msg.Balances)),
+	}
+	for account, balance := range msg.Balances {
+		if balance == nil {
+			out.Balances[account] = "0"
+			continue
+		}
+		out.Balances[account] = balance.String()
+	}
+	return out
+}
+
+func StateTransferFromPB(msg *StateTransferMsg) (core.StateTransferMsg, error) {
+	if msg == nil {
+		return core.StateTransferMsg{}, nil
+	}
+	digest, err := digestFromPB(msg.Digest)
+	if err != nil {
+		return core.StateTransferMsg{}, err
+	}
+	out := core.StateTransferMsg{
+		SeqNum:   msg.SeqNum,
+		Digest:   digest,
+		From:     int(msg.From),
+		Balances: make(map[string]*big.Int, len(msg.Balances)),
+	}
+	for account, balance := range msg.Balances {
+		value, ok := new(big.Int).SetString(balance, 10)
+		if !ok {
+			return core.StateTransferMsg{}, fmt.Errorf("invalid balance for %q: %q", account, balance)
+		}
+		out.Balances[account] = value
+	}
+	return out, nil
+}
+
 func ReplyToPB(msg core.ReplyMessage) *ReplyMessage {
 	return &ReplyMessage{
 		To:             msg.To,
@@ -505,9 +569,16 @@ func ViewChangeToPB(msg core.ViewChangeMsg) *ViewChangeMsg {
 	out := &ViewChangeMsg{
 		ViewNumber:          msg.ViewNumber,
 		CheckpointSeqNumber: msg.CheckpointSeqNumber,
+		CheckpointDigest:    digestToPB(msg.CheckpointDigest),
 		From:                int32(msg.From),
 		PreparedCerts:       make(map[int64]*PreparedCert, len(msg.PreparedCerts)),
 		VcType:              ViewChangeMsg_VCType(msg.Type),
+	}
+	if len(msg.CheckpointProof) > 0 {
+		out.CheckpointProof = make([]*CheckpointMsgSig, 0, len(msg.CheckpointProof))
+		for _, proof := range msg.CheckpointProof {
+			out.CheckpointProof = append(out.CheckpointProof, CheckpointMsgSigToPB(proof))
+		}
 	}
 	for k, v := range msg.PreparedCerts {
 		if v == nil {
@@ -553,12 +624,27 @@ func ViewChangeFromPB(msg *ViewChangeMsg) (core.ViewChangeMsg, error) {
 	if msg == nil {
 		return core.ViewChangeMsg{}, nil
 	}
+	checkpointDigest, err := digestFromPB(msg.CheckpointDigest)
+	if err != nil {
+		return core.ViewChangeMsg{}, err
+	}
 	out := core.ViewChangeMsg{
 		ViewNumber:          msg.ViewNumber,
 		CheckpointSeqNumber: msg.CheckpointSeqNumber,
+		CheckpointDigest:    checkpointDigest,
 		From:                int(msg.From),
 		PreparedCerts:       make(map[int64]*core.PreparedCert, len(msg.PreparedCerts)),
 		Type:                core.VCType(msg.VcType),
+	}
+	if len(msg.CheckpointProof) > 0 {
+		out.CheckpointProof = make([]core.CheckpointMsgSig, 0, len(msg.CheckpointProof))
+		for _, proof := range msg.CheckpointProof {
+			checkpointProof, err := CheckpointMsgSigFromPB(proof)
+			if err != nil {
+				return core.ViewChangeMsg{}, err
+			}
+			out.CheckpointProof = append(out.CheckpointProof, checkpointProof)
+		}
 	}
 	for k, v := range msg.PreparedCerts {
 		if v == nil {

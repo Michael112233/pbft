@@ -54,6 +54,9 @@ func runNode(nodeID int64, cfg *config.Config) {
 			Node.PrintCommitSentSummary()
 		} else if input[0] == 'l' {
 			Node.TimesLeader()
+		} else if input[0] == 'a' {
+			Node.PrintAccountBalances()
+
 		}
 
 	}

@@ -69,6 +69,19 @@ message CheckpointMsg {
   int32 from = 3;
 }
 
+message RequestStateTransferMsg {
+  int64 seq_num = 1;
+  bytes digest = 2;
+  int32 from = 3;
+}
+
+message StateTransferMsg {
+  int64 seq_num = 1;
+  bytes digest = 2;
+  int32 from = 3;
+  map<string, string> balances = 4;
+}
+
 message PreprepareMsgMini {
   int64 view = 1;
   int64 seq_num = 2;
@@ -129,6 +142,9 @@ message ViewChangeMsg {
     RoundRobinVCData round_robin = 7;
     WRRVCData wrr = 8;
   }
+
+  bytes checkpoint_digest = 9;
+  repeated CheckpointMsgSig checkpoint_proof = 10;
 }
 
 message ViewChangeMsgSig {
@@ -206,6 +222,8 @@ message Envelope {
     CommitTps commit_tps = 20;
     LeaderIdUpdate leader_id_update = 21;
     VCRunningStatus vc_running_status = 22;
+    RequestStateTransferMsg request_state_transfer = 23;
+    StateTransferMsg state_transfer = 24;
   }
 }
 

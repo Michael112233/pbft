@@ -1,5 +1,7 @@
 package core
 
+import "math/big"
+
 type Message struct {
 	MsgType   string
 	Data      []byte
@@ -95,6 +97,18 @@ type CheckpointMsg struct {
 	Digest [32]byte
 	From   int
 }
+type StateTransferMsg struct {
+	SeqNum   int64
+	Digest   [32]byte
+	From     int
+	Balances map[string]*big.Int
+}
+
+type RequestStateTransferMsg struct {
+	SeqNum int64
+	Digest [32]byte
+	From   int
+}
 
 type CheckpointMsgSig struct {
 	CheckpointMsg CheckpointMsg
@@ -130,6 +144,8 @@ type WRRVCData struct {
 type ViewChangeMsg struct {
 	ViewNumber          int64
 	CheckpointSeqNumber int64
+	CheckpointDigest    [32]byte
+	CheckpointProof     []CheckpointMsgSig
 	From                int
 	PreparedCerts       map[int64]*PreparedCert
 	Type                VCType

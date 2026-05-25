@@ -27,6 +27,7 @@ type Config struct {
 	Performance       bool `json:"performance"`
 	ProposalDelayNode int  `json:"proposal_delay_node"`
 	ProposalDelayMS   int  `json:"proposal_delay_ms"`
+	GC                bool `json:"gc"`
 }
 
 func ReadCfg(filename string) *Config {

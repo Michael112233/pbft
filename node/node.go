@@ -2,6 +2,7 @@ package node
 
 import (
 	"bytes"
+	"math/big"
 
 	"crypto/sha256"
 	"sort"
@@ -26,6 +27,7 @@ const (
 	targetThroughputMaxFactor          = 0.90
 	ALPHA                              = 1 / float64(10) // for exponential moving average calculation of throughput
 	D                                  = 3
+	THROUGHPUTINTERVAL_DELAY           = 100
 )
 
 type clientRequestKey struct {
@@ -38,7 +40,10 @@ type checkpoint struct {
 	digest [32]byte
 }
 
-type checkpointVotes map[int]struct{}
+type CheckpointData struct {
+	votes    map[int]core.CheckpointMsgSig
+	balances map[string]*big.Int
+}
 
 type bufferedConsensusMessageKind uint8
 
@@ -98,15 +103,17 @@ type Node struct {
 	noOpsExecuted     atomic.Int64
 	pendingExecutions map[int64]pendingExecution
 
-	checkpointMu         sync.Mutex
-	checkpoints          map[checkpoint]checkpointVotes
-	lastStableCheckpoint checkpoint
+	checkpointMu                   sync.Mutex
+	checkpoints                    map[checkpoint]CheckpointData
+	lastStableCheckpoint           checkpoint //if laststable is updated then balances cant be nil
+	stateRequestTransferInProgress int64
 
 	throughputMu                  sync.RWMutex
 	checkpointThroughputs         map[int64][]float64
 	throughputIntervalStart       time.Time
 	throughputIntervalStartSeq    int64
 	targetThroughput              float64
+	throughputObservationStarted  bool
 	throughputMeasurementsChan    chan throughputMeasurement
 	throughputMeasurementsStop    chan struct{}
 	throughputMeasurementsDone    chan struct{}
@@ -121,6 +128,7 @@ type Node struct {
 	periodic      bool
 	peakTpsTest   bool
 	proposalDelay bool
+	gc            bool
 }
 
 func NewNode(nodeID int, cfg *config.Config) *Node {
@@ -133,29 +141,34 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		log:        log,
 		messageHub: NewNodeMessageHub(),
 
-		encryptionKeyStore:         NewKeyStore(nodeID, cfg.NodeNum),
-		unverifiedClientMsgsChan:   make(chan []core.ClientMsgSignature, 100), // buffer size can be tuned
-		verifiedClientMsgsChan:     make(chan core.ClientMsgSignature, 100),   // buffer size can be tuned
-		preprepareSem:              make(chan struct{}, 5000),
-		preprepareSeqNumber:        atomic.Int64{},
-		view:                       1,
-		forView:                    1,
-		vcType:                     cfg.LeaderTypeEnum,
-		leaderId:                   1,
-		leaderIdForView:            map[int64]int{1: 1},
-		consensusLog:               NewConsensusLog(),
-		viewChangeRunning:          false,
-		bufferedMsgs:               make([]bufferedConsensusMessage, 0),
-		fNodes:                     (int(cfg.NodeNum) - 1) / 3,
-		pbftTimerManager:           NewTimerManager(log),
-		viewChangeMsgsLog:          make(map[int64][]*core.ViewChangeMsgSig),
-		voteLog:                    make(map[int64][]int),
-		pool:                       NewPool(),
-		executionMachine:           execution.NewAccountStateMachine(),
-		pendingExecutions:          make(map[int64]pendingExecution),
-		checkpoints:                make(map[checkpoint]checkpointVotes),
-		lastStableCheckpoint:       checkpoint{seq: 0, digest: [32]byte{}},
-		checkpointThroughputs:      make(map[int64][]float64),
+		encryptionKeyStore:             NewKeyStore(nodeID, cfg.NodeNum),
+		unverifiedClientMsgsChan:       make(chan []core.ClientMsgSignature, 100), // buffer size can be tuned
+		verifiedClientMsgsChan:         make(chan core.ClientMsgSignature, 100),   // buffer size can be tuned
+		preprepareSem:                  make(chan struct{}, 5000),
+		preprepareSeqNumber:            atomic.Int64{},
+		view:                           1,
+		forView:                        1,
+		vcType:                         cfg.LeaderTypeEnum,
+		leaderId:                       1,
+		leaderIdForView:                map[int64]int{1: 1},
+		consensusLog:                   NewConsensusLog(),
+		viewChangeRunning:              false,
+		bufferedMsgs:                   make([]bufferedConsensusMessage, 0),
+		fNodes:                         (int(cfg.NodeNum) - 1) / 3,
+		pbftTimerManager:               NewTimerManager(log),
+		viewChangeMsgsLog:              make(map[int64][]*core.ViewChangeMsgSig),
+		voteLog:                        make(map[int64][]int),
+		pool:                           NewPool(),
+		executionMachine:               execution.NewAccountStateMachine(),
+		pendingExecutions:              make(map[int64]pendingExecution),
+		checkpoints:                    make(map[checkpoint]CheckpointData),
+		lastStableCheckpoint:           checkpoint{seq: 0, digest: [32]byte{}},
+		stateRequestTransferInProgress: -1,
+		checkpointThroughputs:          make(map[int64][]float64),
+		throughputIntervalStartSeq:     THROUGHPUTINTERVAL_DELAY,
+		targetThroughput:               defaultTargetThroughput,
+		throughputObservationStarted:   false,
+
 		throughputMeasurementsChan: make(chan throughputMeasurement, throughputMeasurementBufferSize),
 		throughputMeasurementsStop: make(chan struct{}),
 		throughputMeasurementsDone: make(chan struct{}),
@@ -166,6 +179,7 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		peakTpsTest:                cfg.PeakTpsTest,
 		periodInterval:             cfg.Period,
 		scoreboard:                 NewScoreboard(cfg.NodeNum),
+		gc:                         cfg.GC,
 	}
 }
 
@@ -952,14 +966,14 @@ func (n *Node) primaryFromStableCheckpointVotes() int {
 	n.checkpointMu.Lock()
 	defer n.checkpointMu.Unlock()
 
-	votes, exists := n.checkpoints[n.lastStableCheckpoint]
-	if !exists || len(votes) == 0 {
+	checkpointData, exists := n.checkpoints[n.lastStableCheckpoint]
+	if !exists || len(checkpointData.votes) == 0 {
 		n.log.Warn("ActiveL enabled but no stable checkpoint votes found for seq=%d", n.lastStableCheckpoint.seq)
 		return 0
 	}
 
-	voters := make([]int, 0, len(votes))
-	for nodeID := range votes {
+	voters := make([]int, 0, len(checkpointData.votes))
+	for nodeID := range checkpointData.votes {
 		voters = append(voters, nodeID)
 	}
 	sort.Ints(voters)
@@ -1355,16 +1369,16 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	n.pbftTimerManager.stopNewViewTimer()
 	n.pbftTimerManager.stopPeriodicElectionTimer()
 	if n.cfg.Performance {
-		n.executionMu.Lock()
-		lastexe := n.lastExecuted //locking check
-		n.executionMu.Unlock()
+		// n.executionMu.Lock()
+		// lastexe := n.lastExecuted //locking check
+		// n.executionMu.Unlock()
 		n.throughputMu.Lock()
-		n.throughputIntervalStart = time.Now()
-		n.throughputIntervalStartSeq = lastexe
+		// n.throughputIntervalStart = time.Now()
+		n.throughputIntervalStartSeq = maxSeq + THROUGHPUTINTERVAL_DELAY
 		// maxRecentThroughput := n.maxRecentViewFinalThroughputLocked(n.view)
 		maxRecentThroughput := newViewMsg.Throughput
 		n.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput
-		n.log.Info("Length of preprepare log in new view message for view %d is %d and max seq number is %d and last executed is %d", n.view, len(newViewMsg.PreprepareLog), maxSeq, lastexe)
+		n.log.Info("Length of preprepare log in new view message for view %d is %d and max seq number is %d ", n.view, len(newViewMsg.PreprepareLog), maxSeq)
 		n.log.Info("Max recent throughput for new view %d is %.2f; target throughput set to %.2f", n.view, maxRecentThroughput, n.targetThroughput)
 		n.throughputMu.Unlock()
 
@@ -1408,6 +1422,8 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	go n.sendLeaderIdUpdate(n.leaderId, n.view)
 	n.pbftTimerManager.forceResetPBFTTimer()
 	n.replayBufferedMessagesForView(replayView)
+	go n.gcViewChangeMsgs(replayView)
+
 }
 
 func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView int64) ([]core.PreprepareMsgSig, int64) {
@@ -1417,22 +1433,58 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView i
 
 	minS := n.lastStableCheckpoint.seq + 1
 	myStableCheckpoint := n.lastStableCheckpoint
+	checkpointProof := []core.CheckpointMsgSig{}
+	checkpointNeedsSync := false
 	for _, vcMsgSig := range vcMsgSigs {
 		if vcMsgSig.ViewChangeMsg.CheckpointSeqNumber > myStableCheckpoint.seq {
 			n.log.Error("missing the latest stable checkpoint at o primary") // would need to pass digest and application state in vc message for sync
-			n.lastStableCheckpoint = checkpoint{
-				seq: vcMsgSig.ViewChangeMsg.CheckpointSeqNumber,
+			// n.lastStableCheckpoint = checkpoint{
+			// 	seq: vcMsgSig.ViewChangeMsg.CheckpointSeqNumber,
+			// }
+			myStableCheckpoint = checkpoint{
+				seq:    vcMsgSig.ViewChangeMsg.CheckpointSeqNumber,
+				digest: vcMsgSig.ViewChangeMsg.CheckpointDigest,
 			}
-			myStableCheckpoint = n.lastStableCheckpoint // unsafe checkpoint forwarding
+			checkpointProof = vcMsgSig.ViewChangeMsg.CheckpointProof
 			minS = myStableCheckpoint.seq + 1
+			checkpointNeedsSync = true
 
 		}
 	}
+
+	if checkpointNeedsSync {
+		checkpointData, exists := n.checkpoints[myStableCheckpoint]
+		if !exists {
+			checkpointData = CheckpointData{
+				votes:    make(map[int]core.CheckpointMsgSig),
+				balances: nil,
+			}
+			n.checkpoints[myStableCheckpoint] = checkpointData
+
+		} else if exists && len(checkpointData.votes) < 2*n.fNodes+1 {
+			for _, checkpointMsgSig := range checkpointProof {
+				n.checkpoints[myStableCheckpoint].votes[checkpointMsgSig.CheckpointMsg.From] = checkpointMsgSig
+			} // if not exists then copy proof, if exists may replace some with incoming we will verify checkpoint before when receive vc
+			if checkpointData.balances == nil {
+				n.log.Info("requesting state transfer from creat 0 primary")
+				go n.RequestStateTransfer(myStableCheckpoint.seq, myStableCheckpoint.digest)
+			} else {
+				n.lastStableCheckpoint = myStableCheckpoint // unsafe checkpoint forwarding
+				go n.gcConsensusState(myStableCheckpoint.seq)
+				go n.gcCheckpoints(myStableCheckpoint)
+			}
+		} else {
+			// if votess >= then from cehckpoint receive path should have called state transfer
+			n.log.Error("should not come here for checkpoint in create O at replica")
+		}
+
+	}
+
 	n.checkpointMu.Unlock()
 	n.executionMu.Lock()
 	if myStableCheckpoint.seq > n.lastExecuted {
-		n.lastExecuted = myStableCheckpoint.seq // unsafe checkpoint forwarding
-		n.log.Error("updating last executed to stable checkpoint seq %d", n.lastExecuted)
+		// n.lastExecuted = myStableCheckpoint.seq // unsafe checkpoint forwarding
+		// n.log.Error("updating last executed to stable checkpoint seq %d", n.lastExecuted)
 
 	} else if myStableCheckpoint.seq < n.lastExecuted {
 		n.log.Error("my stable checkpoint seq %d is less than my last executed %d, this should not happen", myStableCheckpoint.seq, n.lastExecuted)
@@ -1503,14 +1555,49 @@ func (n *Node) createOReplica(vcMsgSigs []*core.ViewChangeMsgSig, view int64) (m
 	n.checkpointMu.Lock()
 	minS := n.lastStableCheckpoint.seq + 1
 	myStableCheckpoint := n.lastStableCheckpoint
+	checkpointProof := []core.CheckpointMsgSig{}
+	checkpointNeedsSync := false
 	for _, vcMsgSig := range vcMsgSigs {
 		if vcMsgSig.ViewChangeMsg.CheckpointSeqNumber > myStableCheckpoint.seq {
 			n.log.Error("missing the latest stable checkpoint at o replica") // would need to pass digest and application state in vc message for sync
-			n.lastStableCheckpoint = checkpoint{
-				seq: vcMsgSig.ViewChangeMsg.CheckpointSeqNumber,
+			// n.lastStableCheckpoint = checkpoint{
+			// 	seq: vcMsgSig.ViewChangeMsg.CheckpointSeqNumber,
+			// }
+			myStableCheckpoint = checkpoint{
+				seq:    vcMsgSig.ViewChangeMsg.CheckpointSeqNumber,
+				digest: vcMsgSig.ViewChangeMsg.CheckpointDigest,
 			}
-			myStableCheckpoint = n.lastStableCheckpoint // unsafe checkpoint forwarding
+			checkpointProof = vcMsgSig.ViewChangeMsg.CheckpointProof
 			minS = myStableCheckpoint.seq + 1
+			checkpointNeedsSync = true
+
+		}
+	}
+
+	if checkpointNeedsSync {
+		checkpointData, exists := n.checkpoints[myStableCheckpoint]
+		if !exists {
+			checkpointData = CheckpointData{
+				votes:    make(map[int]core.CheckpointMsgSig),
+				balances: nil,
+			}
+			n.checkpoints[myStableCheckpoint] = checkpointData
+
+		} else if exists && len(checkpointData.votes) < 2*n.fNodes+1 { // this path is mainly when i have executed and have balances but need more votes to stabalize
+			for _, checkpointMsgSig := range checkpointProof {
+				n.checkpoints[myStableCheckpoint].votes[checkpointMsgSig.CheckpointMsg.From] = checkpointMsgSig
+			} // if not exists then copy proof, if exists may replace some with incoming we will verify checkpoint before when receive vc
+			if checkpointData.balances == nil { // most likely this case not run
+				n.log.Info("requesting state transfer from creat 0 replica")
+				go n.RequestStateTransfer(myStableCheckpoint.seq, myStableCheckpoint.digest)
+			} else {
+				n.lastStableCheckpoint = myStableCheckpoint // unsafe checkpoint forwarding
+				go n.gcConsensusState(myStableCheckpoint.seq)
+				go n.gcCheckpoints(myStableCheckpoint)
+			}
+		} else {
+			// if votess >= then from cehckpoint receive path should have called state transfer
+			n.log.Error("should not come here for checkpoint in create O at replica")
 		}
 
 	}
@@ -1518,8 +1605,8 @@ func (n *Node) createOReplica(vcMsgSigs []*core.ViewChangeMsgSig, view int64) (m
 
 	n.executionMu.Lock()
 	if myStableCheckpoint.seq > n.lastExecuted {
-		n.lastExecuted = myStableCheckpoint.seq // unsafe checkpoint forwarding
-		n.log.Error("updating last executed to stable checkpoint seq %d", n.lastExecuted)
+		// n.lastExecuted = myStableCheckpoint.seq // unsafe checkpoint forwarding
+		// n.log.Error("updating last executed to stable checkpoint seq %d", n.lastExecuted)
 
 	} else if myStableCheckpoint.seq < n.lastExecuted {
 		n.log.Error("my stable checkpoint seq %d is less than my last executed %d, this should not happen", myStableCheckpoint.seq, n.lastExecuted)
@@ -1615,15 +1702,15 @@ func (n *Node) newView() {
 	n.periodInterval = maxSeq + n.cfg.Period
 	maxRecentThroughput := 0.0
 	if n.cfg.Performance {
-		n.executionMu.Lock()
-		lastexe := n.lastExecuted //locking check
-		n.executionMu.Unlock()
+		// n.executionMu.Lock()
+		// lastexe := n.lastExecuted //locking check
+		// n.executionMu.Unlock()
 		n.throughputMu.Lock()
-		n.throughputIntervalStart = time.Now().Add(30 * time.Millisecond)
-		n.throughputIntervalStartSeq = lastexe
+		// n.throughputIntervalStart = time.Now().Add(30 * time.Millisecond)
+		n.throughputIntervalStartSeq = maxSeq + THROUGHPUTINTERVAL_DELAY
 		maxRecentThroughput = n.maxRecentViewFinalThroughputLocked(n.view)
 		n.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput
-		n.log.Info("Created O with maxSeq %d for new view %d at primary and len O is %d and last executed is %d", maxSeq, n.view, len(O), lastexe)
+		n.log.Info("Created O with maxSeq %d for new view %d at primary and len O is %d", maxSeq, n.view, len(O))
 		n.log.Info("Max recent throughput for new view %d is %.2f; target throughput set to %.2f", n.view, maxRecentThroughput, n.targetThroughput)
 		n.throughputMu.Unlock()
 	}
@@ -1712,6 +1799,7 @@ func (n *Node) newView() {
 	go n.broadcastNewView(newViewMsg, signature)
 	n.log.Info("Entering replay from primary might not need at primary")
 	go n.replayBufferedMessagesForView(n.view)
+	go n.gcViewChangeMsgs(n.view)
 
 }
 

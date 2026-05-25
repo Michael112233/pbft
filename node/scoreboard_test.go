@@ -167,17 +167,16 @@ func TestBucketThroughput(t *testing.T) {
 		name       string
 		throughput float64
 		alpha      float64
-		qMax       int
 		want       int
 	}{
-		{name: "floors scaled throughput", throughput: 997.3, alpha: 0.1, qMax: 200, want: 99},
-		{name: "clips below zero", throughput: -12.5, alpha: 0.1, qMax: 200, want: 0},
-		{name: "clips above maximum", throughput: 3000, alpha: 0.1, qMax: 200, want: 200},
+		{name: "floors scaled throughput", throughput: 997.3, alpha: 0.1, want: 99},
+		{name: "clips below zero", throughput: -12.5, alpha: 0.1, want: 0},
+		{name: "does not clip above legacy maximum", throughput: 3000, alpha: 0.1, want: 300},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := BucketThroughput(tt.throughput, tt.alpha, tt.qMax)
+			got, err := BucketThroughput(tt.throughput, tt.alpha)
 			if err != nil {
 				t.Fatalf("BucketThroughput returned error: %v", err)
 			}
@@ -189,16 +188,13 @@ func TestBucketThroughput(t *testing.T) {
 }
 
 func TestBucketThroughputRejectsInvalidArguments(t *testing.T) {
-	if _, err := BucketThroughput(10, 0, 20); err == nil {
+	if _, err := BucketThroughput(10, 0); err == nil {
 		t.Fatal("BucketThroughput with alpha 0 returned nil error")
-	}
-	if _, err := BucketThroughput(10, 1, -1); err == nil {
-		t.Fatal("BucketThroughput with negative qMax returned nil error")
 	}
 }
 
 func TestMedianBucket(t *testing.T) {
-	got, err := MedianBucket([]float64{15, 997.3, 40, 25}, 0.1, 200)
+	got, err := MedianBucket([]float64{15, 997.3, 40, 25}, 0.1)
 	if err != nil {
 		t.Fatalf("MedianBucket returned error: %v", err)
 	}
@@ -208,7 +204,7 @@ func TestMedianBucket(t *testing.T) {
 }
 
 func TestMedianBucketRejectsEmptyThroughputs(t *testing.T) {
-	if _, err := MedianBucket(nil, 0.1, 200); err == nil {
+	if _, err := MedianBucket(nil, 0.1); err == nil {
 		t.Fatal("MedianBucket with empty throughputs returned nil error")
 	}
 }

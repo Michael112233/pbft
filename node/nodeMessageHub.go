@@ -314,7 +314,43 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		if err != nil {
 			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
 		}
-		go hub.node_ref.HandleCheckpoint(data)
+		go hub.node_ref.HandleCheckpoint(data, env.Signature)
+		return &transportpb.Ack{Ok: true}, nil
+
+	case core.MsgRequestStateTransfer:
+		request := env.GetRequestStateTransfer()
+		if request == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing request state transfer body"}, nil
+		}
+		if int(request.From) != int(env.From) {
+			return &transportpb.Ack{Ok: false, Error: "request state transfer sender mismatch"}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, request) {
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.RequestStateTransferFromPB(request)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		go hub.node_ref.HandleRequestStateTransfer(data, env.Signature)
+		return &transportpb.Ack{Ok: true}, nil
+
+	case core.MsgStateTransfer:
+		stateTransfer := env.GetStateTransfer()
+		if stateTransfer == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing state transfer body"}, nil
+		}
+		if int(stateTransfer.From) != int(env.From) {
+			return &transportpb.Ack{Ok: false, Error: "state transfer sender mismatch"}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, stateTransfer) {
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.StateTransferFromPB(stateTransfer)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		go hub.node_ref.HandleStateTransfer(data, env.Signature)
 		return &transportpb.Ack{Ok: true}, nil
 	case core.MsgViewChangeMessage:
 		viewChange := env.GetViewChange()
@@ -481,6 +517,23 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}, signat
 		pbMsg := transportpb.CheckpointToPB(checkpoint)
 		env.Body = &transportpb.Envelope_Checkpoint{Checkpoint: pbMsg}
 		env.From = int32(hub.node_ref.GetNodeID())
+
+	case core.MsgRequestStateTransfer:
+		request, ok := msg.(core.RequestStateTransferMsg)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_RequestStateTransfer{RequestStateTransfer: transportpb.RequestStateTransferToPB(request)}
+		env.From = int32(hub.node_ref.GetNodeID())
+
+	case core.MsgStateTransfer:
+		stateTransfer, ok := msg.(core.StateTransferMsg)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_StateTransfer{StateTransfer: transportpb.StateTransferToPB(stateTransfer)}
+		env.From = int32(hub.node_ref.GetNodeID())
+
 	case core.MsgViewChangeMessage:
 		viewChange, ok := msg.(core.ViewChangeMsg)
 		if !ok {

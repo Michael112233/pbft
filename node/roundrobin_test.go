@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/michael112233/pbft/config"
+	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/logger"
 )
 
@@ -29,7 +30,7 @@ func TestPrimaryForViewUsesOneBasedNodeIDs(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		if got := n.primaryForView(tt.view); got != tt.expected {
+		if got := n.primaryForView(tt.view, -1); got != tt.expected {
 			t.Fatalf("primaryForView(%d) = %d, want %d", tt.view, got, tt.expected)
 		}
 	}
@@ -44,7 +45,7 @@ func TestRoundRobinLeaderSelectionTreatsNodeFourAsLeaderForViewFour(t *testing.T
 		},
 	}
 
-	expectedLeader := n.primaryForView(n.forView)
+	expectedLeader := n.primaryForView(n.forView, -1)
 	if expectedLeader != 4 {
 		t.Fatalf("primaryForView(%d) = %d, want 4", n.forView, expectedLeader)
 	}
@@ -62,7 +63,7 @@ func TestRoundRobinLeaderSelectionDoesNotTreatNodeOneAsLeaderForViewFour(t *test
 		},
 	}
 
-	expectedLeader := n.primaryForView(n.forView)
+	expectedLeader := n.primaryForView(n.forView, -1)
 	if expectedLeader != 4 {
 		t.Fatalf("primaryForView(%d) = %d, want 4", n.forView, expectedLeader)
 	}
@@ -79,17 +80,19 @@ func TestPrimaryForViewUsesStableCheckpointVotesWhenActiveLEnabled(t *testing.T)
 		},
 		fNodes: 1,
 		log:    logger.NewLogger(1, "node"),
-		checkpoints: map[checkpoint]checkpointVotes{
+		checkpoints: map[checkpoint]CheckpointData{
 			{seq: 20}: {
-				3: {},
-				1: {},
-				2: {},
+				votes: map[int]core.CheckpointMsgSig{
+					3: {},
+					1: {},
+					2: {},
+				},
 			},
 		},
 		lastStableCheckpoint: checkpoint{seq: 20},
 	}
 
-	if got := n.primaryForView(7); got != 1 {
+	if got := n.primaryForView(7, -1); got != 1 {
 		t.Fatalf("primaryForView(%d) = %d, want 1 from stable checkpoint voters", 7, got)
 	}
 }
@@ -102,11 +105,11 @@ func TestPrimaryForViewFallsBackToRoundRobinWhenActiveLHasNoVotes(t *testing.T) 
 		},
 		fNodes:               1,
 		log:                  logger.NewLogger(1, "node"),
-		checkpoints:          make(map[checkpoint]checkpointVotes),
+		checkpoints:          make(map[checkpoint]CheckpointData),
 		lastStableCheckpoint: checkpoint{seq: 20},
 	}
 
-	if got := n.primaryForView(6); got != 2 {
+	if got := n.primaryForView(6, -1); got != 2 {
 		t.Fatalf("primaryForView(%d) = %d, want round-robin fallback 2", 6, got)
 	}
 }
