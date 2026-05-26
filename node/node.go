@@ -3,6 +3,7 @@ package node
 import (
 	"bytes"
 	"math/big"
+	"strconv"
 
 	"crypto/sha256"
 	"sort"
@@ -16,6 +17,7 @@ import (
 	"github.com/michael112233/pbft/execution"
 	"github.com/michael112233/pbft/logger"
 	"github.com/michael112233/pbft/transportpb"
+	"github.com/michael112233/pbft/utils"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -119,6 +121,10 @@ type Node struct {
 	throughputMeasurementsDone    chan struct{}
 	throughputMeasurementsStarted atomic.Bool
 	throughputMeasurementsOnce    sync.Once
+	memoryLoggerStop              chan struct{}
+	memoryLoggerDone              chan struct{}
+	memoryLoggerStarted           atomic.Bool
+	memoryLoggerStopOnce          sync.Once
 
 	//locked by viewmu
 	scoreboard *Scoreboard
@@ -172,6 +178,8 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		throughputMeasurementsChan: make(chan throughputMeasurement, throughputMeasurementBufferSize),
 		throughputMeasurementsStop: make(chan struct{}),
 		throughputMeasurementsDone: make(chan struct{}),
+		memoryLoggerStop:           make(chan struct{}),
+		memoryLoggerDone:           make(chan struct{}),
 		split:                      false,
 		dead:                       cfg.NodesDead[nodeID],
 		proposalDelay:              cfg.ProposalDelayNode == nodeID,
@@ -188,6 +196,10 @@ func (n *Node) Start() {
 	// n.StartGarbageCollection()
 	if n.throughputMeasurementsStarted.CompareAndSwap(false, true) {
 		go n.throughputMeasurementCSVWriter()
+	}
+	if n.memoryLoggerStarted.CompareAndSwap(false, true) {
+		component := "node_" + strconv.Itoa(n.NodeID)
+		go utils.StartMemoryLogger("logs/"+component+"_mem.log", component, 10*time.Second, n.memoryLoggerStop, n.memoryLoggerDone)
 	}
 	go n.ClientSignatureVerifier()
 	go n.VerifiedClientMessageHandler()
@@ -215,6 +227,12 @@ func (n *Node) Stop() {
 	})
 	if n.throughputMeasurementsStarted.Load() {
 		<-n.throughputMeasurementsDone
+	}
+	n.memoryLoggerStopOnce.Do(func() {
+		close(n.memoryLoggerStop)
+	})
+	if n.memoryLoggerStarted.Load() {
+		<-n.memoryLoggerDone
 	}
 	n.log.Info("node stopped")
 }
@@ -332,6 +350,7 @@ func (n *Node) broadcastPrepare(msg core.PrepareMsg, signature []byte) {
 	}
 }
 func (n *Node) broadcastViewChange(msg core.ViewChangeMsg, signature []byte) {
+	n.log.Info("Broadcasting ViewChange for view %d from node %d", msg.ViewNumber, n.GetNodeID())
 	for _, othersIp := range config.NodeAddr {
 		if othersIp == n.GetAddr() {
 			continue
@@ -1824,6 +1843,7 @@ func (n *Node) createVCContent(stableCheckpointSeq int64) map[int64]*core.Prepar
 	// stableCheckpointSeq := n.lastStableCheckpoint.seq
 	// n.checkpointMu.Unlock()
 	n.consensusLog.slotsMu.RLock()
+	// n.log.Info("inside create vc")
 	// we go over slots after stable checkpoint
 	for _, slot := range n.consensusLog.slots {
 

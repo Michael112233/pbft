@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/michael112233/pbft/core"
 )
 
 func TestTransactionManagerExportTPSSeries(t *testing.T) {
@@ -48,4 +50,61 @@ func TestTransactionManagerExportTPSSeries(t *testing.T) {
 	if points[len(points)-1].CommittedTotal != 10 {
 		t.Fatalf("last committed total = %d, want 10", points[len(points)-1].CommittedTotal)
 	}
+}
+
+func TestTransactionManagerGCTxnsDeletesEntriesBelowCutoff(t *testing.T) {
+	tm := NewTransactionManager()
+	addTestTransactions(tm, 1, 63, 64, 19999, 20000, 20001)
+
+	tm.GCTxns(20000)
+
+	for _, id := range []int64{1, 63, 64, 19999} {
+		if transactionExists(tm, id) {
+			t.Fatalf("transaction %d still exists after GC cutoff 20000", id)
+		}
+	}
+	for _, id := range []int64{20000, 20001} {
+		if !transactionExists(tm, id) {
+			t.Fatalf("transaction %d was deleted by GC cutoff 20000", id)
+		}
+	}
+}
+
+func TestTransactionManagerCommitTpsTriggersShardGC(t *testing.T) {
+	tm := NewTransactionManager()
+	addTestTransactions(tm, 9999, 10000, 10001, 30000)
+
+	tm.CommitTps(core.CommitTps{
+		ClientMsg: core.ClientMsg{Id: 30000},
+	})
+
+	if transactionExists(tm, 9999) {
+		t.Fatal("transaction 9999 still exists after CommitTps GC cutoff 10000")
+	}
+	for _, id := range []int64{10000, 10001, 30000} {
+		if !transactionExists(tm, id) {
+			t.Fatalf("transaction %d was deleted by CommitTps GC", id)
+		}
+	}
+	if committed := tm.txnCommited.Load(); committed != 1 {
+		t.Fatalf("committed count = %d, want 1", committed)
+	}
+}
+
+func addTestTransactions(tm *TransactionManager, ids ...int64) {
+	batch := make([]core.ClientMsgSignature, 0, len(ids))
+	for _, id := range ids {
+		batch = append(batch, core.ClientMsgSignature{
+			Data: core.ClientMsg{Id: id},
+		})
+	}
+	tm.AddTransaction(batch)
+}
+
+func transactionExists(tm *TransactionManager, id int64) bool {
+	s := tm.getShard(id)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, exists := s.txns[id]
+	return exists
 }

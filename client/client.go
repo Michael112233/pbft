@@ -3,12 +3,15 @@ package client
 import (
 	"crypto/ed25519"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/crypto"
 
 	"github.com/michael112233/pbft/logger"
+	"github.com/michael112233/pbft/utils"
 )
 
 type Client struct {
@@ -30,6 +33,11 @@ type Client struct {
 
 	cchan     chan struct{}
 	vcrunChan chan core.VCRunningStatus
+
+	memoryLoggerStop     chan struct{}
+	memoryLoggerDone     chan struct{}
+	memoryLoggerStarted  atomic.Bool
+	memoryLoggerStopOnce sync.Once
 }
 
 func NewClient(addr string, name string, config *config.Config, leaderAddr string) *Client {
@@ -54,11 +62,16 @@ func NewClient(addr string, name string, config *config.Config, leaderAddr strin
 		TransactionManager: NewTransactionManager(),
 		cchan:              make(chan struct{}, 4), // buffer to number of nodes
 		vcrunChan:          make(chan core.VCRunningStatus, 1),
+		memoryLoggerStop:   make(chan struct{}),
+		memoryLoggerDone:   make(chan struct{}),
 	}
 }
 
 func (c *Client) Start() {
 	c.messageHub.Start(c, &sync.WaitGroup{})
+	if c.memoryLoggerStarted.CompareAndSwap(false, true) {
+		go utils.StartMemoryLogger("logs/client_mem.log", "client", 10*time.Second, c.memoryLoggerStop, c.memoryLoggerDone)
+	}
 	go c.TransactionManager.TransactionTimerWorker(c)
 	c.injectSpeed = c.config.InjectSpeed
 	c.InjectTxs()
@@ -68,6 +81,12 @@ func (c *Client) Stop() {
 	c.WaitGroup.Wait()
 	c.messageHub.Close()
 	c.TransactionManager.StopTimer()
+	c.memoryLoggerStopOnce.Do(func() {
+		close(c.memoryLoggerStop)
+	})
+	if c.memoryLoggerStarted.Load() {
+		<-c.memoryLoggerDone
+	}
 	c.log.Debug("client stopped")
 }
 

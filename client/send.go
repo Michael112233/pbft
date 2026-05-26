@@ -14,8 +14,8 @@ func GenerateDummyTxs(count int) []*core.Transaction {
 	txs := make([]*core.Transaction, count)
 	for i := 0; i < count; i++ {
 		txs[i] = core.NewTransaction(
-			"sender_"+string(rune('A'+i%26)),
-			"receiver_"+string(rune('A'+(i+1)%26)),
+			string(rune('A'+i%26)),
+			string(rune('A'+(i+1)%26)),
 			big.NewInt(1),
 		)
 	}
@@ -28,44 +28,70 @@ func (c *Client) InjectTxs() {
 		defer c.WaitGroup.Done()
 
 		// Create signed ClientMsgSignature array for all transactions
-		txns := GenerateDummyTxs(int(c.config.Period) * 10)
-		signedMsgs := make([]core.ClientMsgSignature, len(txns))
-		for i, tx := range txns {
-			clientMsg := core.ClientMsg{
-				Id:         int64(i),
-				Timestamp:  time.Now().UnixNano(),
-				Txn:        tx,
-				ClientName: c.name,
-			}
+		// txns := GenerateDummyTxs(int(c.config.Period) * 5)
+		// signedMsgs := make([]core.ClientMsgSignature, len(txns))
+		// for i, tx := range txns {
+		// 	clientMsg := core.ClientMsg{
+		// 		Id:         int64(i),
+		// 		Timestamp:  time.Now().UnixNano(),
+		// 		Txn:        tx,
+		// 		ClientName: c.name,
+		// 	}
 
-			// Serialize ClientMsg deterministically via protobuf for signing.
-			clientMsgBytes, err := proto.MarshalOptions{Deterministic: true}.Marshal(transportpb.ClientMsgToPB(clientMsg))
-			if err != nil {
-				c.log.Error("failed to marshal client message for signing: %v", err)
-				continue
-			}
-			signature := crypto.SignMessageEd25519(clientMsgBytes, c.privateKey)
+		// 	// Serialize ClientMsg deterministically via protobuf for signing.
+		// 	clientMsgBytes, err := proto.MarshalOptions{Deterministic: true}.Marshal(transportpb.ClientMsgToPB(clientMsg))
+		// 	if err != nil {
+		// 		c.log.Error("failed to marshal client message for signing: %v", err)
+		// 		continue
+		// 	}
+		// 	signature := crypto.SignMessageEd25519(clientMsgBytes, c.privateKey)
 
-			signedMsgs[i] = core.ClientMsgSignature{
-				Data:      clientMsg,
-				Signature: signature,
-			}
-		}
+		// 	signedMsgs[i] = core.ClientMsgSignature{
+		// 		Data:      clientMsg,
+		// 		Signature: signature,
+		// 	}
+		// }
 
-		var injectTxs []core.ClientMsgSignature
 		c.TransactionManager.Start()
+		totaltxns := c.config.Period * 5
 
-		for i := int64(0); (i+1)*int64(c.config.InjectSpeed) <= int64(len(txns)); i++ {
+		for i := int64(0); (i+1)*int64(c.config.InjectSpeed) <= totaltxns; i++ {
+			txns := GenerateDummyTxs(int(c.config.InjectSpeed))
+			signedMsgs := make([]core.ClientMsgSignature, 0, len(txns))
+			for x, tx := range txns {
+				clientMsg := core.ClientMsg{
+					Id:         i*c.config.InjectSpeed + int64(x),
+					Timestamp:  time.Now().UnixNano(),
+					Txn:        tx,
+					ClientName: c.name,
+				}
 
-			injectTxs = signedMsgs[i*int64(c.config.InjectSpeed) : (i+1)*int64(c.config.InjectSpeed)]
+				// Serialize ClientMsg deterministically via protobuf for signing.
+				clientMsgBytes, err := proto.MarshalOptions{Deterministic: true}.Marshal(transportpb.ClientMsgToPB(clientMsg))
+				if err != nil {
+					c.log.Error("failed to marshal client message for signing: %v", err)
+					continue
+				}
+				signature := crypto.SignMessageEd25519(clientMsgBytes, c.privateKey)
+
+				// signedMsgs[x] = core.ClientMsgSignature{
+				// 	Data:      clientMsg,
+				// 	Signature: signature,
+				// }
+				signedMsgs = append(signedMsgs, core.ClientMsgSignature{
+					Data:      clientMsg,
+					Signature: signature,
+				})
+			}
+			// injectTxs = signedMsgs[i*int64(c.config.InjectSpeed) : (i+1)*int64(c.config.InjectSpeed)]
 
 			// c.TransactionManager.StartTimer()
-			go c.TransactionManager.AddTransaction(injectTxs)
+			go c.TransactionManager.AddTransaction(signedMsgs)
 
 			msg := core.RequestMessage{
 				// Timestamp: time.Now().UnixNano(),
 
-				Txs: injectTxs,
+				Txs: signedMsgs,
 				// Id:        int64(i),
 			}
 			// if i == 3 {
@@ -86,7 +112,7 @@ func (c *Client) InjectTxs() {
 				vcStatus := <-c.vcrunChan
 				if !vcStatus.VCRunning {
 					// c.log.Info("Received view change not running status, moving to next batch")
-					time.Sleep(50 * time.Millisecond) // small sleep to allow system to stabilize before next wave
+					time.Sleep(49 * time.Millisecond) // small sleep to allow system to stabilize before next wave
 					break
 				}
 

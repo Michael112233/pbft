@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	throughputMeasurementBatchSize  = 1000
+	throughputMeasurementBatchSize  = 10
 	throughputMeasurementBufferSize = 10000
 )
 

@@ -56,9 +56,9 @@ func (n *Node) electionVCTimeout() {
 	if !exists {
 		n.log.Error("No checkpoint data found for stable checkpoint seq %d and digest %x", checkpointSeq, checkpointDigest)
 	}
-	checkpointProof := make([]core.CheckpointMsgSig, len(checkpointData.votes))
-	for i, msg := range checkpointData.votes {
-		checkpointProof[i] = msg
+	checkpointProof := make([]core.CheckpointMsgSig, 0, len(checkpointData.votes))
+	for _, msg := range checkpointData.votes {
+		checkpointProof = append(checkpointProof, msg)
 	}
 	n.checkpointMu.Unlock()
 	preparedCerts := n.createVCContent(checkpointSeq)

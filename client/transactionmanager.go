@@ -12,7 +12,10 @@ import (
 	"github.com/michael112233/pbft/core"
 )
 
-const numShards = 64
+const (
+	numShards            = 64
+	txnGCRetentionWindow = 20000
+)
 
 type transactionDetails struct {
 	mu              sync.Mutex // per-txn lock for long operations
@@ -235,8 +238,8 @@ func (tm *TransactionManager) CommitTps(reply core.CommitTps) {
 
 	// Per-txn lock for longer operations - doesn't block other txns in shard
 	txn.mu.Lock()
-	defer txn.mu.Unlock()
 	if txn.committed {
+		txn.mu.Unlock()
 		return
 	}
 
@@ -244,7 +247,24 @@ func (tm *TransactionManager) CommitTps(reply core.CommitTps) {
 	txn.latency = txn.finishTimestamp - txn.startTimestamp
 	txn.committed = true
 	tm.txnCommited.Add(1)
+	txn.mu.Unlock()
 
+	if reply.ClientMsg.Id > txnGCRetentionWindow && reply.ClientMsg.Id%30000 == 0 {
+		tm.GCTxns(reply.ClientMsg.Id - txnGCRetentionWindow)
+	}
+}
+
+func (tm *TransactionManager) GCTxns(cutoff int64) {
+	for i := range tm.shards {
+		s := &tm.shards[i]
+		s.mu.Lock()
+		for id := range s.txns {
+			if id < cutoff {
+				delete(s.txns, id)
+			}
+		}
+		s.mu.Unlock()
+	}
 }
 
 func (tm *TransactionManager) tpsSamplerWorker() {

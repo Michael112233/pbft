@@ -15,6 +15,7 @@ func (n *Node) gcConsensusState(stableSeq int64) {
 	}
 	n.consensusLog.slotsMu.Unlock()
 	n.log.Info("Garbage collected %d consensus slots up to  stable seq %d and len of log was %d", removedSlots, stableSeq-100, lenOfConsensusLog)
+	n.pool.GCDelMap(stableSeq - 1500)
 
 }
 

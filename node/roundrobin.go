@@ -8,11 +8,14 @@ import (
 
 func (n *Node) roundRobinVCTimeout() {
 	// reqVote := false
+	// n.log.Info("Round Robin VC timeout triggered for view %d", n.forView)
 	grantVote := false
 
 	n.checkpointMu.Lock()
+	// n.log.Info("Inside lock")
 	checkpointSeq := n.lastStableCheckpoint.seq
 	checkpointDigest := n.lastStableCheckpoint.digest
+	n.log.Info("Stable checkpoint which will be used for round robin vc is seq %d", checkpointSeq)
 	key := checkpoint{
 		seq:    checkpointSeq,
 		digest: checkpointDigest,
@@ -21,9 +24,9 @@ func (n *Node) roundRobinVCTimeout() {
 	if !exists {
 		n.log.Error("No checkpoint data found for stable checkpoint seq %d and digest %x", checkpointSeq, checkpointDigest)
 	}
-	checkpointProof := make([]core.CheckpointMsgSig, len(checkpointData.votes))
-	for i, msg := range checkpointData.votes {
-		checkpointProof[i] = msg
+	checkpointProof := make([]core.CheckpointMsgSig, 0, len(checkpointData.votes))
+	for _, msg := range checkpointData.votes {
+		checkpointProof = append(checkpointProof, msg)
 	}
 
 	n.checkpointMu.Unlock()

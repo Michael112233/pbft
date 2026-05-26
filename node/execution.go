@@ -30,7 +30,7 @@ func (n *Node) queueCommittedExecution(seq int64, slot *consensusSlot, msg core.
 		n.log.Test("Executed request for seq %d success=%t", action.seq, action.result.Success)
 		if !action.noOp {
 			// go n.sendReply(action.msg, action.result, action.seq)
-			n.pool.Delete(action.digest)
+			n.pool.Delete(action.digest, action.seq)
 			n.pbftTimerManager.onRequestExecuted(action.msg, n) // resets timer and periodic vc stop timer
 		}
 	}
@@ -45,7 +45,7 @@ func (n *Node) queueCommittedExecution(seq int64, slot *consensusSlot, msg core.
 		// go n.checkpointVC(checkpointSeq, checkpointDigest)
 	}
 	if performanceTrigger {
-		// n.log.Info("Performance trigger for seq %d", seq)
+		n.log.Info("Performance trigger for seq %d", seq)
 		go n.perfVC()
 	}
 
@@ -228,18 +228,18 @@ func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view i
 
 	belowTarget := false
 	if elapsedSeconds > 3 {
-		belowTarget = throughput <= n.targetThroughput-5
+		belowTarget = throughput <= n.targetThroughput-1
 		if belowTarget {
-			n.log.Info("Elapsed secs greater than 4 and Throughput %.2f is below target %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, n.targetThroughput, view, seq, elapsedSeconds, executedSlots)
+			n.log.Info("Elapsed secs greater than 3 and Throughput %.2f is below target %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, n.targetThroughput, view, seq, elapsedSeconds, executedSlots)
 		} else {
-			n.log.Info("Elapsed secs greater than 4 and Throughput %.2f is above target %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, n.targetThroughput, view, seq, elapsedSeconds, executedSlots)
+			n.log.Info("Elapsed secs greater than 3 and Throughput %.2f is above target %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, n.targetThroughput, view, seq, elapsedSeconds, executedSlots)
 			oldtput := n.targetThroughput
 			n.targetThroughput *= 1.01
 			n.log.Info("Increasing target throughput from %.2f to %.2f for view %d as observed throughput %.2f is above target", oldtput, n.targetThroughput, view, throughput)
 		}
 
 	} else {
-		n.log.Info("Elapsed secs less than 4 doing nothing, the measured throughput is %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, view, seq, elapsedSeconds, executedSlots)
+		n.log.Info("Elapsed secs less than 3 doing nothing, the measured throughput is %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, view, seq, elapsedSeconds, executedSlots)
 	}
 
 	n.checkpointThroughputs[view] = append(n.checkpointThroughputs[view], throughput)
