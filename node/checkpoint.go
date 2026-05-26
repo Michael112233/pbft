@@ -121,7 +121,7 @@ func (n *Node) RequestStateTransfer(seq int64, digest [32]byte) {
 		return
 	}
 	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
-	n.log.Info("Requesting state transfer for seq %d digest %x", seq, digest)
+	n.log.Warn("Requesting state transfer for seq %d digest %x", seq, digest)
 
 	for _, otherIP := range config.NodeAddr {
 		if otherIP == n.GetAddr() {
@@ -140,7 +140,7 @@ func (n *Node) HandleRequestStateTransfer(request core.RequestStateTransferMsg, 
 	}
 	if key.seq > n.lastStableCheckpoint.seq {
 		n.checkpointMu.Unlock()
-		n.log.Info("Ignoring state transfer request for unstable checkpoint seq=%d digest=%x from=%d", key.seq, key.digest, request.From)
+		n.log.Warn("Ignoring state transfer request for unstable checkpoint seq=%d digest=%x from=%d", key.seq, key.digest, request.From)
 		return
 	}
 	checkpointData, exists := n.checkpoints[key]
@@ -170,7 +170,7 @@ func (n *Node) HandleRequestStateTransfer(request core.RequestStateTransferMsg, 
 		return
 	}
 	responseSignature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
-	n.log.Info("Sending state transfer for seq %d digest %x to node %d", key.seq, key.digest, request.From)
+	n.log.Warn("Sending state transfer for seq %d digest %x to node %d", key.seq, key.digest, request.From)
 	go n.messageHub.Send(core.MsgStateTransfer, target, stateTransferMsg, responseSignature)
 }
 
@@ -178,7 +178,7 @@ func (n *Node) HandleStateTransfer(stateTransferMsg core.StateTransferMsg, signa
 	n.checkpointMu.Lock()
 	stateUpdated := false
 	// can add small verfication against existing data
-	n.log.Info("Received transfered state")
+	n.log.Warn("Received transfered state")
 	key := checkpoint{
 		seq:    stateTransferMsg.SeqNum,
 		digest: stateTransferMsg.Digest,
@@ -206,20 +206,20 @@ func (n *Node) HandleStateTransfer(stateTransferMsg core.StateTransferMsg, signa
 	if stateTransferMsg.SeqNum > n.lastStableCheckpoint.seq && checkpointData.balances == nil {
 		checkpointData.balances = restoredBalances
 		n.checkpoints[key] = checkpointData
-		n.log.Info("State transfer applied for checkpoint seq=%d digest=%x", key.seq, key.digest)
+		n.log.Warn("State transfer applied for checkpoint seq=%d digest=%x", key.seq, key.digest)
 		n.lastStableCheckpoint = key
 		go n.gcConsensusState(key.seq)
 		go n.gcCheckpoints(key)
 		stateUpdated = true
 	} else if stateTransferMsg.SeqNum <= n.lastStableCheckpoint.seq && checkpointData.balances != nil {
-		n.log.Info("Received state transfer for already stable checkpoint seq=%d digest=%x, ignoring or updated locally", key.seq, key.digest)
+		n.log.Warn("Received state transfer for already stable checkpoint seq=%d digest=%x, ignoring or updated locally", key.seq, key.digest)
 	}
 	n.checkpointMu.Unlock()
 	if stateUpdated {
 		n.executionMu.Lock()
 
 		if stateTransferMsg.SeqNum > n.lastExecuted {
-			n.log.Info("Moving forward execution machine")
+			n.log.Warn("Moving forward execution machine")
 			n.executionMachine.RestoreCheckpoint(restoredBalances)
 			n.lastExecuted = stateTransferMsg.SeqNum
 		} else {
