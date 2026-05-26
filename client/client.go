@@ -99,5 +99,15 @@ func (c *Client) GetAddr() string {
 }
 
 func (c *Client) ExportTPSSeries(path string) error {
-	return c.TransactionManager.ExportTPSSeries(path)
+	err := c.TransactionManager.ExportTPSSeries(path)
+	if err != nil {
+
+		return err
+	}
+	latencyPath := "latency" + path
+	err = c.TransactionManager.LatencySummary(latencyPath)
+	if err != nil {
+		return err
+	}
+	return nil
 }

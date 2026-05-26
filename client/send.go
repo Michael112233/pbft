@@ -86,7 +86,7 @@ func (c *Client) InjectTxs() {
 			// injectTxs = signedMsgs[i*int64(c.config.InjectSpeed) : (i+1)*int64(c.config.InjectSpeed)]
 
 			// c.TransactionManager.StartTimer()
-			go c.TransactionManager.AddTransaction(signedMsgs)
+			c.TransactionManager.AddTransaction(signedMsgs)
 
 			msg := core.RequestMessage{
 				// Timestamp: time.Now().UnixNano(),

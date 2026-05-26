@@ -3,7 +3,9 @@ package client
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -59,6 +61,9 @@ type TransactionManager struct {
 	tpsSamplerStopCh        chan struct{}
 	tpsSamplerRunning       atomic.Bool
 	tpsSamplerStopOnce      sync.Once
+
+	latencyMu      sync.Mutex // later will have better fix and concurrent
+	latencySamples []int64
 }
 
 func NewTransactionManager() *TransactionManager {
@@ -247,6 +252,9 @@ func (tm *TransactionManager) CommitTps(reply core.CommitTps) {
 	txn.latency = txn.finishTimestamp - txn.startTimestamp
 	txn.committed = true
 	tm.txnCommited.Add(1)
+	tm.latencyMu.Lock()
+	tm.latencySamples = append(tm.latencySamples, txn.latency)
+	tm.latencyMu.Unlock()
 	txn.mu.Unlock()
 
 	if reply.ClientMsg.Id > txnGCRetentionWindow && reply.ClientMsg.Id%30000 == 0 {
@@ -346,4 +354,67 @@ func (tm *TransactionManager) ExportTPSSeries(path string) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+type LatencySummaryResult struct {
+	Count int     `json:"count"`
+	AvgMs float64 `json:"avg_ms"`
+	P50Ms float64 `json:"p50_ms"`
+	P95Ms float64 `json:"p95_ms"`
+	P99Ms float64 `json:"p99_ms"`
+}
+
+func (tm *TransactionManager) LatencySummary(path string) error {
+	tm.latencyMu.Lock()
+	samples := append([]int64(nil), tm.latencySamples...)
+	tm.latencyMu.Unlock()
+
+	if len(samples) == 0 {
+		data, err := json.MarshalIndent(LatencySummaryResult{}, "", "  ")
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(path, data, 0o644)
+	}
+
+	sort.Slice(samples, func(i, j int) bool {
+		return samples[i] < samples[j]
+	})
+
+	var total float64
+	for _, latency := range samples {
+		total += float64(latency)
+	}
+
+	result := LatencySummaryResult{
+		Count: len(samples),
+		AvgMs: nanosToMs(int64(total / float64(len(samples)))),
+		P50Ms: nanosToMs(percentileLatency(samples, 0.50)),
+		P95Ms: nanosToMs(percentileLatency(samples, 0.95)),
+		P99Ms: nanosToMs(percentileLatency(samples, 0.99)),
+	}
+
+	data, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
+}
+
+func percentileLatency(sorted []int64, p float64) int64 {
+	if len(sorted) == 0 {
+		return 0
+	}
+	idx := int(math.Ceil(p*float64(len(sorted)))) - 1
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(sorted) {
+		idx = len(sorted) - 1
+	}
+	return sorted[idx]
+}
+
+func nanosToMs(ns int64) float64 {
+	return float64(ns) / 1e6
 }
