@@ -29,6 +29,9 @@ func runNode(nodeID int64, cfg *config.Config) {
 	fmt.Println("Node is running. Type 'exit' to stop.")
 	for scanner.Scan() {
 		input := scanner.Text()
+		if input == "" {
+			continue
+		}
 		if input == "exit" {
 			fmt.Println("Exiting node...")
 			break
@@ -81,6 +84,9 @@ func runClient(cfg *config.Config) {
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		input := scanner.Text()
+		if input == "" {
+			continue
+		}
 		if input == "exit" {
 			fmt.Println("Exiting node...")
 			break

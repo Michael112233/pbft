@@ -1,67 +1,63 @@
 #!/bin/bash
+set -e
 
-echo "Closing any open terminal emulator windows..."
-terminals=(gnome-terminal konsole xterm terminator xfce4-terminal mate-terminal lxterminal alacritty kitty)
-for term in "${terminals[@]}"; do
-  if pgrep -f "$term" >/dev/null 2>&1; then
-    echo "Killing $term processes"
-    pkill -f "$term" >/dev/null 2>&1 || true
-  fi
-done
-echo "Terminal emulators closed (if any)."
+SESSION="pbft"
+NODE_COUNT=4
 
 echo "Cleaning up log files..."
 rm -f logs/*.log
+rm -f logs/*.csv
+rm -f logs/*.txt
 echo "Log files cleaned up."
 
-echo "Installing Python dependencies..."
-sudo apt-get update
-sudo apt-get install -y python3 python3-pip
-pip3 install requests
+echo "Cleaning up keys directory..."
+rm -f keys/*.pem
+echo "Keys directory cleaned."
 
-echo "Downloading dataset..."
-python3 script/download_dataset.py
+echo "Checking tmux..."
+if ! command -v tmux >/dev/null 2>&1; then
+    echo "tmux is not installed."
+    echo "Install it using:"
+    echo "sudo apt update && sudo apt install -y tmux"
+    exit 1
+fi
+
+echo "Building setup..."
+go build -o crypto_main setup_crypto/crypto_main.go
+chmod +x crypto_main
+./crypto_main
 
 echo "Building PBFT project..."
+rm -f pbft_main
 go mod tidy
 go build -o pbft_main main.go
+chmod +x pbft_main
 
-echo "Starting nodes and client in background..."
+CURRENT_DIR=$(pwd)
 
-# Start all processes in background
-./pbft_main -r node -m local -n 0 &
-NODE0_PID=$!
+echo "Starting nodes in separate tmux windows..."
 
-./pbft_main -r node -m local -n 1 &
-NODE1_PID=$!
+# Kill old session if it exists
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+    echo "Existing tmux session '$SESSION' found. Killing it..."
+    tmux kill-session -t "$SESSION"
+fi
 
-./pbft_main -r node -m local -n 2 &
-NODE2_PID=$!
+# Start node 1 in the first tmux window
+tmux new-session -d -s "$SESSION" -n "node1" \
+    "cd \"$CURRENT_DIR\" && ./pbft_main -r node -m local -n 1; status=\$?; echo; echo \"node1 exited with status \$status\"; exec bash"
 
-./pbft_main -r node -m local -n 3 &
-NODE3_PID=$!
+# Start remaining nodes in separate tmux windows
+for i in $(seq 2 "$NODE_COUNT"); do
+    tmux new-window -t "$SESSION" -n "node$i" \
+        "cd \"$CURRENT_DIR\" && ./pbft_main -r node -m local -n $i; status=\$?; echo; echo \"node$i exited with status \$status\"; exec bash"
+done
 
-./pbft_main -r client -m local &
-CLIENT_PID=$!
+# Optional: start client in another window
+# tmux new-window -t "$SESSION" -n "client" \
+#     "cd \"$CURRENT_DIR\" && ./pbft_main -r client -m local; status=\$?; echo; echo \"client exited with status \$status\"; exec bash"
 
-echo "All processes started!"
-echo "Node 0 PID: $NODE0_PID"
-echo "Node 1 PID: $NODE1_PID"
-echo "Node 2 PID: $NODE2_PID"
-echo "Node 3 PID: $NODE3_PID"
-echo "Client PID: $CLIENT_PID"
-echo ""
-echo "Press Ctrl+C to stop all processes"
+echo "All nodes started."
+echo "Attaching to tmux session: $SESSION"
 
-# Function to cleanup processes
-cleanup() {
-    echo "Stopping all processes..."
-    kill $NODE0_PID $NODE1_PID $NODE2_PID $NODE3_PID $CLIENT_PID 2>/dev/null
-    exit 0
-}
-
-# Set trap to cleanup on script exit
-trap cleanup SIGINT SIGTERM
-
-# Wait for all background processes
-wait
+tmux attach -t "$SESSION"
