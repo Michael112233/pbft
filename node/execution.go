@@ -46,7 +46,9 @@ func (n *Node) queueCommittedExecution(seq int64, slot *consensusSlot, msg core.
 	}
 	if performanceTrigger {
 		n.log.Info("Performance trigger for seq %d", seq)
-		go n.perfVC()
+		if n.performanceTrigger {
+			go n.perfVC()
+		}
 	}
 
 }

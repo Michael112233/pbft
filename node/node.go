@@ -129,12 +129,13 @@ type Node struct {
 	//locked by viewmu
 	scoreboard *Scoreboard
 
-	dead          bool
-	split         bool
-	periodic      bool
-	peakTpsTest   bool
-	proposalDelay bool
-	gc            bool
+	dead               bool
+	split              bool
+	periodic           bool
+	performanceTrigger bool
+	peakTpsTest        bool
+	proposalDelay      bool
+	gc                 bool
 }
 
 func NewNode(nodeID int, cfg *config.Config) *Node {
@@ -184,6 +185,7 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		dead:                       cfg.NodesDead[nodeID],
 		proposalDelay:              cfg.ProposalDelayNode == nodeID,
 		periodic:                   cfg.Periodic,
+		performanceTrigger:         cfg.PerformanceTrigger,
 		peakTpsTest:                cfg.PeakTpsTest,
 		periodInterval:             cfg.Period,
 		scoreboard:                 NewScoreboard(cfg.NodeNum),
