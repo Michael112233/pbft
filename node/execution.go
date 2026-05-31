@@ -227,7 +227,7 @@ func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view i
 	}
 
 	belowTarget := false
-	if elapsedSeconds > 3 {
+	if elapsedSeconds > 2 && seq%(CHECKPOINT_INTERVAL*12) == 0 {
 		belowTarget = throughput <= n.targetThroughput-1
 		if belowTarget {
 			n.log.Info("Elapsed secs greater than 3 and Throughput %.2f is below target %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, n.targetThroughput, view, seq, elapsedSeconds, executedSlots)

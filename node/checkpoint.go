@@ -225,6 +225,9 @@ func (n *Node) HandleStateTransfer(stateTransferMsg core.StateTransferMsg, signa
 		} else {
 			n.log.Error("cant move forward execution machine as last executed is ahead of state transfer checkpoint")
 		}
+		// run exe loop
+		// reduce chpoint limit
+		// first do easy change of time and gc
 		n.executionMu.Unlock()
 	}
 

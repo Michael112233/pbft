@@ -656,7 +656,12 @@ func (n *Node) HandlePrePrepareNewView(preprepareMsg core.PreprepareMsgMini, sig
 			slot.prePrepare.ClientMsg = clientMsg
 			slot.missingData = false
 		} else if !exists && !executed {
-			n.log.Error("Replica missing slot on new view for %d", preprepareMsg.SeqNum)
+			// n.log.Error("Replica missing slot on new view for %d", preprepareMsg.SeqNum)
+			if actualMsg.Data.Txn == nil {
+				n.log.Error("Replica missing slot on new view for seq %d and actual msg is nil", preprepareMsg.SeqNum)
+			} else {
+				n.log.Error("Replica missing slot but received txn from %s and to %s ", actualMsg.Data.Txn.Sender, actualMsg.Data.Txn.Receiver)
+			}
 			missingSlot = true
 			slot.missingData = true
 		} else if !exists && executed {
@@ -1379,6 +1384,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	}
 	n.preprepareSeqNumber.Store(maxSeq)
 	n.periodInterval = maxSeq + n.cfg.Period
+	n.log.Info("Next Period end is %d", n.periodInterval)
 	oldView := n.view
 	n.view = newViewMsg.NewViewNumber
 	n.forView = newViewMsg.NewViewNumber
@@ -1394,6 +1400,8 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 		n.throughputMu.Lock()
 		// n.throughputIntervalStart = time.Now()
 		n.throughputIntervalStartSeq = maxSeq + THROUGHPUTINTERVAL_DELAY
+		n.log.Info("Throughput interval start seq set to %d for new view %d", n.throughputIntervalStartSeq, n.view)
+		n.throughputObservationStarted = false
 		// maxRecentThroughput := n.maxRecentViewFinalThroughputLocked(n.view)
 		maxRecentThroughput := newViewMsg.Throughput
 		n.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput
@@ -1449,64 +1457,67 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView i
 	O := make([]core.PreprepareMsgSig, 0)
 	preprepareLog := make(map[int64]core.PreprepareMsgSig)
 	n.checkpointMu.Lock()
-
-	minS := n.lastStableCheckpoint.seq + 1
+	// minS := n.lastStableCheckpoint.seq + 1
+	minS := vcMsgSigs[0].ViewChangeMsg.CheckpointSeqNumber + 1
 	myStableCheckpoint := n.lastStableCheckpoint
+	latestStableCheckpoint := checkpoint{
+		seq:    vcMsgSigs[0].ViewChangeMsg.CheckpointSeqNumber,
+		digest: vcMsgSigs[0].ViewChangeMsg.CheckpointDigest,
+	}
 	checkpointProof := []core.CheckpointMsgSig{}
-	checkpointNeedsSync := false
+	// checkpointNeedsSync := false
 	for _, vcMsgSig := range vcMsgSigs {
-		if vcMsgSig.ViewChangeMsg.CheckpointSeqNumber > myStableCheckpoint.seq {
-			n.log.Error("missing the latest stable checkpoint at o primary") // would need to pass digest and application state in vc message for sync
+		if vcMsgSig.ViewChangeMsg.CheckpointSeqNumber > latestStableCheckpoint.seq {
+			// n.log.Error("missing the latest stable checkpoint at o primary") // would need to pass digest and application state in vc message for sync
 			// n.lastStableCheckpoint = checkpoint{
 			// 	seq: vcMsgSig.ViewChangeMsg.CheckpointSeqNumber,
 			// }
-			myStableCheckpoint = checkpoint{
+			latestStableCheckpoint = checkpoint{
 				seq:    vcMsgSig.ViewChangeMsg.CheckpointSeqNumber,
 				digest: vcMsgSig.ViewChangeMsg.CheckpointDigest,
 			}
 			checkpointProof = vcMsgSig.ViewChangeMsg.CheckpointProof
-			minS = myStableCheckpoint.seq + 1
-			checkpointNeedsSync = true
+			minS = latestStableCheckpoint.seq + 1
 
 		}
 	}
 
-	if checkpointNeedsSync {
-		checkpointData, exists := n.checkpoints[myStableCheckpoint]
+	if latestStableCheckpoint.seq > myStableCheckpoint.seq {
+		n.log.Error("missing the latest stable checkpoint at o primary")
+		checkpointData, exists := n.checkpoints[latestStableCheckpoint]
 		if !exists {
 			checkpointData = CheckpointData{
 				votes:    make(map[int]core.CheckpointMsgSig),
 				balances: nil,
 			}
-			n.checkpoints[myStableCheckpoint] = checkpointData
+			n.checkpoints[latestStableCheckpoint] = checkpointData
 
-		} else if exists && len(checkpointData.votes) < 2*n.fNodes+1 {
+		} else if exists && len(checkpointData.votes) < 2*n.fNodes+1 { // this path is mainly when i have executed and have balances but need more votes to stabalize
 			for _, checkpointMsgSig := range checkpointProof {
-				n.checkpoints[myStableCheckpoint].votes[checkpointMsgSig.CheckpointMsg.From] = checkpointMsgSig
+				n.checkpoints[latestStableCheckpoint].votes[checkpointMsgSig.CheckpointMsg.From] = checkpointMsgSig
 			} // if not exists then copy proof, if exists may replace some with incoming we will verify checkpoint before when receive vc
-			if checkpointData.balances == nil {
+			if checkpointData.balances == nil { // most likely this case not run
 				n.log.Info("requesting state transfer from creat 0 primary")
-				go n.RequestStateTransfer(myStableCheckpoint.seq, myStableCheckpoint.digest)
+				go n.RequestStateTransfer(latestStableCheckpoint.seq, latestStableCheckpoint.digest)
 			} else {
-				n.lastStableCheckpoint = myStableCheckpoint // unsafe checkpoint forwarding
-				go n.gcConsensusState(myStableCheckpoint.seq)
-				go n.gcCheckpoints(myStableCheckpoint)
+				n.lastStableCheckpoint = latestStableCheckpoint // unsafe checkpoint forwarding
+				go n.gcConsensusState(latestStableCheckpoint.seq)
+				go n.gcCheckpoints(latestStableCheckpoint)
 			}
 		} else {
 			// if votess >= then from cehckpoint receive path should have called state transfer
-			n.log.Error("should not come here for checkpoint in create O at replica")
+			n.log.Error("should not come here for checkpoint in create O at primary")
 		}
 
 	}
-
 	n.checkpointMu.Unlock()
 	n.executionMu.Lock()
-	if myStableCheckpoint.seq > n.lastExecuted {
-		// n.lastExecuted = myStableCheckpoint.seq // unsafe checkpoint forwarding
+	if latestStableCheckpoint.seq > n.lastExecuted {
+		// n.lastExecuted = latestStableCheckpoint.seq // unsafe checkpoint forwarding
 		// n.log.Error("updating last executed to stable checkpoint seq %d", n.lastExecuted)
 
-	} else if myStableCheckpoint.seq < n.lastExecuted {
-		n.log.Error("my stable checkpoint seq %d is less than my last executed %d, this should not happen", myStableCheckpoint.seq, n.lastExecuted)
+	} else if latestStableCheckpoint.seq < n.lastExecuted {
+		n.log.Error("my stable checkpoint seq %d is less than my last executed %d, this should not happen", latestStableCheckpoint.seq, n.lastExecuted)
 	}
 	n.executionMu.Unlock()
 	maxS := minS - 1
@@ -1572,47 +1583,52 @@ func (n *Node) createOReplica(vcMsgSigs []*core.ViewChangeMsgSig, view int64) (m
 
 	preprepareLog := make(map[int64]core.PreprepareMsgSig)
 	n.checkpointMu.Lock()
-	minS := n.lastStableCheckpoint.seq + 1
+	// minS := n.lastStableCheckpoint.seq + 1
+	minS := vcMsgSigs[0].ViewChangeMsg.CheckpointSeqNumber + 1
 	myStableCheckpoint := n.lastStableCheckpoint
+	latestStableCheckpoint := checkpoint{
+		seq:    vcMsgSigs[0].ViewChangeMsg.CheckpointSeqNumber,
+		digest: vcMsgSigs[0].ViewChangeMsg.CheckpointDigest,
+	}
 	checkpointProof := []core.CheckpointMsgSig{}
-	checkpointNeedsSync := false
+	// checkpointNeedsSync := false
 	for _, vcMsgSig := range vcMsgSigs {
-		if vcMsgSig.ViewChangeMsg.CheckpointSeqNumber > myStableCheckpoint.seq {
-			n.log.Error("missing the latest stable checkpoint at o replica") // would need to pass digest and application state in vc message for sync
+		if vcMsgSig.ViewChangeMsg.CheckpointSeqNumber > latestStableCheckpoint.seq {
+			// n.log.Error("missing the latest stable checkpoint at o replica") // would need to pass digest and application state in vc message for sync
 			// n.lastStableCheckpoint = checkpoint{
 			// 	seq: vcMsgSig.ViewChangeMsg.CheckpointSeqNumber,
 			// }
-			myStableCheckpoint = checkpoint{
+			latestStableCheckpoint = checkpoint{
 				seq:    vcMsgSig.ViewChangeMsg.CheckpointSeqNumber,
 				digest: vcMsgSig.ViewChangeMsg.CheckpointDigest,
 			}
 			checkpointProof = vcMsgSig.ViewChangeMsg.CheckpointProof
-			minS = myStableCheckpoint.seq + 1
-			checkpointNeedsSync = true
+			minS = latestStableCheckpoint.seq + 1
 
 		}
 	}
 
-	if checkpointNeedsSync {
-		checkpointData, exists := n.checkpoints[myStableCheckpoint]
+	if latestStableCheckpoint.seq > myStableCheckpoint.seq {
+		n.log.Error("missing the latest stable checkpoint at o replica")
+		checkpointData, exists := n.checkpoints[latestStableCheckpoint]
 		if !exists {
 			checkpointData = CheckpointData{
 				votes:    make(map[int]core.CheckpointMsgSig),
 				balances: nil,
 			}
-			n.checkpoints[myStableCheckpoint] = checkpointData
+			n.checkpoints[latestStableCheckpoint] = checkpointData
 
 		} else if exists && len(checkpointData.votes) < 2*n.fNodes+1 { // this path is mainly when i have executed and have balances but need more votes to stabalize
 			for _, checkpointMsgSig := range checkpointProof {
-				n.checkpoints[myStableCheckpoint].votes[checkpointMsgSig.CheckpointMsg.From] = checkpointMsgSig
+				n.checkpoints[latestStableCheckpoint].votes[checkpointMsgSig.CheckpointMsg.From] = checkpointMsgSig
 			} // if not exists then copy proof, if exists may replace some with incoming we will verify checkpoint before when receive vc
 			if checkpointData.balances == nil { // most likely this case not run
 				n.log.Info("requesting state transfer from creat 0 replica")
-				go n.RequestStateTransfer(myStableCheckpoint.seq, myStableCheckpoint.digest)
+				go n.RequestStateTransfer(latestStableCheckpoint.seq, latestStableCheckpoint.digest)
 			} else {
-				n.lastStableCheckpoint = myStableCheckpoint // unsafe checkpoint forwarding
-				go n.gcConsensusState(myStableCheckpoint.seq)
-				go n.gcCheckpoints(myStableCheckpoint)
+				n.lastStableCheckpoint = latestStableCheckpoint // unsafe checkpoint forwarding
+				go n.gcConsensusState(latestStableCheckpoint.seq)
+				go n.gcCheckpoints(latestStableCheckpoint)
 			}
 		} else {
 			// if votess >= then from cehckpoint receive path should have called state transfer
@@ -1623,12 +1639,12 @@ func (n *Node) createOReplica(vcMsgSigs []*core.ViewChangeMsgSig, view int64) (m
 	n.checkpointMu.Unlock()
 
 	n.executionMu.Lock()
-	if myStableCheckpoint.seq > n.lastExecuted {
-		// n.lastExecuted = myStableCheckpoint.seq // unsafe checkpoint forwarding
+	if latestStableCheckpoint.seq > n.lastExecuted {
+		// n.lastExecuted = latestStableCheckpoint.seq // unsafe checkpoint forwarding
 		// n.log.Error("updating last executed to stable checkpoint seq %d", n.lastExecuted)
 
-	} else if myStableCheckpoint.seq < n.lastExecuted {
-		n.log.Error("my stable checkpoint seq %d is less than my last executed %d, this should not happen", myStableCheckpoint.seq, n.lastExecuted)
+	} else if latestStableCheckpoint.seq < n.lastExecuted {
+		n.log.Error("my stable checkpoint seq %d is less than my last executed %d, this should not happen", latestStableCheckpoint.seq, n.lastExecuted)
 	}
 	n.executionMu.Unlock()
 	maxS := minS - 1
@@ -1719,6 +1735,7 @@ func (n *Node) newView() {
 
 	n.preprepareSeqNumber.Store(maxSeq)
 	n.periodInterval = maxSeq + n.cfg.Period
+	n.log.Info("Next Period end is %d", n.periodInterval)
 	maxRecentThroughput := 0.0
 	if n.cfg.Performance {
 		// n.executionMu.Lock()
@@ -1727,6 +1744,8 @@ func (n *Node) newView() {
 		n.throughputMu.Lock()
 		// n.throughputIntervalStart = time.Now().Add(30 * time.Millisecond)
 		n.throughputIntervalStartSeq = maxSeq + THROUGHPUTINTERVAL_DELAY
+		n.log.Info("Throughput interval start seq set to %d for new view %d", n.throughputIntervalStartSeq, n.view)
+		n.throughputObservationStarted = false
 		maxRecentThroughput = n.maxRecentViewFinalThroughputLocked(n.view)
 		n.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput
 		n.log.Info("Created O with maxSeq %d for new view %d at primary and len O is %d", maxSeq, n.view, len(O))
@@ -1780,7 +1799,12 @@ func (n *Node) newView() {
 				slot.prePrepare.ClientMsg = clientMsg
 				slot.missingData = false
 			} else if !exists && !executed {
-				n.log.Error("Primary missing slot at new view for seq %d", preprepareMsg.PreprepareMsgMini.SeqNum)
+				// n.log.Error("Primary missing slot at new view for seq %d", preprepareMsg.PreprepareMsgMini.SeqNum)
+				if preprepareMsg.ActualMsg.Data.Txn == nil {
+					n.log.Error("Primary missing slot at new view for seq %d and actual msg is nil", preprepareMsg.PreprepareMsgMini.SeqNum)
+				} else {
+					n.log.Error("Primary missing slot but received txn from %s and to %s ", preprepareMsg.ActualMsg.Data.Txn.Sender, preprepareMsg.ActualMsg.Data.Txn.Receiver)
+				}
 				slot.missingData = true
 			} else if !exists && executed {
 				slot.missingData = false

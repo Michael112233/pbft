@@ -1,0 +1,4 @@
+5mbit
+250 chkpoint
+250*12 chk point for each perf improvement
+
