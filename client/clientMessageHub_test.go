@@ -34,6 +34,7 @@ func TestHandleIncomingEnvelopeDispatchesLeaderUpdate(t *testing.T) {
 				From:        "localhost:28200",
 				To:          "localhost:20000",
 				NewLeaderId: 2,
+				View:        1,
 			}),
 		},
 	})

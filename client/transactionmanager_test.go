@@ -91,6 +91,28 @@ func TestTransactionManagerCommitTpsTriggersShardGC(t *testing.T) {
 	}
 }
 
+func TestTransactionManagerAddTransactionStoresMetadata(t *testing.T) {
+	tm := NewTransactionManager()
+	addTestTransactions(tm, 42)
+
+	s := tm.getShard(42)
+	s.mu.RLock()
+	txn, exists := s.txns[42]
+	s.mu.RUnlock()
+	if !exists {
+		t.Fatal("transaction 42 was not recorded")
+	}
+	if txn.startTimestamp == 0 {
+		t.Fatal("startTimestamp = 0, want recorded timestamp")
+	}
+	if txn.done {
+		t.Fatal("done = true, want false")
+	}
+	if txn.committed {
+		t.Fatal("committed = true, want false")
+	}
+}
+
 func addTestTransactions(tm *TransactionManager, ids ...int64) {
 	batch := make([]core.ClientMsgSignature, 0, len(ids))
 	for _, id := range ids {
