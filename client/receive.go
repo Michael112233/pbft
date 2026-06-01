@@ -42,5 +42,5 @@ func (c *Client) HandleLeaderUpdate(data core.LeaderIdUpdate) {
 }
 
 func (c *Client) HandleVCRunningStatus(data core.VCRunningStatus) {
-	c.vcrunChan <- data
+	// c.vcrunChan <- data
 }

@@ -222,6 +222,7 @@ func (hub *NodeMessageHub) ClientNodeChannel(stream transportpb.PBFTTransport_Cl
 				hub.log.Error("stream request decode failed: err=%v", err)
 				continue
 			}
+			hub.node_ref.recordClientRequestReceived(len(data.Txs))
 			go hub.node_ref.HandleRequestMessage(data)
 
 		case core.MsgCloseMessage:
@@ -248,6 +249,7 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		if err != nil {
 			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
 		}
+		hub.node_ref.recordClientRequestReceived(len(data.Txs))
 		go hub.node_ref.HandleRequestMessage(data)
 		return &transportpb.Ack{Ok: true}, nil
 

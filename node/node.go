@@ -121,6 +121,11 @@ type Node struct {
 	throughputMeasurementsDone    chan struct{}
 	throughputMeasurementsStarted atomic.Bool
 	throughputMeasurementsOnce    sync.Once
+	clientReceivedTxs             atomic.Int64
+	clientReceiveRateStop         chan struct{}
+	clientReceiveRateDone         chan struct{}
+	clientReceiveRateStarted      atomic.Bool
+	clientReceiveRateStopOnce     sync.Once
 	memoryLoggerStop              chan struct{}
 	memoryLoggerDone              chan struct{}
 	memoryLoggerStarted           atomic.Bool
@@ -179,6 +184,8 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		throughputMeasurementsChan: make(chan throughputMeasurement, throughputMeasurementBufferSize),
 		throughputMeasurementsStop: make(chan struct{}),
 		throughputMeasurementsDone: make(chan struct{}),
+		clientReceiveRateStop:      make(chan struct{}),
+		clientReceiveRateDone:      make(chan struct{}),
 		memoryLoggerStop:           make(chan struct{}),
 		memoryLoggerDone:           make(chan struct{}),
 		split:                      false,
@@ -202,6 +209,9 @@ func (n *Node) Start() {
 	if n.memoryLoggerStarted.CompareAndSwap(false, true) {
 		component := "node_" + strconv.Itoa(n.NodeID)
 		go utils.StartMemoryLogger("logs/"+component+"_mem.log", component, 10*time.Second, n.memoryLoggerStop, n.memoryLoggerDone)
+	}
+	if n.clientReceiveRateStarted.CompareAndSwap(false, true) {
+		go n.clientReceiveRateLogger()
 	}
 	go n.ClientSignatureVerifier()
 	go n.VerifiedClientMessageHandler()
@@ -229,6 +239,12 @@ func (n *Node) Stop() {
 	})
 	if n.throughputMeasurementsStarted.Load() {
 		<-n.throughputMeasurementsDone
+	}
+	n.clientReceiveRateStopOnce.Do(func() {
+		close(n.clientReceiveRateStop)
+	})
+	if n.clientReceiveRateStarted.Load() {
+		<-n.clientReceiveRateDone
 	}
 	n.memoryLoggerStopOnce.Do(func() {
 		close(n.memoryLoggerStop)

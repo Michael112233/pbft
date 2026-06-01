@@ -165,18 +165,10 @@ func (c *Client) InjectTxs() {
 			c.TransactionManager.AddTransaction(batch)
 
 			msg := core.RequestMessage{
-				// Timestamp: time.Now().UnixNano(),
 
 				Txs: batch,
-				// Id:        int64(i),
 			}
-			// if i == 3 {
-			// 	c.TransactionManager.TemporaryStopTimer()
-			// 	// ask user input
-			// 	fmt.Println("Press Enter to continue...")
-			// 	fmt.Scanln()
-			// 	c.TransactionManager.ResetTimer()
-			// }
+
 			for {
 				c.leaderMu.RLock()
 				leader := c.leaderAddr
@@ -185,8 +177,8 @@ func (c *Client) InjectTxs() {
 				// c.log.Info(fmt.Sprintf("Send request message to %s with batch %d and %d transactions", leader, int64(i), len(injectTxs)))
 				c.messageHub.Send(core.MsgRequestMessage, c.addr, leader, msg, nil) // couuld be go as stream locked
 
-				vcStatus := <-c.vcrunChan
-				if !vcStatus.VCRunning {
+				// vcStatus := <-c.vcrunChan
+				if true {
 					// c.log.Info("Received view change not running status, moving to next batch")
 					if remaining := clientSendInterval - time.Since(timestart); remaining > 0 {
 						time.Sleep(remaining)
@@ -194,7 +186,7 @@ func (c *Client) InjectTxs() {
 					break
 				}
 
-				c.log.Info("Received view change running status with %d transactions in flight, pausing injection until view change completes", len(vcStatus.Txs))
+				// c.log.Info("Received view change running status with %d transactions in flight, pausing injection until view change completes", len(vcStatus.Txs))
 				<-c.cchan                         // wait for signal to continue injection after view change completes
 				time.Sleep(50 * time.Millisecond) // small sleep to allow system to stabilize after view change before retry
 			}
@@ -204,19 +196,6 @@ func (c *Client) InjectTxs() {
 			} else {
 				c.log.Info("Injected %d transactions in %s", len(batch), timetaken)
 			}
-
-			// Wait for the next leader update before sending the next periodic wave.
-			// if c.config.Periodic {
-			// 	lastWave := (i+1)*int64(c.config.Period) >= int64(len(txns))
-			// 	if !lastWave {
-			// 		<-c.cchan
-			// 	}
-			// 	time.Sleep(1 * time.Second) // small sleep to allow system to stabilize after leader change before next wave
-			// } else {
-			// 	time.Sleep(1 * time.Second)
-
-			// }
-			// }
 
 			collectStart := time.Now()
 			batch, ok = collectSignedBatch(signedTxs, batchSize)
