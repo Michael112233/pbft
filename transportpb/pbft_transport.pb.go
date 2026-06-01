@@ -147,6 +147,7 @@ type ClientMsg struct {
 	Timestamp     int64                  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	Txn           *Transaction           `protobuf:"bytes,3,opt,name=txn,proto3" json:"txn,omitempty"`
 	ClientName    string                 `protobuf:"bytes,4,opt,name=client_name,json=clientName,proto3" json:"client_name,omitempty"`
+	Padding       string                 `protobuf:"bytes,5,opt,name=padding,proto3" json:"padding,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -205,6 +206,13 @@ func (x *ClientMsg) GetTxn() *Transaction {
 func (x *ClientMsg) GetClientName() string {
 	if x != nil {
 		return x.ClientName
+	}
+	return ""
+}
+
+func (x *ClientMsg) GetPadding() string {
+	if x != nil {
+		return x.Padding
 	}
 	return ""
 }
@@ -2318,13 +2326,14 @@ const file_proto_pbft_transport_proto_rawDesc = "" +
 	"\x06sender\x18\x01 \x01(\tR\x06sender\x12\x1a\n" +
 	"\breceiver\x18\x02 \x01(\tR\breceiver\x12\x16\n" +
 	"\x06amount\x18\x03 \x01(\tR\x06amount\x12\x1c\n" +
-	"\ttimestamp\x18\x04 \x01(\x03R\ttimestamp\"\x8c\x01\n" +
+	"\ttimestamp\x18\x04 \x01(\x03R\ttimestamp\"\xa6\x01\n" +
 	"\tClientMsg\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x1c\n" +
 	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp\x120\n" +
 	"\x03txn\x18\x03 \x01(\v2\x1e.pbft.transport.v1.TransactionR\x03txn\x12\x1f\n" +
 	"\vclient_name\x18\x04 \x01(\tR\n" +
-	"clientName\"d\n" +
+	"clientName\x12\x18\n" +
+	"\apadding\x18\x05 \x01(\tR\apadding\"d\n" +
 	"\x12ClientMsgSignature\x120\n" +
 	"\x04data\x18\x01 \x01(\v2\x1c.pbft.transport.v1.ClientMsgR\x04data\x12\x1c\n" +
 	"\tsignature\x18\x02 \x01(\fR\tsignature\"I\n" +

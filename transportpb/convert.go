@@ -49,6 +49,7 @@ func ClientMsgToPB(msg core.ClientMsg) *ClientMsg {
 		Timestamp:  msg.Timestamp,
 		Txn:        TransactionToPB(msg.Txn),
 		ClientName: msg.ClientName,
+		Padding:    msg.Padding,
 	}
 }
 
@@ -65,6 +66,7 @@ func ClientMsgFromPB(msg *ClientMsg) (core.ClientMsg, error) {
 		Timestamp:  msg.Timestamp,
 		Txn:        txn,
 		ClientName: msg.ClientName,
+		Padding:    msg.Padding,
 	}, nil
 }
 

@@ -9,9 +9,10 @@ import (
 )
 
 type Config struct {
-	MaxTxNum     int64 `json:"max_tx_num"`
-	InjectSpeed  int64 `json:"inject_speed"`
-	MaxBlockSize int64 `json:"max_block_size"`
+	MaxTxNum              int64 `json:"max_tx_num"`
+	InjectSpeed           int64 `json:"inject_speed"`
+	MaxBlockSize          int64 `json:"max_block_size"`
+	ClientMsgPaddingBytes int   `json:"client_msg_padding_bytes"`
 
 	NodeNum            int64        `json:"node_num"`
 	NodesDead          map[int]bool `json:"nodes_dead"`

@@ -20,7 +20,7 @@ import (
 
 const (
 	rpcTimeout      = 120 * time.Second
-	maxGRPCMsgBytes = 32 * 1024 * 1024
+	maxGRPCMsgBytes = 256 * 1024 * 1024
 )
 
 type clientStreamState struct {

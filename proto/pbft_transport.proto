@@ -16,6 +16,7 @@ message ClientMsg {
   int64 timestamp = 2;
   Transaction txn = 3;
   string client_name = 4;
+  string padding = 5;
 }
 
 message ClientMsgSignature {

@@ -20,7 +20,7 @@ const (
 	clientDialTimeout   = 3 * time.Second
 	streamRetryInterval = 500 * time.Millisecond
 	sendWaitTimeout     = 5 * time.Second
-	maxGRPCMsgBytes     = 32 * 1024 * 1024
+	maxGRPCMsgBytes     = 256 * 1024 * 1024
 )
 
 type nodeStreamState struct {

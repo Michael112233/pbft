@@ -2,6 +2,7 @@ package client
 
 import (
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/michael112233/pbft/core"
@@ -54,6 +55,11 @@ func (c *Client) InjectTxs() {
 
 		c.TransactionManager.Start()
 		totaltxns := c.config.Period * 5
+		paddingBytes := c.config.ClientMsgPaddingBytes
+		if paddingBytes < 0 {
+			paddingBytes = 0
+		}
+		padding := strings.Repeat("x", paddingBytes)
 
 		for i := int64(0); (i+1)*int64(c.config.InjectSpeed) <= totaltxns; i++ {
 			if i%100 == 0 {
@@ -67,6 +73,7 @@ func (c *Client) InjectTxs() {
 					Timestamp:  time.Now().UnixNano(),
 					Txn:        tx,
 					ClientName: c.name,
+					Padding:    padding,
 				}
 
 				// Serialize ClientMsg deterministically via protobuf for signing.

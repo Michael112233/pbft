@@ -22,6 +22,7 @@ type ClientMsg struct {
 	Timestamp  int64
 	Txn        *Transaction
 	ClientName string
+	Padding    string
 }
 
 type ClientMsgSignature struct {
