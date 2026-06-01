@@ -5,3 +5,5 @@ echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.profile
 source ~/.profile
 go version
 git clone https://github.com/Michael112233/pbft.git
+sudo apt update
+sudo apt install python3-pip

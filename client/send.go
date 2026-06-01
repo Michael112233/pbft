@@ -56,7 +56,7 @@ func (c *Client) InjectTxs() {
 		totaltxns := c.config.Period * 5
 
 		for i := int64(0); (i+1)*int64(c.config.InjectSpeed) <= totaltxns; i++ {
-			if i%10000 == 0 {
+			if i%100 == 0 {
 				c.log.Info("upto %d transactions injected", (i+1)*int64(c.config.InjectSpeed))
 			}
 			txns := GenerateDummyTxs(int(c.config.InjectSpeed))

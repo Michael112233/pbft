@@ -1,0 +1,43 @@
+sudo apt update
+sudo apt install ifstat
+ifstat -i eno49np0 1
+for cuurrent bw
+
+get IFACE
+# Find your network interface
+ip route get 8.8.8.8
+
+
+IFACE=lo
+PORT=28100
+RATE=5mbit
+
+sudo tc qdisc add dev $IFACE root handle 1: htb default 30
+
+sudo tc class add dev $IFACE parent 1: classid 1:30 htb rate 10gbit
+
+sudo tc class add dev $IFACE parent 1: classid 1:10 htb rate $RATE ceil $RATE
+
+sudo tc filter add dev lo protocol ip parent 1: prio 1 u32 match ip src 127.0.0.4/32 flowid 1:10
+
+
+sport 5000 so packet with source port limited by applying class 1:10
+default goes to class 1:30
+
+gbit, kbit, mbit
+
+
+to seee active rules
+sudo tc qdisc show dev $IFACE
+sudo tc class show dev $IFACE
+sudo tc filter show dev $IFACE
+
+to delte rules
+sudo tc qdisc del dev $IFACE root
+
+after deleteing can confirm by this
+sudo tc qdisc show dev $IFACE
+
+pkill -f pbft_main || true
+
+25mb gets decrease

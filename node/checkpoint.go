@@ -93,7 +93,7 @@ func (n *Node) HandleCheckpoint(checkpointMsg core.CheckpointMsg, signature []by
 }
 
 func (n *Node) RequestStateTransfer(seq int64, digest [32]byte) {
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(1000 * time.Millisecond)
 
 	n.checkpointMu.Lock()
 	if seq <= n.lastStableCheckpoint.seq {

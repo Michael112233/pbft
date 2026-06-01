@@ -3,7 +3,7 @@ set -e
 
 SESSION="pbft"
 NODE_COUNT=4
-
+pkill -f pbft_main || true
 echo "Cleaning up log files..."
 rm -f logs/*.log
 rm -f logs/*.csv
@@ -14,13 +14,13 @@ echo "Cleaning up keys directory..."
 rm -f keys/*.pem
 echo "Keys directory cleaned."
 
-echo "Checking tmux..."
-if ! command -v tmux >/dev/null 2>&1; then
-    echo "tmux is not installed."
-    echo "Install it using:"
-    echo "sudo apt update && sudo apt install -y tmux"
-    exit 1
-fi
+# echo "Checking tmux..."
+# if ! command -v tmux >/dev/null 2>&1; then
+#     echo "tmux is not installed."
+#     echo "Install it using:"
+#     echo "sudo apt update && sudo apt install -y tmux"
+#     exit 1
+# fi
 
 echo "Building setup..."
 go build -o crypto_main setup_crypto/crypto_main.go
@@ -45,17 +45,18 @@ fi
 
 # Start node 1 in the first tmux window
 tmux new-session -d -s "$SESSION" -n "node1" \
-    "cd \"$CURRENT_DIR\" && ./pbft_main -r node -m local -n 1; status=\$?; echo; echo \"node1 exited with status \$status\"; exec bash"
+    "cd \"$CURRENT_DIR\" && ./pbft_main -r node -m loopbackip -n 1; status=\$?; echo; echo \"node1 exited with status \$status\"; exec bash"
 
 # Start remaining nodes in separate tmux windows
 for i in $(seq 2 "$NODE_COUNT"); do
     tmux new-window -t "$SESSION" -n "node$i" \
-        "cd \"$CURRENT_DIR\" && ./pbft_main -r node -m local -n $i; status=\$?; echo; echo \"node$i exited with status \$status\"; exec bash"
+        "cd \"$CURRENT_DIR\" && ./pbft_main -r node -m loopbackip -n $i; status=\$?; echo; echo \"node$i exited with status \$status\"; exec bash"
 done
 
+sleep 5
 # Optional: start client in another window
-# tmux new-window -t "$SESSION" -n "client" \
-#     "cd \"$CURRENT_DIR\" && ./pbft_main -r client -m local; status=\$?; echo; echo \"client exited with status \$status\"; exec bash"
+tmux new-window -t "$SESSION" -n "client" \
+    "cd \"$CURRENT_DIR\" && ./pbft_main -r client -m loopbackip; status=\$?; echo; echo \"client exited with status \$status\"; exec bash"
 
 echo "All nodes started."
 echo "Attaching to tmux session: $SESSION"

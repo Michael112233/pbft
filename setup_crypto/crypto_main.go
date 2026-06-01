@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	cfgPath = "config/run2.json"
+	cfgPath = "config/run2new.json"
 )
 
 type KeyPair struct {

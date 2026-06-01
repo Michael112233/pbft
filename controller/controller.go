@@ -117,6 +117,8 @@ func Main(nodeID int64, role, mode, cfgPath string) {
 		config.GenerateLocalNetwork(int(cfg.NodeNum))
 	case "remote":
 		config.GenerateRemoteNetwork(int(cfg.NodeNum))
+	case "loopbackip":
+		config.GenerateLoopbackIPNetwork(int(cfg.NodeNum))
 	}
 
 	switch role {

@@ -8,7 +8,7 @@ func (n *Node) gcConsensusState(stableSeq int64) {
 	removedSlots := 0
 	lenOfConsensusLog := len(n.consensusLog.slots)
 	for slot := range n.consensusLog.slots {
-		if slot.SeqNum <= stableSeq-100 {
+		if slot.SeqNum <= stableSeq-1000 {
 			delete(n.consensusLog.slots, slot)
 			removedSlots++
 		}
@@ -23,7 +23,7 @@ func (n *Node) gcCheckpoints(key checkpoint) {
 	if n.gc == false {
 		return
 	}
-	keepFromSeq := key.seq - 2*CHECKPOINT_INTERVAL
+	keepFromSeq := key.seq - 10*CHECKPOINT_INTERVAL
 	n.checkpointMu.Lock()
 	removedCheckpoints := 0
 	for cpKey := range n.checkpoints {
