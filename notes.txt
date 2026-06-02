@@ -40,4 +40,4 @@ sudo tc qdisc show dev $IFACE
 
 pkill -f pbft_main || true
 
-25mb gets decrease
+sudo tcpdump -i lo -n 'tcp and (port 28100 or port 28200 or port 28300 or port 28400)'

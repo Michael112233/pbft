@@ -25,7 +25,7 @@ const (
 	defaultPBFTRequestTimeout          = 5 * time.Second
 	defaultPBFTRequestTimeoutJitterMax = 500 * time.Millisecond
 	CHECKPOINT_INTERVAL                = 250
-	defaultTargetThroughput            = 0.90 * 200
+	defaultTargetThroughput            = 0.90 * 2000
 	targetThroughputMaxFactor          = 0.90
 	ALPHA                              = 1 / float64(10) // for exponential moving average calculation of throughput
 	D                                  = 3
@@ -210,9 +210,9 @@ func (n *Node) Start() {
 		component := "node_" + strconv.Itoa(n.NodeID)
 		go utils.StartMemoryLogger("logs/"+component+"_mem.log", component, 10*time.Second, n.memoryLoggerStop, n.memoryLoggerDone)
 	}
-	if n.clientReceiveRateStarted.CompareAndSwap(false, true) {
-		go n.clientReceiveRateLogger()
-	}
+	// if n.clientReceiveRateStarted.CompareAndSwap(false, true) {
+	// 	go n.clientReceiveRateLogger()
+	// }
 	go n.ClientSignatureVerifier()
 	go n.VerifiedClientMessageHandler()
 	if n.pbftTimerManager.pbftTimerStarted.CompareAndSwap(false, true) {
@@ -422,8 +422,20 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 		return
 	}
 	view := n.view
+	periodInterval := n.periodInterval
 	// n.viewMu.RUnlock()
-	seqNum := n.preprepareSeqNumber.Add(1)
+	var seqNum int64
+	for {
+		currentSeq := n.preprepareSeqNumber.Load()
+		if currentSeq >= periodInterval {
+			n.log.Info("PrePrepare skipped for view %d because seq %d reached period interval %d", view, currentSeq, periodInterval)
+			return
+		}
+		if n.preprepareSeqNumber.CompareAndSwap(currentSeq, currentSeq+1) {
+			seqNum = currentSeq + 1
+			break
+		}
+	}
 
 	digestClientMsg, err := ComputeBatchDigest(batch.Data)
 	if err != nil {
@@ -1856,8 +1868,12 @@ func (n *Node) newView() {
 	}
 	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
 	// should strart pbft timer
+	if n.GetNodeID() == 3 {
+		n.broadcastNewView(newViewMsg, signature)
+	} else {
+		n.broadcastNewView(newViewMsg, signature)
+	}
 
-	go n.broadcastNewView(newViewMsg, signature)
 	n.log.Info("Entering replay from primary might not need at primary")
 	go n.replayBufferedMessagesForView(n.view)
 	go n.gcViewChangeMsgs(n.view)
@@ -1865,8 +1881,10 @@ func (n *Node) newView() {
 }
 
 func (n *Node) handleViewChangeTimeoutDummy() {
-	n.forView = n.forView + 1
+
 	n.viewChangeRunning = true
+
+	n.forView = n.forView + 1
 	if n.vcType == core.VCTypeElection {
 		n.log.Info("Election Path View Change Timeout")
 

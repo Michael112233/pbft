@@ -23,7 +23,7 @@ func (n *Node) gcCheckpoints(key checkpoint) {
 	if n.gc == false {
 		return
 	}
-	keepFromSeq := key.seq - 10*CHECKPOINT_INTERVAL
+	keepFromSeq := key.seq - 30*CHECKPOINT_INTERVAL
 	n.checkpointMu.Lock()
 	removedCheckpoints := 0
 	for cpKey := range n.checkpoints {

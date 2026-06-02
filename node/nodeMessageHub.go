@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	rpcTimeout      = 120 * time.Second
-	maxGRPCMsgBytes = 256 * 1024 * 1024
+	rpcTimeout      = 300 * time.Second
+	maxGRPCMsgBytes = 1000 * 1024 * 1024
 )
 
 type clientStreamState struct {
@@ -222,7 +222,7 @@ func (hub *NodeMessageHub) ClientNodeChannel(stream transportpb.PBFTTransport_Cl
 				hub.log.Error("stream request decode failed: err=%v", err)
 				continue
 			}
-			hub.node_ref.recordClientRequestReceived(len(data.Txs))
+			// hub.node_ref.recordClientRequestReceived(len(data.Txs))
 			go hub.node_ref.HandleRequestMessage(data)
 
 		case core.MsgCloseMessage:

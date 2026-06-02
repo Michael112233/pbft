@@ -31,11 +31,11 @@ func NewScoreboard(NumNodes int64) *Scoreboard {
 	scores := make(map[int]int)
 	priorities := make(map[int]int)
 	for i := 1; i <= int(NumNodes); i++ {
-		scores[i] = 1
+		scores[i] = 190
 		if i == 1 {
-			priorities[i] = -3
+			priorities[i] = -570
 		} else {
-			priorities[i] = 1
+			priorities[i] = 190
 		}
 
 	}

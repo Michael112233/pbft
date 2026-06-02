@@ -93,7 +93,7 @@ func (n *Node) HandleCheckpoint(checkpointMsg core.CheckpointMsg, signature []by
 }
 
 func (n *Node) RequestStateTransfer(seq int64, digest [32]byte) {
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(2000 * time.Millisecond)
 
 	n.checkpointMu.Lock()
 	if seq <= n.lastStableCheckpoint.seq {
@@ -121,7 +121,7 @@ func (n *Node) RequestStateTransfer(seq int64, digest [32]byte) {
 		return
 	}
 	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
-	n.log.Warn("Requesting state transfer for seq %d digest %x", seq, digest)
+	n.log.Warn("xRequesting state transfer for seq %d digest %x", seq, digest)
 
 	for _, otherIP := range config.NodeAddr {
 		if otherIP == n.GetAddr() {

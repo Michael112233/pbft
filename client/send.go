@@ -122,7 +122,7 @@ func (c *Client) InjectTxs() {
 	go func() {
 		defer c.WaitGroup.Done()
 
-		totaltxns := c.config.Period * 5
+		totaltxns := c.config.Period * 100
 		if totaltxns <= 0 {
 			c.log.Info("No transactions to inject")
 			return
@@ -192,9 +192,9 @@ func (c *Client) InjectTxs() {
 			}
 			timetaken := time.Since(timestart)
 			if timetaken > clientSendInterval {
-				c.log.Info("Injected %d transactions in %s; signer/send path missed %s interval", len(batch), timetaken, clientSendInterval)
+				// c.log.Info("Injected %d transactions in %s; signer/send path missed %s interval", len(batch), timetaken, clientSendInterval)
 			} else {
-				c.log.Info("Injected %d transactions in %s", len(batch), timetaken)
+				// c.log.Info("Injected %d transactions in %s", len(batch), timetaken)
 			}
 
 			collectStart := time.Now()
