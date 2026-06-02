@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"sync"
 	"time"
 
@@ -116,9 +117,25 @@ func (hub *ClientMessageHub) getNodeStream(addr string) *nodeStreamState {
 }
 
 func (hub *ClientMessageHub) openNodeStream(addr string) (*nodeStreamState, error) {
+	dialer := &net.Dialer{}
+	localHost, _, err := net.SplitHostPort(hub.client_ref.GetAddr())
+	if err != nil {
+		return nil, err
+	}
+	if localIP := net.ParseIP(localHost); localIP != nil {
+		dialer.LocalAddr = &net.TCPAddr{IP: localIP, Port: 0}
+	}
+
 	conn, err := grpc.NewClient(
 		addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(func(ctx context.Context, target string) (net.Conn, error) {
+			conn, err := dialer.DialContext(ctx, "tcp", target)
+			if err == nil {
+				hub.log.Info("client dialed %s from %s", target, conn.LocalAddr())
+			}
+			return conn, err
+		}),
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(maxGRPCMsgBytes),
 			grpc.MaxCallSendMsgSize(maxGRPCMsgBytes),
