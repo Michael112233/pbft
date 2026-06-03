@@ -126,6 +126,11 @@ type Node struct {
 	clientReceiveRateDone         chan struct{}
 	clientReceiveRateStarted      atomic.Bool
 	clientReceiveRateStopOnce     sync.Once
+	leaderPrepreparesProcessed    atomic.Int64
+	leaderPreprepareRateStop      chan struct{}
+	leaderPreprepareRateDone      chan struct{}
+	leaderPreprepareRateStarted   atomic.Bool
+	leaderPreprepareRateStopOnce  sync.Once
 	memoryLoggerStop              chan struct{}
 	memoryLoggerDone              chan struct{}
 	memoryLoggerStarted           atomic.Bool
@@ -186,6 +191,8 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		throughputMeasurementsDone: make(chan struct{}),
 		clientReceiveRateStop:      make(chan struct{}),
 		clientReceiveRateDone:      make(chan struct{}),
+		leaderPreprepareRateStop:   make(chan struct{}),
+		leaderPreprepareRateDone:   make(chan struct{}),
 		memoryLoggerStop:           make(chan struct{}),
 		memoryLoggerDone:           make(chan struct{}),
 		split:                      false,
@@ -210,9 +217,12 @@ func (n *Node) Start() {
 		component := "node_" + strconv.Itoa(n.NodeID)
 		go utils.StartMemoryLogger("logs/"+component+"_mem.log", component, 10*time.Second, n.memoryLoggerStop, n.memoryLoggerDone)
 	}
-	// if n.clientReceiveRateStarted.CompareAndSwap(false, true) {
-	// 	go n.clientReceiveRateLogger()
-	// }
+	if n.clientReceiveRateStarted.CompareAndSwap(false, true) {
+		go n.clientReceiveRateLogger()
+	}
+	if n.leaderPreprepareRateStarted.CompareAndSwap(false, true) {
+		go n.leaderPreprepareRateLogger()
+	}
 	go n.ClientSignatureVerifier()
 	go n.VerifiedClientMessageHandler()
 	if n.pbftTimerManager.pbftTimerStarted.CompareAndSwap(false, true) {
@@ -245,6 +255,12 @@ func (n *Node) Stop() {
 	})
 	if n.clientReceiveRateStarted.Load() {
 		<-n.clientReceiveRateDone
+	}
+	n.leaderPreprepareRateStopOnce.Do(func() {
+		close(n.leaderPreprepareRateStop)
+	})
+	if n.leaderPreprepareRateStarted.Load() {
+		<-n.leaderPreprepareRateDone
 	}
 	n.memoryLoggerStopOnce.Do(func() {
 		close(n.memoryLoggerStop)
@@ -465,6 +481,7 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 	slot.prePrepareSig = signature
 	slot.prepareSent = true
 	slot.mu.Unlock()
+	n.leaderPrepreparesProcessed.Add(1)
 	// n.viewMu.RUnlock()
 
 	n.pool.Add(digestClientMsg, batch)
