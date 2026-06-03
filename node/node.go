@@ -417,7 +417,7 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 
 	n.viewMu.RLock()
 	defer n.viewMu.RUnlock()
-	if n.viewChangeRunning {
+	if n.viewChangeRunning || n.leaderId != n.GetNodeID() {
 		// n.viewMu.RUnlock()
 		return
 	}

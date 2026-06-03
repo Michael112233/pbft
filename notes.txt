@@ -41,3 +41,9 @@ sudo tc qdisc show dev $IFACE
 pkill -f pbft_main || true
 
 sudo tcpdump -i lo -n 'tcp and (port 28100 or port 28200 or port 28300 or port 28400)'
+
+1.2gbit
+25000 bytes
+50ms sleep
+30000 period
+12*chinterval

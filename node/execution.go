@@ -240,7 +240,7 @@ func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view i
 			n.log.Info("Increasing target throughput from %.2f to %.2f for view %d as observed throughput %.2f is above target", oldtput, n.targetThroughput, view, throughput)
 		}
 
-	} else {
+	} else if elapsedSeconds <= 2 {
 		n.log.Info("Elapsed secs less than 3 doing nothing, the measured throughput is %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, view, seq, elapsedSeconds, executedSlots)
 	}
 
