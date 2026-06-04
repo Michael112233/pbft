@@ -24,6 +24,7 @@ type throughputMeasurement struct {
 }
 
 func (n *Node) emitThroughputMeasurement(measurement throughputMeasurement) {
+
 	select {
 	case n.throughputMeasurementsChan <- measurement:
 	default:

@@ -209,19 +209,20 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 
 func (n *Node) Start() {
 	n.messageHub.Start(n, &sync.WaitGroup{})
-	// n.StartGarbageCollection()
 	if n.throughputMeasurementsStarted.CompareAndSwap(false, true) {
 		go n.throughputMeasurementCSVWriter()
 	}
-	if n.memoryLoggerStarted.CompareAndSwap(false, true) {
-		component := "node_" + strconv.Itoa(n.NodeID)
-		go utils.StartMemoryLogger("logs/"+component+"_mem.log", component, 10*time.Second, n.memoryLoggerStop, n.memoryLoggerDone)
-	}
-	if n.clientReceiveRateStarted.CompareAndSwap(false, true) {
-		go n.clientReceiveRateLogger()
-	}
-	if n.leaderPreprepareRateStarted.CompareAndSwap(false, true) {
-		go n.leaderPreprepareRateLogger()
+	if n.cfg.Logging {
+		if n.memoryLoggerStarted.CompareAndSwap(false, true) {
+			component := "node_" + strconv.Itoa(n.NodeID)
+			go utils.StartMemoryLogger("logs/"+component+"_mem.log", component, 10*time.Second, n.memoryLoggerStop, n.memoryLoggerDone)
+		}
+		if n.clientReceiveRateStarted.CompareAndSwap(false, true) {
+			go n.clientReceiveRateLogger()
+		}
+		if n.leaderPreprepareRateStarted.CompareAndSwap(false, true) {
+			go n.leaderPreprepareRateLogger()
+		}
 	}
 	go n.ClientSignatureVerifier()
 	go n.VerifiedClientMessageHandler()
@@ -485,7 +486,9 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 	slot.prePrepareSig = signature
 	slot.prepareSent = true
 	slot.mu.Unlock()
-	n.leaderPrepreparesProcessed.Add(1)
+	if n.cfg.Logging {
+		n.leaderPrepreparesProcessed.Add(1)
+	}
 	// n.viewMu.RUnlock()
 
 	n.pool.Add(digestClientMsg, batch)

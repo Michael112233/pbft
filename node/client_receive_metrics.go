@@ -9,7 +9,7 @@ import (
 )
 
 func (n *Node) recordClientRequestReceived(txCount int) {
-	if txCount <= 0 {
+	if !n.cfg.Logging || txCount <= 0 {
 		return
 	}
 	n.clientReceivedTxs.Add(int64(txCount))

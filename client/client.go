@@ -69,7 +69,7 @@ func NewClient(addr string, name string, config *config.Config, leaderAddr strin
 
 func (c *Client) Start() {
 	c.messageHub.Start(c, &sync.WaitGroup{})
-	if c.memoryLoggerStarted.CompareAndSwap(false, true) {
+	if c.config.Logging && c.memoryLoggerStarted.CompareAndSwap(false, true) {
 		go utils.StartMemoryLogger("logs/client_mem.log", "client", 10*time.Second, c.memoryLoggerStop, c.memoryLoggerDone)
 	}
 	go c.TransactionManager.TransactionTimerWorker(c)
