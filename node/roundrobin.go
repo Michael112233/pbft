@@ -118,7 +118,7 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 
 	} else if n.forView < viewChange.ViewNumber {
 		n.log.Info("Received view change for view %d which is higher than my for view %d, ", viewChange.ViewNumber, n.forView)
-		if viewChange.ViewNumber == n.forView+1 && len(n.viewChangeMsgsLog[viewChange.ViewNumber]) == 1 {
+		if viewChange.ViewNumber == n.forView+1 && ((n.cfg.PerformanceTrigger && len(n.viewChangeMsgsLog[viewChange.ViewNumber]) == 1) || (!n.cfg.PerformanceTrigger && len(n.viewChangeMsgsLog[viewChange.ViewNumber]) == n.fNodes+1)) {
 			n.pbftTimerManager.forceStopPBFTTimer()
 			n.pbftTimerManager.stopNewViewTimer()
 			n.log.Info(" Round Robin Triggering dummy view-change due to receiving higher view change message for view %d and my for view %d", viewChange.ViewNumber, n.forView)

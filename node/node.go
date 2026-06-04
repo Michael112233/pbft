@@ -441,16 +441,20 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 	periodInterval := n.periodInterval
 	// n.viewMu.RUnlock()
 	var seqNum int64
-	for {
-		currentSeq := n.preprepareSeqNumber.Load()
-		if currentSeq >= periodInterval {
-			n.log.Info("PrePrepare skipped for view %d because seq %d reached period interval %d", view, currentSeq, periodInterval)
-			return
+	if n.cfg.Periodic {
+		for {
+			currentSeq := n.preprepareSeqNumber.Load()
+			if currentSeq >= periodInterval {
+				n.log.Info("PrePrepare skipped for view %d because seq %d reached period interval %d", view, currentSeq, periodInterval)
+				return
+			}
+			if n.preprepareSeqNumber.CompareAndSwap(currentSeq, currentSeq+1) {
+				seqNum = currentSeq + 1
+				break
+			}
 		}
-		if n.preprepareSeqNumber.CompareAndSwap(currentSeq, currentSeq+1) {
-			seqNum = currentSeq + 1
-			break
-		}
+	} else {
+		seqNum = n.preprepareSeqNumber.Add(1)
 	}
 
 	digestClientMsg, err := ComputeBatchDigest(batch.Data)
