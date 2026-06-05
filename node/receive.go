@@ -2,6 +2,7 @@ package node
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/michael112233/pbft/core"
 )
@@ -27,8 +28,21 @@ func (n *Node) HandleRequestMessage(data core.RequestMessage) {
 		// }
 		for _, clientMsgSig := range data.Txs {
 			// n.pool.Add(clientMsgSig)
+			digestClientMsg, err := ComputeBatchDigest(clientMsgSig.Data)
+			if err != nil {
+				n.log.Error(fmt.Sprintf("Error computing batch digest: %v", err))
+				continue
+			}
+			n.pool.Add(digestClientMsg, clientMsgSig)
 			// n.pbftTimerManager.trackPreprepareRequest()
-			n.verifiedClientMsgsChan <- clientMsgSig
+			time.AfterFunc(4*time.Second, func() {
+				n.altPreprepare(digestClientMsg, clientMsgSig)
+			})
+
+			n.verifiedClientMsgsChan <- MsgandDigest{
+				msg:    clientMsgSig,
+				digest: digestClientMsg,
+			}
 		}
 	} else {
 		// for _, clienMsgSig := range data.Txs {
@@ -42,4 +56,18 @@ func (n *Node) HandleRequestMessage(data core.RequestMessage) {
 
 		// }
 	}
+}
+
+func (n *Node) altPreprepare(digest [32]byte, clientMsgSig core.ClientMsgSignature) {
+	// n.viewMu.RLock()
+	// defer n.viewMu.RUnlock()
+	// if n.viewChangeRunning || n.GetNodeID() != n.leaderId {
+	// 	n.log.Info(fmt.Sprintf("Node %d is in view change, drop the alt preprepare for client %s, id %d", n.GetNodeID(), clientMsgSig.Data.ClientName, clientMsgSig.Data.Id))
+	// 	return
+	// }
+	go n.preprepare(MsgandDigest{
+		msg:    clientMsgSig,
+		digest: digest,
+	}, true)
+
 }

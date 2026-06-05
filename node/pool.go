@@ -13,15 +13,20 @@ import (
 // 	}
 // }
 
+type PoolData struct {
+	ClientMsgSig         core.ClientMsgSignature
+	PreprepareSentInView int64
+}
+
 type Pool struct {
 	lock      sync.RWMutex
-	existsMap map[[32]byte]core.ClientMsgSignature
+	existsMap map[[32]byte]PoolData
 	delMap    map[[32]byte]int64
 }
 
 func NewPool() *Pool {
 	return &Pool{
-		existsMap: make(map[[32]byte]core.ClientMsgSignature),
+		existsMap: make(map[[32]byte]PoolData),
 		delMap:    make(map[[32]byte]int64),
 	}
 }
@@ -31,7 +36,20 @@ func (p *Pool) Add(digest [32]byte, msg core.ClientMsgSignature) bool {
 	defer p.lock.Unlock()
 	if _, exists := p.existsMap[digest]; !exists {
 		if _, deleted := p.delMap[digest]; !deleted {
-			p.existsMap[digest] = msg
+			p.existsMap[digest] = PoolData{ClientMsgSig: msg, PreprepareSentInView: -1}
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Pool) MarkPreprepareSent(digest [32]byte, view int64) bool {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	if data, exists := p.existsMap[digest]; exists {
+		if view > data.PreprepareSentInView {
+			data.PreprepareSentInView = view
+			p.existsMap[digest] = data
 			return true
 		}
 	}
@@ -52,13 +70,13 @@ func (p *Pool) PendingRequests() int {
 	return len(p.existsMap)
 }
 
-func (p *Pool) Get(digest [32]byte) (core.ClientMsgSignature, bool, bool) {
+func (p *Pool) Get(digest [32]byte) (core.ClientMsgSignature, bool, bool, int64) {
 	p.lock.RLock()
 	defer p.lock.RUnlock()
 	msg, exists := p.existsMap[digest]
 
 	_, executed := p.delMap[digest]
-	return msg, exists, executed
+	return msg.ClientMsgSig, exists, executed, msg.PreprepareSentInView
 }
 
 func (p *Pool) GCDelMap(seq int64) {

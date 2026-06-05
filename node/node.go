@@ -64,6 +64,11 @@ type bufferedConsensusMessage struct {
 	signature  []byte
 }
 
+type MsgandDigest struct {
+	msg    core.ClientMsgSignature
+	digest [32]byte
+}
+
 type Node struct {
 	NodeID int
 
@@ -73,7 +78,7 @@ type Node struct {
 
 	////
 	unverifiedClientMsgsChan  chan []core.ClientMsgSignature // ptr or no
-	verifiedClientMsgsChan    chan core.ClientMsgSignature   // ptr or no
+	verifiedClientMsgsChan    chan MsgandDigest
 	encryptionKeyStore        *KeyStore
 	preprepareSem             chan struct{}
 	preprepareSeqNumber       atomic.Int64
@@ -160,7 +165,7 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 
 		encryptionKeyStore:             NewKeyStore(nodeID, cfg.NodeNum),
 		unverifiedClientMsgsChan:       make(chan []core.ClientMsgSignature, 100), // buffer size can be tuned
-		verifiedClientMsgsChan:         make(chan core.ClientMsgSignature, 100),   // buffer size can be tuned
+		verifiedClientMsgsChan:         make(chan MsgandDigest, 100),              // buffer size can be tuned
 		preprepareSem:                  make(chan struct{}, 5000),
 		preprepareSeqNumber:            atomic.Int64{},
 		view:                           1,
@@ -295,7 +300,9 @@ func (n *Node) ClientSignatureVerifier() {
 			// Verify signatures
 			for _, clientMsgSig := range clientMsgSigs {
 
-				n.verifiedClientMsgsChan <- clientMsgSig
+				n.verifiedClientMsgsChan <- MsgandDigest{
+					msg: clientMsgSig,
+				}
 			}
 			n.log.Info("Verifying client message signatures, count: %d", len(clientMsgSigs))
 		}
@@ -306,13 +313,13 @@ func (n *Node) VerifiedClientMessageHandler() {
 	const (
 		batchTimeout = 5000 * time.Millisecond // Adjust as needed
 	)
-	batch := make([]core.ClientMsgSignature, 0, n.cfg.MaxBlockSize)
+	batch := make([]MsgandDigest, 0, n.cfg.MaxBlockSize)
 	timer := time.NewTimer(batchTimeout)
 	timer.Stop() // Initially stop the timer
 	for {
 		select {
-		case clientMsgSig := <-n.verifiedClientMsgsChan: // can be block and then leftover txn can go in next batch
-			batch = append(batch, clientMsgSig)
+		case clientMsgSigAndDigest := <-n.verifiedClientMsgsChan: // can be block and then leftover txn can go in next batch
+			batch = append(batch, clientMsgSigAndDigest)
 			if len(batch) == 1 {
 				// Start the timer when the first message arrives
 				timer.Reset(batchTimeout)
@@ -325,6 +332,7 @@ func (n *Node) VerifiedClientMessageHandler() {
 					default:
 					}
 				}
+				time.Sleep(time.Duration(10) * time.Millisecond)
 				n.processClientMessageBatch(batch) // will block on sem and put backpressure, maybe pool when block
 				batch = nil
 
@@ -340,12 +348,12 @@ func (n *Node) VerifiedClientMessageHandler() {
 	}
 }
 
-func (n *Node) processClientMessageBatch(batch []core.ClientMsgSignature) {
+func (n *Node) processClientMessageBatch(batch []MsgandDigest) {
 	n.preprepareSem <- struct{}{} // Acquire semaphore, may add default to drop batch if full
 
 	go func() {
 		defer func() { <-n.preprepareSem }()
-		n.preprepare(batch[0])
+		n.preprepare(batch[0], false)
 	}()
 }
 
@@ -430,13 +438,33 @@ func (n *Node) broadcastCommit(view, seq int64, digest [32]byte) {
 		n.messageHub.Send(core.MsgCommitMessage, othersIp, msg, signature)
 	}
 }
-func (n *Node) preprepare(batch core.ClientMsgSignature) {
+func (n *Node) preprepare(msganddigest MsgandDigest, isAlt bool) {
 
 	n.viewMu.RLock()
 	defer n.viewMu.RUnlock()
 	if n.viewChangeRunning || n.leaderId != n.GetNodeID() {
 		// n.viewMu.RUnlock()
 		return
+	}
+	batch := msganddigest.msg
+	digestClientMsg := msganddigest.digest
+	// cheaper rlock check turned off
+	// _, exists, _, preprepareSentInView := n.pool.Get(digestClientMsg)
+	// if !exists {
+	// 	return
+	// 	// already done with it
+	// }
+	// if preprepareSentInView >= n.view {
+	// 	return
+	// }
+	success := n.pool.MarkPreprepareSent(digestClientMsg, n.view)
+	if !success {
+		return
+	}
+	if isAlt {
+		n.log.Info("Starting alt preprepare for client %s, id %d with digest %x in view %d", batch.Data.ClientName, batch.Data.Id, digestClientMsg, n.view)
+	} else {
+		n.log.Info("Starting preprepare for client %s, id %d with digest %x in view %d", batch.Data.ClientName, batch.Data.Id, digestClientMsg, n.view)
 	}
 	view := n.view
 	periodInterval := n.periodInterval
@@ -458,11 +486,11 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 		seqNum = n.preprepareSeqNumber.Add(1)
 	}
 
-	digestClientMsg, err := ComputeBatchDigest(batch.Data)
-	if err != nil {
-		n.log.Error("Failed to compute batch digest: %v", err)
-		return
-	}
+	// digestClientMsg, err := ComputeBatchDigest(batch.Data)
+	// if err != nil {
+	// 	n.log.Error("Failed to compute batch digest: %v", err)
+	// 	return
+	// }
 
 	preprepareMsg := core.PreprepareMsg{
 		View:            view,
@@ -475,6 +503,10 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 
 	// pbMsg := transportpb.PreprepareToPB(preprepareMsg)
 	payloadBytes, err := marshalDeterministic(preprepareSignPayload(view, seqNum, digestClientMsg[:]))
+	if err != nil {
+		n.log.Error("Failed to marshal PrePrepare message for signing: %v", err)
+		return
+	}
 	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
 
 	slot := n.consensusLog.getOrCreateLog(seqNum, view)
@@ -491,7 +523,7 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 	}
 	// n.viewMu.RUnlock()
 
-	n.pool.Add(digestClientMsg, batch)
+	// n.pool.Add(digestClientMsg, batch)
 	n.pbftTimerManager.trackPreprepareRequest()
 	n.log.Test("PrePrepare sent for view %d seq %d with batch size %d", view, seqNum, 1)
 	go func() {
@@ -705,7 +737,7 @@ func (n *Node) HandlePrePrepareNewView(preprepareMsg core.PreprepareMsgMini, sig
 	slot.prePrepareSig = signature
 	// slot.prePrepare.DigestClientMsg = preprepareMsg.DigestClientMsg
 	if preprepareMsg.DigestClientMsg != [32]byte{} {
-		clientMsg, exists, executed := n.pool.Get(preprepareMsg.DigestClientMsg)
+		clientMsg, exists, executed, _ := n.pool.Get(preprepareMsg.DigestClientMsg)
 		if exists {
 			slot.prePrepare.ClientMsg = clientMsg
 			slot.missingData = false
@@ -1848,7 +1880,7 @@ func (n *Node) newView() {
 		slot.prePrepareSig = preprepareMsg.Signature
 		// slot.prePrepare.DigestClientMsg = preprepareMsg.PreprepareMsgMini.DigestClientMsg
 		if preprepareMsg.PreprepareMsgMini.DigestClientMsg != [32]byte{} {
-			clientMsg, exists, executed := n.pool.Get(preprepareMsg.PreprepareMsgMini.DigestClientMsg)
+			clientMsg, exists, executed, _ := n.pool.Get(preprepareMsg.PreprepareMsgMini.DigestClientMsg)
 			if exists {
 				slot.prePrepare.ClientMsg = clientMsg
 				slot.missingData = false

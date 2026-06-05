@@ -89,7 +89,7 @@ func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.C
 		}
 		pending.slot.mu.Lock()
 		if !pending.noOp && pending.missingData {
-			clientPoolMsg, clientPoolMsgExists, clientPoolMsgExecuted := n.pool.Get(pending.slot.prePrepare.DigestClientMsg)
+			clientPoolMsg, clientPoolMsgExists, clientPoolMsgExecuted, _ := n.pool.Get(pending.slot.prePrepare.DigestClientMsg)
 			if clientPoolMsgExists {
 				if clientPoolMsgExecuted {
 					n.log.Error("Client message for seq %d with digest %x already executed 1, skipping execution", nextSeq, pending.slot.prePrepare.DigestClientMsg)
