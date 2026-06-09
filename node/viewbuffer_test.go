@@ -1,9 +1,13 @@
 package node
 
 import (
+	"crypto/ed25519"
 	"testing"
 
 	"github.com/michael112233/pbft/core"
+	"github.com/michael112233/pbft/crypto"
+	"github.com/michael112233/pbft/transportpb"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestFutureViewMessagesBufferInArrivalOrderDuringViewChange(t *testing.T) {
@@ -86,5 +90,68 @@ func TestReplayBufferedMessagesForViewDrainsOnlyMatchingView(t *testing.T) {
 	}
 	if n.bufferedMsgs[0].view != 3 || n.bufferedMsgs[0].kind != bufferedPrepare {
 		t.Fatalf("remaining buffered message = %+v, want prepare for view 3", n.bufferedMsgs[0])
+	}
+}
+
+func TestAdvancePreprepareSeqNumberOnlyIncreases(t *testing.T) {
+	n, _ := newTestNodeWithKeys(t, 1, 4)
+
+	n.advancePreprepareSeqNumber(10)
+	n.advancePreprepareSeqNumber(7)
+	n.advancePreprepareSeqNumber(12)
+
+	if got := n.preprepareSeqNumber.Load(); got != 12 {
+		t.Fatalf("preprepareSeqNumber = %d, want 12", got)
+	}
+}
+
+func TestHandlePrePrepareAdvancesSeqNumberOnlyUpward(t *testing.T) {
+	n, _ := newTestNodeWithKeys(t, 2, 4)
+	clientPub, clientPriv, err := crypto.GenerateEd25519Keypair()
+	if err != nil {
+		t.Fatalf("generate client key: %v", err)
+	}
+	n.encryptionKeyStore.clientKey = clientPub
+
+	for _, seq := range []int64{10, 7, 12} {
+		slot := n.consensusLog.getOrCreateLog(seq, n.view)
+		slot.mu.Lock()
+		slot.prepareSent = true
+		slot.mu.Unlock()
+
+		msg := signedPreprepareForSeq(t, n.view, seq, clientPriv)
+		n.HandlePrePrepare(msg, []byte{byte(seq)})
+	}
+
+	if got := n.preprepareSeqNumber.Load(); got != 12 {
+		t.Fatalf("preprepareSeqNumber = %d, want 12", got)
+	}
+}
+
+func signedPreprepareForSeq(t *testing.T, view, seq int64, clientPriv ed25519.PrivateKey) core.PreprepareMsg {
+	t.Helper()
+
+	clientMsg := core.ClientMsg{
+		Id:         seq,
+		ClientName: "client",
+	}
+	clientMsgBytes, err := proto.MarshalOptions{Deterministic: true}.Marshal(transportpb.ClientMsgToPB(clientMsg))
+	if err != nil {
+		t.Fatalf("marshal client message: %v", err)
+	}
+	clientMsgSig := core.ClientMsgSignature{
+		Data:      clientMsg,
+		Signature: crypto.SignMessageEd25519(clientMsgBytes, clientPriv),
+	}
+	digest, err := ComputeBatchDigest(clientMsg)
+	if err != nil {
+		t.Fatalf("compute digest: %v", err)
+	}
+
+	return core.PreprepareMsg{
+		View:            view,
+		SeqNum:          seq,
+		DigestClientMsg: digest,
+		ClientMsg:       clientMsgSig,
 	}
 }

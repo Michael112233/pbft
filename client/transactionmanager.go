@@ -10,12 +10,15 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
 )
 
 const (
 	numShards            = 64
 	txnGCRetentionWindow = 20000
+	transactionScanEvery = 100 * time.Millisecond
+	transactionRetryAge  = 100 * time.Millisecond
 )
 
 type transactionDetails struct {
@@ -28,8 +31,9 @@ type transactionDetails struct {
 }
 
 type shard struct {
-	mu   sync.RWMutex
-	txns map[int64]*transactionDetails
+	mu       sync.RWMutex
+	txns     map[int64]*transactionDetails
+	txnsMsgs map[int64]core.ClientMsgSignature
 }
 
 type TPSPoint struct {
@@ -80,18 +84,19 @@ func NewTransactionManager() *TransactionManager {
 	}
 	for i := range tm.shards {
 		tm.shards[i].txns = make(map[int64]*transactionDetails)
+		tm.shards[i].txnsMsgs = make(map[int64]core.ClientMsgSignature)
 	}
 	return tm
 }
 
-func (tm *TransactionManager) TransactionTimerWorker(_ *Client) {
+func (tm *TransactionManager) TransactionTimerWorker(c *Client) {
 
 	for {
 		select {
 		case <-tm.transactionTimer.C:
-			// Retry is intentionally disabled for high-volume padded benchmarks:
-			// transactionDetails stores lightweight metadata only, not the full payload.
-			tm.transactionTimer.Reset(10 * time.Second)
+
+			tm.checkUncommittedTransactions(time.Now(), c)
+			tm.transactionTimer.Reset(transactionScanEvery)
 		case <-tm.transactionTimerStopCh:
 			return
 		}
@@ -100,7 +105,8 @@ func (tm *TransactionManager) TransactionTimerWorker(_ *Client) {
 
 func (tm *TransactionManager) StartTimer() {
 	tm.transactionTimerRunning.Store(true)
-	tm.transactionTimer.Reset(5 * time.Second)
+	tm.transactionTimer.Reset(500 * time.Millisecond)
+
 }
 func (tm *TransactionManager) ResetTimer() {
 	if !tm.transactionTimer.Stop() {
@@ -109,7 +115,7 @@ func (tm *TransactionManager) ResetTimer() {
 		default:
 		}
 	}
-	tm.transactionTimer.Reset(5 * time.Second)
+	tm.transactionTimer.Reset(transactionScanEvery)
 }
 func (tm *TransactionManager) TemporaryStopTimer() {
 	tm.transactionTimerRunning.Store(false)
@@ -136,6 +142,7 @@ func (tm *TransactionManager) StopTimer() {
 func (tm *TransactionManager) Start() {
 	start := time.Now().UnixNano()
 	tm.startTime = start
+
 	tm.tpsMu.Lock()
 	tm.lastSampleTime = start
 	tm.lastSampleCommitted = tm.txnCommited.Load()
@@ -144,6 +151,46 @@ func (tm *TransactionManager) Start() {
 	tm.tpsMu.Unlock()
 	if tm.tpsSamplerRunning.CompareAndSwap(false, true) {
 		go tm.tpsSamplerWorker()
+	}
+
+	tm.StartTimer()
+}
+
+func (tm *TransactionManager) checkUncommittedTransactions(now time.Time, c *Client) {
+	nowUnixNano := now.UnixNano()
+
+	for i := range tm.shards {
+		s := &tm.shards[i]
+
+		s.mu.RLock()
+		candidates := make([]core.ClientMsgSignature, 0)
+		for id, txn := range s.txns {
+			txn.mu.Lock()
+			shouldRetry := !txn.committed &&
+				nowUnixNano-txn.startTimestamp > transactionRetryAge.Nanoseconds()
+			txn.mu.Unlock()
+
+			if shouldRetry {
+				if msgSig, ok := s.txnsMsgs[id]; ok {
+					candidates = append(candidates, msgSig)
+				}
+			}
+		}
+		s.mu.RUnlock()
+
+		for _, msgSig := range candidates {
+			// TODO: Add retry logic here.
+			// This request is still uncommitted after transactionRetryAge.
+			// The signed payload is available in msgSig, so this block can build
+			// a RetryMessage or resend a RequestMessage without resigning.
+			retryMsg := core.RetryMessage{
+
+				Txn: msgSig,
+			}
+			for _, nodeAddr := range config.NodeAddr {
+				go c.messageHub.Send(core.MsgRetryMessage, c.addr, nodeAddr, retryMsg, nil)
+			}
+		}
 	}
 }
 
@@ -166,7 +213,9 @@ func (tm *TransactionManager) AddTransaction(batch []core.ClientMsgSignature) {
 		s.txns[msgSig.Data.Id] = &transactionDetails{
 			startTimestamp: time.Now().UnixNano(),
 			done:           false,
+			committed:      false,
 		}
+		s.txnsMsgs[msgSig.Data.Id] = msgSig
 		s.mu.Unlock()
 	}
 }
@@ -201,9 +250,10 @@ func (tm *TransactionManager) CommitTps(reply core.CommitTps) {
 	s := tm.getShard(reply.ClientMsg.Id)
 
 	// Short shard lock just to grab the txn pointer
-	s.mu.RLock()
+	s.mu.Lock()
 	txn, ok := s.txns[reply.ClientMsg.Id]
-	s.mu.RUnlock()
+	delete(s.txnsMsgs, reply.ClientMsg.Id)
+	s.mu.Unlock()
 	if !ok {
 		return
 	}

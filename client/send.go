@@ -1,13 +1,17 @@
 package client
 
 import (
+	"fmt"
 	"math/big"
+	"math/rand"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/crypto"
 	"github.com/michael112233/pbft/transportpb"
@@ -15,19 +19,46 @@ import (
 )
 
 const clientSendInterval = 50 * time.Millisecond
+const defaultDummyAccountCount = 1000
 
-func GenerateDummyTxs(count int) []*core.Transaction {
+func GenerateDummyTxs(count int) []*core.Transaction { // not used
 	txs := make([]*core.Transaction, count)
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	accountCount := defaultDummyAccountCount
 	for i := 0; i < count; i++ {
-		txs[i] = GenerateDummyTx(int64(i))
+		txs[i] = GenerateDummyTx(rng, accountCount)
 	}
 	return txs
 }
 
-func GenerateDummyTx(id int64) *core.Transaction {
+func dummyAccountCount(cfg *config.Config) int {
+	if cfg == nil || cfg.DummyAccountCount <= 1 {
+		return defaultDummyAccountCount
+	}
+	return cfg.DummyAccountCount
+}
+
+func dummyAccountName(i, count int) string {
+	width := len(strconv.Itoa(count - 1))
+	if width < 4 {
+		width = 4
+	}
+	return fmt.Sprintf("acct-%0*d", width, i)
+}
+
+func GenerateDummyTx(rng *rand.Rand, accountCount int) *core.Transaction {
+	if accountCount <= 1 {
+		accountCount = defaultDummyAccountCount
+	}
+	senderIdx := rng.Intn(accountCount)
+	receiverIdx := rng.Intn(accountCount - 1)
+	if receiverIdx >= senderIdx {
+		receiverIdx++
+	}
+
 	return core.NewTransaction(
-		string(rune('A'+id%26)),
-		string(rune('A'+(id+1)%26)),
+		dummyAccountName(senderIdx, accountCount),
+		dummyAccountName(receiverIdx, accountCount),
 		big.NewInt(1),
 	)
 }
@@ -58,11 +89,13 @@ func (c *Client) startSignedTxPipeline(totalTxs int64, padding string, queueCapa
 	signedTxs := make(chan core.ClientMsgSignature, queueCapacity)
 	var nextID atomic.Int64
 	var workers sync.WaitGroup
+	accountCount := dummyAccountCount(c.config)
 
 	for w := 0; w < workerCount; w++ {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
+			rng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(w)))
 			for {
 				id := nextID.Add(1) - 1
 				if id >= totalTxs {
@@ -72,7 +105,7 @@ func (c *Client) startSignedTxPipeline(totalTxs int64, padding string, queueCapa
 				clientMsg := core.ClientMsg{
 					Id:         id,
 					Timestamp:  time.Now().UnixNano(),
-					Txn:        GenerateDummyTx(id),
+					Txn:        GenerateDummyTx(rng, accountCount),
 					ClientName: c.name,
 					Padding:    padding,
 				}

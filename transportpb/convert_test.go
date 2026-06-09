@@ -54,6 +54,33 @@ func TestCommitTpsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRetryRoundTrip(t *testing.T) {
+	in := core.RetryMessage{
+		Txn: core.ClientMsgSignature{
+			Data: core.ClientMsg{
+				Id:         42,
+				Timestamp:  123456789,
+				ClientName: "client-a",
+				Txn: &core.Transaction{
+					Sender:    "alice",
+					Receiver:  "bob",
+					Amount:    big.NewInt(99),
+					Timestamp: 123456789,
+				},
+			},
+			Signature: []byte{1, 2, 3, 4},
+		},
+	}
+
+	out, err := RetryFromPB(RetryToPB(in))
+	if err != nil {
+		t.Fatalf("RetryFromPB returned error: %v", err)
+	}
+	if !reflect.DeepEqual(out, in) {
+		t.Fatalf("round trip mismatch:\n got: %+v\nwant: %+v", out, in)
+	}
+}
+
 func TestPreprepareMsgSigRoundTripIncludesActualMsg(t *testing.T) {
 	in := core.PreprepareMsgSig{
 		PreprepareMsgMini: core.PreprepareMsgMini{

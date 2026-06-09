@@ -43,3 +43,46 @@ func (n *Node) HandleRequestMessage(data core.RequestMessage) {
 		// }
 	}
 }
+
+func (n *Node) HandleRetry(data core.RetryMessage) {
+	n.viewMu.RLock()
+	defer n.viewMu.RUnlock()
+	if n.viewChangeRunning {
+		n.log.FeatureInfo(fmt.Sprintf("Node %d is in view change, drop the retry message from client %s, id %d", n.GetNodeID(), data.Txn.Data.ClientName, data.Txn.Data.Id))
+		return
+	}
+	digest, err := ComputeBatchDigest(data.Txn.Data)
+	if err != nil {
+		n.log.FeatureError(fmt.Sprintf("Error computing batch digest: %v", err))
+		return
+	}
+
+	if n.leaderId != n.GetNodeID() {
+		n.fairnessMu.Lock()
+		defer n.fairnessMu.Unlock()
+
+		_, exists, executed := n.pool.Get(digest)
+		if exists || executed {
+			n.log.FeatureInfo(fmt.Sprintf("Found existing or executed message for client %s, id %d", data.Txn.Data.ClientName, data.Txn.Data.Id))
+			return
+		}
+
+		currentPreprepareSeqNumber := n.preprepareSeqNumber.Load()
+
+		if val, exists := n.monitorFairnessCname[data.Txn.Data.Txn.Sender]; !exists {
+			n.monitorFairnessCname[data.Txn.Data.Txn.Sender] = monitorData{
+				digest: digest,
+				seq:    currentPreprepareSeqNumber,
+			}
+		} else {
+
+			if val.digest != digest {
+				n.log.FeatureInfo(fmt.Sprintf("Found existing monitor data for client and found different request for client %s, id %d", data.Txn.Data.ClientName, data.Txn.Data.Id))
+			} else {
+				n.log.FeatureInfo(fmt.Sprintf("Found existing monitor data for client and found same request for client %s, id %d", data.Txn.Data.ClientName, data.Txn.Data.Id))
+			}
+		}
+
+	}
+
+}

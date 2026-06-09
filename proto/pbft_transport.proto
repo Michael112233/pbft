@@ -28,6 +28,10 @@ message RequestMessage {
   repeated ClientMsgSignature txs = 1;
 }
 
+message RetryMessage {
+  ClientMsgSignature txn = 1;
+}
+
 message VCRunningStatus {
   repeated ClientMsgSignature txs = 1;
   bool vc_running = 2;
@@ -225,6 +229,7 @@ message Envelope {
     VCRunningStatus vc_running_status = 22;
     RequestStateTransferMsg request_state_transfer = 23;
     StateTransferMsg state_transfer = 24;
+    RetryMessage retry = 25;
   }
 }
 

@@ -118,6 +118,25 @@ func RequestFromPB(msg *RequestMessage) (core.RequestMessage, error) {
 	return out, nil
 }
 
+func RetryToPB(msg core.RetryMessage) *RetryMessage {
+	return &RetryMessage{
+		Txn: ClientMsgSigToPB(msg.Txn),
+	}
+}
+
+func RetryFromPB(msg *RetryMessage) (core.RetryMessage, error) {
+	if msg == nil {
+		return core.RetryMessage{}, nil
+	}
+	txn, err := ClientMsgSigFromPB(msg.Txn)
+	if err != nil {
+		return core.RetryMessage{}, err
+	}
+	return core.RetryMessage{
+		Txn: txn,
+	}, nil
+}
+
 func VCRunningStatusToPB(msg core.VCRunningStatus) *VCRunningStatus {
 	out := &VCRunningStatus{
 		Txs:       make([]*ClientMsgSignature, 0, len(msg.Txs)),

@@ -64,6 +64,11 @@ type bufferedConsensusMessage struct {
 	signature  []byte
 }
 
+type monitorData struct {
+	digest [32]byte
+	seq    int64
+}
+
 type Node struct {
 	NodeID int
 
@@ -136,6 +141,9 @@ type Node struct {
 	memoryLoggerStarted           atomic.Bool
 	memoryLoggerStopOnce          sync.Once
 
+	fairnessMu           sync.RWMutex
+	monitorFairnessCname map[string]monitorData
+
 	//locked by viewmu
 	scoreboard *Scoreboard
 
@@ -204,6 +212,7 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		periodInterval:             cfg.Period,
 		scoreboard:                 NewScoreboard(cfg.NodeNum),
 		gc:                         cfg.GC,
+		monitorFairnessCname:       make(map[string]monitorData),
 	}
 }
 
@@ -511,12 +520,24 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 
 }
 
+func (n *Node) advancePreprepareSeqNumber(seq int64) {
+	for {
+		currentSeq := n.preprepareSeqNumber.Load()
+		if seq <= currentSeq {
+			return
+		}
+		if n.preprepareSeqNumber.CompareAndSwap(currentSeq, seq) {
+			return
+		}
+	}
+}
+
 func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []byte) {
 	n.viewMu.RLock()
 	view := n.view
 	forView := n.forView
 	viewChangeRunning := n.viewChangeRunning
-	n.viewMu.RUnlock()
+	defer n.viewMu.RUnlock()
 
 	if viewChangeRunning {
 		if preprepareMsg.View > view {
@@ -598,10 +619,13 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 	slot.prePrepare = &preprepareMsg
 	slot.prePrepareSig = signature
 	slot.missingData = false
+
+	n.advancePreprepareSeqNumber(preprepareMsg.SeqNum)
+	// n.pool.Add(digestClientMsg, preprepareMsg.ClientMsg)
 	// slot.digest = digestClientMsg
 	accepted := true
 	if accepted {
-		n.pool.Add(digestClientMsg, preprepareMsg.ClientMsg)
+
 		n.pbftTimerManager.trackPreprepareRequest()
 	}
 	if !slot.prepareSent {
@@ -633,6 +657,25 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 	} else { //redundant else ?
 		slot.mu.Unlock()
 	}
+	n.fairnessMu.Lock()
+	dataMonitioring, ok := n.monitorFairnessCname[preprepareMsg.ClientMsg.Data.Txn.Sender]
+	if ok {
+		if preprepareMsg.SeqNum > dataMonitioring.seq+2 {
+			n.log.FeatureInfo("it is for same client %s but more than 2 sequence numbers ahead, the monitoring is at %d and preprepare is at %d", preprepareMsg.ClientMsg.Data.Txn.Sender, dataMonitioring.seq, preprepareMsg.SeqNum)
+		} else if preprepareMsg.SeqNum < dataMonitioring.seq {
+			n.log.FeatureError("it is for same client %s but sequence number is less than expected", preprepareMsg.ClientMsg.Data.Txn.Sender)
+
+		} else {
+			if dataMonitioring.digest != digestClientMsg {
+				n.log.FeatureError("it is for same client %s but the digest is different, the monitoring is at %d and preprepare is at %d", preprepareMsg.ClientMsg.Data.Txn.Sender, dataMonitioring.seq, preprepareMsg.SeqNum)
+			}
+			delete(n.monitorFairnessCname, preprepareMsg.ClientMsg.Data.Txn.Sender)
+		}
+
+	}
+	n.pool.Add(digestClientMsg, preprepareMsg.ClientMsg)
+
+	n.fairnessMu.Unlock()
 
 	// Buffered prepares may now form quorum with the PrePrepare
 	n.tryAdvancePrepare(slot, view, preprepareMsg.SeqNum, digestClientMsg)
@@ -767,7 +810,7 @@ func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 	view := n.view
 	forView := n.forView
 	viewChangeRunning := n.viewChangeRunning
-	n.viewMu.RUnlock()
+	defer n.viewMu.RUnlock()
 	if viewChangeRunning {
 		if prepareMsg.View > view {
 			n.bufferConsensusMessage(bufferedConsensusMessage{
@@ -835,7 +878,7 @@ func (n *Node) HandleCommit(commitMsg core.CommitMsg) {
 	view := n.view
 	forView := n.forView
 	viewChangeRunning := n.viewChangeRunning
-	n.viewMu.RUnlock()
+	defer n.viewMu.RUnlock()
 	if viewChangeRunning {
 		if commitMsg.View > view {
 			n.bufferConsensusMessage(bufferedConsensusMessage{

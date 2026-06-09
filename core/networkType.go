@@ -2,6 +2,7 @@ package core
 
 const (
 	MsgRequestMessage         string = "MsgRequestMessage"
+	MsgRetryMessage           string = "MsgRetryMessage"
 	MsgPreprepareMessage      string = "MsgPreprepareMessage"
 	MsgPrepareMessage         string = "MsgPrepareMessage"
 	MsgCommitMessage          string = "MsgCommitMessage"

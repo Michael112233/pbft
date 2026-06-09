@@ -312,6 +312,13 @@ func (hub *ClientMessageHub) buildEnvelope(msgType string, msg interface{}) (*tr
 		}
 		env.Body = &transportpb.Envelope_Request{Request: transportpb.RequestToPB(request)}
 
+	case core.MsgRetryMessage:
+		retry, ok := msg.(core.RetryMessage)
+		if !ok {
+			return nil, fmt.Errorf("invalid payload type for %s: %T", msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_Retry{Retry: transportpb.RetryToPB(retry)}
+
 	case core.MsgCloseMessage:
 		closeMsg, ok := msg.(core.CloseMessage)
 		if !ok {

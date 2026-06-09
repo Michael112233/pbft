@@ -12,6 +12,9 @@ type Message struct {
 type RequestMessage struct {
 	Txs []ClientMsgSignature
 }
+type RetryMessage struct {
+	Txn ClientMsgSignature
+}
 type VCRunningStatus struct {
 	Txs       []ClientMsgSignature
 	VCRunning bool

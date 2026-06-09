@@ -13,6 +13,7 @@ type Config struct {
 	InjectSpeed           int64 `json:"inject_speed"`
 	MaxBlockSize          int64 `json:"max_block_size"`
 	ClientMsgPaddingBytes int   `json:"client_msg_padding_bytes"`
+	DummyAccountCount     int   `json:"dummy_account_count"`
 
 	NodeNum            int64        `json:"node_num"`
 	NodesDead          map[int]bool `json:"nodes_dead"`

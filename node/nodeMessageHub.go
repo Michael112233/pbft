@@ -225,6 +225,19 @@ func (hub *NodeMessageHub) ClientNodeChannel(stream transportpb.PBFTTransport_Cl
 			hub.node_ref.recordClientRequestReceived(len(data.Txs))
 			go hub.node_ref.HandleRequestMessage(data)
 
+		case core.MsgRetryMessage:
+			retry := env.GetRetry()
+			if retry == nil {
+				continue
+			}
+			data, err := transportpb.RetryFromPB(retry)
+			if err != nil {
+				hub.log.Error("stream retry decode failed: err=%v", err)
+				continue
+			}
+
+			go hub.node_ref.HandleRetry(data)
+
 		case core.MsgCloseMessage:
 			return nil
 
@@ -251,6 +264,19 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		}
 		hub.node_ref.recordClientRequestReceived(len(data.Txs))
 		go hub.node_ref.HandleRequestMessage(data)
+		return &transportpb.Ack{Ok: true}, nil
+
+	case core.MsgRetryMessage:
+		retry := env.GetRetry()
+		if retry == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing retry body"}, nil
+		}
+		data, err := transportpb.RetryFromPB(retry)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+
+		go hub.node_ref.HandleRetry(data)
 		return &transportpb.Ack{Ok: true}, nil
 
 	case core.MsgPreprepareMessage:
