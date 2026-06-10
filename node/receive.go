@@ -69,8 +69,8 @@ func (n *Node) HandleRetry(data core.RetryMessage) {
 
 		currentPreprepareSeqNumber := n.preprepareSeqNumber.Load()
 
-		if val, exists := n.monitorFairnessCname[data.Txn.Data.Txn.Sender]; !exists {
-			n.monitorFairnessCname[data.Txn.Data.Txn.Sender] = monitorData{
+		if val, exists := n.monitorFairnessCname[data.Txn.Data.Id]; !exists {
+			n.monitorFairnessCname[data.Txn.Data.Id] = monitorData{
 				digest: digest,
 				seq:    currentPreprepareSeqNumber,
 			}

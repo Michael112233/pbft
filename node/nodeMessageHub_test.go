@@ -1,11 +1,13 @@
 package node
 
 import (
+	"crypto/ed25519"
 	"testing"
 	"time"
 
 	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
+	pbftcrypto "github.com/michael112233/pbft/crypto"
 	"github.com/michael112233/pbft/logger"
 	"github.com/michael112233/pbft/transportpb"
 )
@@ -80,6 +82,75 @@ func TestBuildEnvelopeVCRunningStatus(t *testing.T) {
 	}
 }
 
+func TestFairnessComplainDeliverAcceptsValidSignature(t *testing.T) {
+	hub := newTestFairnessComplainHub(t)
+	msg := core.FairnessComplain{
+		Digest: [32]byte{1, 2, 3},
+		View:   7,
+		From:   1,
+	}
+	env := signedFairnessComplainEnvelope(t, hub, msg)
+
+	ack, err := hub.Deliver(nil, env)
+	if err != nil {
+		t.Fatalf("Deliver returned error: %v", err)
+	}
+	if ack == nil || !ack.Ok {
+		t.Fatalf("Deliver ack = %+v, want ok", ack)
+	}
+
+	key := fairnessComplainKey{digest: msg.Digest, view: msg.View}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		hub.node_ref.fairnessMu.RLock()
+		received := hub.node_ref.complainBox[key][msg.From]
+		hub.node_ref.fairnessMu.RUnlock()
+		if received {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("complaint from node %d was not recorded", msg.From)
+}
+
+func TestFairnessComplainDeliverRejectsSenderMismatch(t *testing.T) {
+	hub := newTestFairnessComplainHub(t)
+	msg := core.FairnessComplain{
+		Digest: [32]byte{1, 2, 3},
+		View:   7,
+		From:   1,
+	}
+	env := signedFairnessComplainEnvelope(t, hub, msg)
+	env.From = 2
+
+	ack, err := hub.Deliver(nil, env)
+	if err != nil {
+		t.Fatalf("Deliver returned error: %v", err)
+	}
+	if ack == nil || ack.Ok {
+		t.Fatalf("Deliver ack = %+v, want rejection", ack)
+	}
+}
+
+func TestFairnessComplainDeliverRejectsInvalidSignature(t *testing.T) {
+	hub := newTestFairnessComplainHub(t)
+	msg := core.FairnessComplain{
+		Digest: [32]byte{1, 2, 3},
+		View:   7,
+		From:   1,
+	}
+	env := signedFairnessComplainEnvelope(t, hub, msg)
+	env.Signature = []byte("invalid")
+
+	ack, err := hub.Deliver(nil, env)
+	if err != nil {
+		t.Fatalf("Deliver returned error: %v", err)
+	}
+	if ack == nil || ack.Ok {
+		t.Fatalf("Deliver ack = %+v, want rejection", ack)
+	}
+}
+
 func TestInjectArtificialLatencyForFarNodeSend(t *testing.T) {
 	oldNodeAddr := config.NodeAddr
 	oldClientAddr := config.ClientAddr
@@ -105,5 +176,44 @@ func TestInjectArtificialLatencyForFarNodeSend(t *testing.T) {
 	hub.injectArtificialLatency(core.MsgPrepareMessage, "localhost:28400")
 	if elapsed := time.Since(start); elapsed < 15*time.Millisecond {
 		t.Fatalf("injectArtificialLatency() elapsed = %s, want at least %s", elapsed, 15*time.Millisecond)
+	}
+}
+
+func newTestFairnessComplainHub(t *testing.T) *NodeMessageHub {
+	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("GenerateKey returned error: %v", err)
+	}
+	node := &Node{
+		NodeID:      1,
+		fNodes:      1,
+		log:         logger.NewLogger(1, "node"),
+		complainBox: make(map[fairnessComplainKey]map[int]bool),
+		encryptionKeyStore: &KeyStore{
+			privateKey: priv,
+			publicKeys: map[int]ed25519.PublicKey{
+				1: pub,
+			},
+		},
+	}
+	return &NodeMessageHub{
+		node_ref: node,
+		log:      node.log,
+	}
+}
+
+func signedFairnessComplainEnvelope(t *testing.T, hub *NodeMessageHub, msg core.FairnessComplain) *transportpb.Envelope {
+	t.Helper()
+	pbMsg := transportpb.FairnessComplainToPB(msg)
+	payloadBytes, err := marshalDeterministic(pbMsg)
+	if err != nil {
+		t.Fatalf("marshalDeterministic returned error: %v", err)
+	}
+	return &transportpb.Envelope{
+		MsgType:   core.MsgFairnessComplain,
+		From:      int32(msg.From),
+		Signature: pbftcrypto.SignMessageEd25519(payloadBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey()),
+		Body:      &transportpb.Envelope_FairnessComplain{FairnessComplain: pbMsg},
 	}
 }

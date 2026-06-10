@@ -23,4 +23,5 @@ const (
 	MsgAppendEntries       string = "MsgAppendEntries"
 	MsgHeartbeatMessage    string = "MsgHeartbeatMessage"
 	MsgGrantVoteMessage    string = "MsgGrantVoteMessage"
+	MsgFairnessComplain    string = "MsgFairnessComplain"
 )

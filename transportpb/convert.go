@@ -277,6 +277,29 @@ func CommitFromPB(msg *CommitMsg) (core.CommitMsg, error) {
 	}, nil
 }
 
+func FairnessComplainToPB(msg core.FairnessComplain) *FairnessComplain {
+	return &FairnessComplain{
+		Digest: digestToPB(msg.Digest),
+		View:   msg.View,
+		From:   int32(msg.From),
+	}
+}
+
+func FairnessComplainFromPB(msg *FairnessComplain) (core.FairnessComplain, error) {
+	if msg == nil {
+		return core.FairnessComplain{}, nil
+	}
+	digest, err := digestFromPB(msg.Digest)
+	if err != nil {
+		return core.FairnessComplain{}, err
+	}
+	return core.FairnessComplain{
+		Digest: digest,
+		View:   msg.View,
+		From:   int(msg.From),
+	}, nil
+}
+
 func CheckpointToPB(msg core.CheckpointMsg) *CheckpointMsg {
 	return &CheckpointMsg{
 		SeqNum: msg.SeqNum,

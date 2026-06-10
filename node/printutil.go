@@ -271,6 +271,41 @@ func (n *Node) TimesLeader() {
 
 }
 
+func (n *Node) fairnessComplaintThresholdCount() (int, int) {
+	n.fairnessMu.RLock()
+	defer n.fairnessMu.RUnlock()
+
+	threshold := n.fNodes + 1
+	count := 0
+	for _, complaints := range n.complainBox {
+		if len(complaints) >= threshold {
+			count++
+		}
+	}
+	return threshold, count
+}
+
+func (n *Node) PrintFairnessComplaintSummary() {
+	threshold, count := n.fairnessComplaintThresholdCount()
+
+	output := fmt.Sprintf("fairness complaint summary\nthreshold=%d\nentries_at_or_above_threshold=%d\n", threshold, count)
+	fmt.Print(output)
+
+	if err := os.MkdirAll("logs", 0755); err != nil {
+		if n.log != nil {
+			n.log.Error("Failed to create logs directory for PrintFairnessComplaintSummary: %v", err)
+		}
+		return
+	}
+
+	path := filepath.Join("logs", "node_"+strconv.Itoa(n.NodeID)+"_fairness_complaints.txt")
+	if err := os.WriteFile(path, []byte(output), 0644); err != nil {
+		if n.log != nil {
+			n.log.Error("Failed to write fairness complaint summary file %s: %v", path, err)
+		}
+	}
+}
+
 func (n *Node) PrintCommitSentSummary() {
 
 	n.consensusLog.PrintCommitSentSummary()

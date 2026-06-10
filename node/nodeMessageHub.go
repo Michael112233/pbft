@@ -327,6 +327,24 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		go hub.node_ref.HandleCommit(data)
 		return &transportpb.Ack{Ok: true}, nil
 
+	case core.MsgFairnessComplain:
+		complaint := env.GetFairnessComplain()
+		if complaint == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing fairness complain body"}, nil
+		}
+		if int(complaint.From) != int(env.From) {
+			return &transportpb.Ack{Ok: false, Error: "fairness complain sender mismatch"}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, complaint) {
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.FairnessComplainFromPB(complaint)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		go hub.node_ref.handleFairnessComplain(data)
+		return &transportpb.Ack{Ok: true}, nil
+
 	case core.MsgCheckpointMessage:
 		checkpoint := env.GetCheckpoint()
 		if checkpoint == nil {
@@ -552,6 +570,14 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}, signat
 		env.Body = &transportpb.Envelope_Commit{Commit: pbMsg}
 		env.From = int32(hub.node_ref.GetNodeID())
 		// env.Signature = crypto.SignMessageEd25519(payloadBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey())
+
+	case core.MsgFairnessComplain:
+		complaint, ok := msg.(core.FairnessComplain)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_FairnessComplain{FairnessComplain: transportpb.FairnessComplainToPB(complaint)}
+		env.From = int32(hub.node_ref.GetNodeID())
 
 	case core.MsgCheckpointMessage:
 		checkpoint, ok := msg.(core.CheckpointMsg)

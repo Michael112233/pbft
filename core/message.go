@@ -185,3 +185,9 @@ type NewViewMsgSig struct {
 	NewViewMsg NewViewMsg
 	Signature  []byte
 }
+
+type FairnessComplain struct {
+	Digest [32]byte
+	View   int64
+	From   int
+}

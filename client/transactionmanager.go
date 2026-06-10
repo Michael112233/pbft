@@ -179,6 +179,7 @@ func (tm *TransactionManager) checkUncommittedTransactions(now time.Time, c *Cli
 		s.mu.RUnlock()
 
 		for _, msgSig := range candidates {
+			c.log.FeatureInfo(fmt.Sprintf("Retrying transaction for client %s, id %d", msgSig.Data.ClientName, msgSig.Data.Id))
 			// TODO: Add retry logic here.
 			// This request is still uncommitted after transactionRetryAge.
 			// The signed payload is available in msgSig, so this block can build

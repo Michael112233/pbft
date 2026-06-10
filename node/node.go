@@ -69,6 +69,11 @@ type monitorData struct {
 	seq    int64
 }
 
+type fairnessComplainKey struct {
+	digest [32]byte
+	view   int64
+}
+
 type Node struct {
 	NodeID int
 
@@ -142,7 +147,8 @@ type Node struct {
 	memoryLoggerStopOnce          sync.Once
 
 	fairnessMu           sync.RWMutex
-	monitorFairnessCname map[string]monitorData
+	monitorFairnessCname map[int64]monitorData
+	complainBox          map[fairnessComplainKey]map[int]bool
 
 	//locked by viewmu
 	scoreboard *Scoreboard
@@ -212,7 +218,8 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		periodInterval:             cfg.Period,
 		scoreboard:                 NewScoreboard(cfg.NodeNum),
 		gc:                         cfg.GC,
-		monitorFairnessCname:       make(map[string]monitorData),
+		monitorFairnessCname:       make(map[int64]monitorData),
+		complainBox:                make(map[fairnessComplainKey]map[int]bool),
 	}
 }
 
@@ -401,6 +408,44 @@ func (n *Node) broadcastViewChange(msg core.ViewChangeMsg, signature []byte) {
 		}
 		n.messageHub.Send(core.MsgViewChangeMessage, othersIp, msg, signature)
 	}
+}
+
+func (n *Node) broadcastComplaint(digest [32]byte, view int64) {
+	msg := core.FairnessComplain{
+		Digest: digest,
+		View:   view,
+		From:   n.GetNodeID(),
+	}
+	pbMsg := transportpb.FairnessComplainToPB(msg)
+	payloadBytes, err := marshalDeterministic(pbMsg)
+	if err != nil {
+		n.log.Error("Failed to marshal FairnessComplain message for signing: %v", err)
+		return
+	}
+	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+	for _, othersIp := range config.NodeAddr {
+		if othersIp == n.GetAddr() {
+			continue
+		}
+		n.messageHub.Send(core.MsgFairnessComplain, othersIp, msg, signature)
+	}
+}
+
+func (n *Node) handleFairnessComplain(msg core.FairnessComplain) {
+	n.fairnessMu.Lock()
+	defer n.fairnessMu.Unlock()
+	farinessComplainKey := fairnessComplainKey{
+		digest: msg.Digest,
+		view:   msg.View,
+	}
+	if _, exists := n.complainBox[farinessComplainKey]; !exists {
+		n.complainBox[farinessComplainKey] = make(map[int]bool)
+	}
+	n.complainBox[farinessComplainKey][msg.From] = true
+	if len(n.complainBox[farinessComplainKey]) == n.fNodes+1 {
+		n.log.FeatureError("too many fairness complaints for digest %v in view %d", msg.Digest, msg.View)
+	}
+
 }
 
 // sig := n.sign(marshal(msg))
@@ -658,18 +703,43 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 		slot.mu.Unlock()
 	}
 	n.fairnessMu.Lock()
-	dataMonitioring, ok := n.monitorFairnessCname[preprepareMsg.ClientMsg.Data.Txn.Sender]
+	dataMonitioring, ok := n.monitorFairnessCname[preprepareMsg.ClientMsg.Data.Id]
 	if ok {
 		if preprepareMsg.SeqNum > dataMonitioring.seq+2 {
-			n.log.FeatureInfo("it is for same client %s but more than 2 sequence numbers ahead, the monitoring is at %d and preprepare is at %d", preprepareMsg.ClientMsg.Data.Txn.Sender, dataMonitioring.seq, preprepareMsg.SeqNum)
+			if dataMonitioring.digest != digestClientMsg {
+				n.log.FeatureError("digest different and more than 2 sequence numbers ahead")
+
+			}
+			farinessComplainKey := fairnessComplainKey{
+				digest: dataMonitioring.digest,
+				view:   preprepareMsg.View,
+			}
+			if _, exists := n.complainBox[farinessComplainKey]; !exists {
+				n.complainBox[farinessComplainKey] = make(map[int]bool)
+			}
+			n.complainBox[farinessComplainKey][n.GetNodeID()] = true
+			n.log.FeatureInfo("it is for same id %d but more than 2 sequence numbers ahead, the monitoring is at %d and preprepare is at %d", preprepareMsg.ClientMsg.Data.Id, dataMonitioring.seq, preprepareMsg.SeqNum)
+			if len(n.complainBox[farinessComplainKey]) == n.fNodes+1 {
+				n.log.FeatureError("Too many complaints for the same digest and view")
+			}
+
+			go n.broadcastComplaint(dataMonitioring.digest, preprepareMsg.View)
+
+			delete(n.monitorFairnessCname, preprepareMsg.ClientMsg.Data.Id)
 		} else if preprepareMsg.SeqNum < dataMonitioring.seq {
+			if dataMonitioring.digest != digestClientMsg {
+				n.log.FeatureError("digest different and seq number less than expected")
+
+			}
 			n.log.FeatureError("it is for same client %s but sequence number is less than expected", preprepareMsg.ClientMsg.Data.Txn.Sender)
+			delete(n.monitorFairnessCname, preprepareMsg.ClientMsg.Data.Id)
 
 		} else {
 			if dataMonitioring.digest != digestClientMsg {
-				n.log.FeatureError("it is for same client %s but the digest is different, the monitoring is at %d and preprepare is at %d", preprepareMsg.ClientMsg.Data.Txn.Sender, dataMonitioring.seq, preprepareMsg.SeqNum)
+				n.log.FeatureError("digest different and good region")
+
 			}
-			delete(n.monitorFairnessCname, preprepareMsg.ClientMsg.Data.Txn.Sender)
+			delete(n.monitorFairnessCname, preprepareMsg.ClientMsg.Data.Id)
 		}
 
 	}

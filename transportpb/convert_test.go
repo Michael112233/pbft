@@ -81,6 +81,22 @@ func TestRetryRoundTrip(t *testing.T) {
 	}
 }
 
+func TestFairnessComplainRoundTrip(t *testing.T) {
+	in := core.FairnessComplain{
+		Digest: [32]byte{1, 2, 3},
+		View:   7,
+		From:   2,
+	}
+
+	out, err := FairnessComplainFromPB(FairnessComplainToPB(in))
+	if err != nil {
+		t.Fatalf("FairnessComplainFromPB returned error: %v", err)
+	}
+	if !reflect.DeepEqual(out, in) {
+		t.Fatalf("round trip mismatch:\n got: %+v\nwant: %+v", out, in)
+	}
+}
+
 func TestPreprepareMsgSigRoundTripIncludesActualMsg(t *testing.T) {
 	in := core.PreprepareMsgSig{
 		PreprepareMsgMini: core.PreprepareMsgMini{
