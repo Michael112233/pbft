@@ -107,3 +107,94 @@ func TestInjectArtificialLatencyForFarNodeSend(t *testing.T) {
 		t.Fatalf("injectArtificialLatency() elapsed = %s, want at least %s", elapsed, 15*time.Millisecond)
 	}
 }
+
+func TestMessagePriorityClassification(t *testing.T) {
+	tests := []struct {
+		msgType  string
+		priority hubPriority
+		lane     outboundLane
+	}{
+		{core.MsgNewViewMessage, priorityCritical, outboundLaneControl},
+		{core.MsgViewChangeMessage, priorityCritical, outboundLaneControl},
+		{core.MsgPrepareMessage, priorityHigh, outboundLaneControl},
+		{core.MsgCommitMessage, priorityHigh, outboundLaneControl},
+		{core.MsgCheckpointMessage, priorityMedium, outboundLaneControl},
+		{core.MsgRequestStateTransfer, priorityMedium, outboundLaneControl},
+		{core.MsgStateTransfer, priorityMedium, outboundLaneControl},
+		{core.MsgPreprepareMessage, priorityLow, outboundLaneData},
+		{core.MsgRequestMessage, priorityLow, outboundLaneData},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.msgType, func(t *testing.T) {
+			priority := messagePriority(tt.msgType)
+			if priority != tt.priority {
+				t.Fatalf("messagePriority(%s) = %v, want %v", tt.msgType, priority, tt.priority)
+			}
+			if lane := outboundLaneForPriority(priority); lane != tt.lane {
+				t.Fatalf("outboundLaneForPriority(%v) = %v, want %v", priority, lane, tt.lane)
+			}
+		})
+	}
+}
+
+func TestPriorityQueueDequeuesCriticalBeforeLow(t *testing.T) {
+	q := newPriorityJobQueue([priorityCount]int{
+		priorityCritical: 10,
+		priorityHigh:     10,
+		priorityMedium:   10,
+		priorityLow:      10,
+	})
+
+	if !q.enqueue(outboundJob{msgType: core.MsgPreprepareMessage}, priorityLow, nil, "test", core.MsgPreprepareMessage) {
+		t.Fatal("enqueue low returned false")
+	}
+	if !q.enqueue(outboundJob{msgType: core.MsgPreprepareMessage}, priorityLow, nil, "test", core.MsgPreprepareMessage) {
+		t.Fatal("enqueue low returned false")
+	}
+	if !q.enqueue(outboundJob{msgType: core.MsgNewViewMessage}, priorityCritical, nil, "test", core.MsgNewViewMessage) {
+		t.Fatal("enqueue critical returned false")
+	}
+
+	raw, priority, ok := q.dequeue()
+	if !ok {
+		t.Fatal("dequeue returned closed")
+	}
+	job := raw.(outboundJob)
+	if priority != priorityCritical || job.msgType != core.MsgNewViewMessage {
+		t.Fatalf("first dequeue = (%s, %v), want (%s, %v)", job.msgType, priority, core.MsgNewViewMessage, priorityCritical)
+	}
+}
+
+func TestPriorityQueueWeightedOrderDoesNotStarveLow(t *testing.T) {
+	q := newPriorityJobQueue([priorityCount]int{
+		priorityCritical: 10,
+		priorityHigh:     32,
+		priorityMedium:   10,
+		priorityLow:      10,
+	})
+
+	for i := 0; i < 20; i++ {
+		if !q.enqueue(outboundJob{msgType: core.MsgPrepareMessage}, priorityHigh, nil, "test", core.MsgPrepareMessage) {
+			t.Fatal("enqueue high returned false")
+		}
+	}
+	if !q.enqueue(outboundJob{msgType: core.MsgPreprepareMessage}, priorityLow, nil, "test", core.MsgPreprepareMessage) {
+		t.Fatal("enqueue low returned false")
+	}
+
+	lowSeen := false
+	for i := 0; i < 9; i++ {
+		raw, _, ok := q.dequeue()
+		if !ok {
+			t.Fatal("dequeue returned closed")
+		}
+		if raw.(outboundJob).msgType == core.MsgPreprepareMessage {
+			lowSeen = true
+			break
+		}
+	}
+	if !lowSeen {
+		t.Fatal("low-priority job was not dequeued within the weighted high:low window")
+	}
+}

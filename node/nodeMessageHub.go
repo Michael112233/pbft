@@ -21,11 +21,77 @@ import (
 const (
 	rpcTimeout      = 300 * time.Second
 	maxGRPCMsgBytes = 1000 * 1024 * 1024
+
+	outboundCriticalQueueSize = 4096
+	outboundHighQueueSize     = 8192
+	outboundMediumQueueSize   = 4096
+	outboundLowQueueSize      = 128
+
+	dispatchCriticalQueueSize = 4096
+	dispatchHighQueueSize     = 8192
+	dispatchMediumQueueSize   = 4096
+	dispatchLowQueueSize      = 1024
+
+	dispatchWorkerCount = 4
 )
 
 type clientStreamState struct {
 	stream transportpb.PBFTTransport_ClientNodeChannelServer
 	sendMu sync.Mutex
+}
+
+type hubPriority int
+
+const (
+	priorityCritical hubPriority = iota
+	priorityHigh
+	priorityMedium
+	priorityLow
+	priorityCount
+)
+
+type outboundLane int
+
+const (
+	outboundLaneControl outboundLane = iota
+	outboundLaneData
+)
+
+var weightedPriorityOrder = []hubPriority{
+	priorityHigh, priorityHigh, priorityHigh, priorityHigh,
+	priorityHigh, priorityHigh, priorityHigh, priorityHigh,
+	priorityMedium, priorityMedium,
+	priorityLow,
+}
+
+type outboundJob struct {
+	msgType string
+	target  string
+	env     *transportpb.Envelope
+	lane    outboundLane
+}
+
+type dispatchJob struct {
+	msgType   string
+	env       *transportpb.Envelope
+	signature []byte
+	run       func()
+}
+
+type priorityJobQueue struct {
+	mu          sync.Mutex
+	cond        *sync.Cond
+	queues      [priorityCount][]interface{}
+	caps        [priorityCount]int
+	rrIndex     int
+	closed      bool
+	lastFullLog [priorityCount]time.Time
+}
+
+type outboundPeerState struct {
+	target       string
+	controlQueue *priorityJobQueue
+	dataQueue    *priorityJobQueue
 }
 
 type NodeMessageHub struct {
@@ -34,12 +100,18 @@ type NodeMessageHub struct {
 	node_ref *Node
 	log      *logger.Logger
 
-	mu        sync.RWMutex
-	clients   map[string]transportpb.PBFTTransportClient
-	conns     map[string]*grpc.ClientConn
-	grpcSrv   *grpc.Server
-	listener  net.Listener
-	closeOnce sync.Once
+	mu            sync.RWMutex
+	clients       map[string]transportpb.PBFTTransportClient
+	conns         map[string]*grpc.ClientConn
+	grpcSrv       *grpc.Server
+	listener      net.Listener
+	closeOnce     sync.Once
+	workerWg      sync.WaitGroup
+	outboundMu    sync.Mutex
+	outboundPeers map[string]*outboundPeerState
+
+	dispatchQueue     *priorityJobQueue
+	dispatchStartOnce sync.Once
 
 	clientStreamMu sync.RWMutex
 	clientStream   *clientStreamState
@@ -47,9 +119,123 @@ type NodeMessageHub struct {
 
 func NewNodeMessageHub() *NodeMessageHub {
 	return &NodeMessageHub{
-		clients: make(map[string]transportpb.PBFTTransportClient),
-		conns:   make(map[string]*grpc.ClientConn),
+		clients:       make(map[string]transportpb.PBFTTransportClient),
+		conns:         make(map[string]*grpc.ClientConn),
+		outboundPeers: make(map[string]*outboundPeerState),
+		dispatchQueue: newPriorityJobQueue([priorityCount]int{
+			priorityCritical: dispatchCriticalQueueSize,
+			priorityHigh:     dispatchHighQueueSize,
+			priorityMedium:   dispatchMediumQueueSize,
+			priorityLow:      dispatchLowQueueSize,
+		}),
 	}
+}
+
+func newPriorityJobQueue(caps [priorityCount]int) *priorityJobQueue {
+	q := &priorityJobQueue{caps: caps}
+	q.cond = sync.NewCond(&q.mu)
+	return q
+}
+
+func priorityName(priority hubPriority) string {
+	switch priority {
+	case priorityCritical:
+		return "critical"
+	case priorityHigh:
+		return "high"
+	case priorityMedium:
+		return "medium"
+	case priorityLow:
+		return "low"
+	default:
+		return "unknown"
+	}
+}
+
+func messagePriority(msgType string) hubPriority {
+	switch msgType {
+	case core.MsgNewViewMessage, core.MsgViewChangeMessage:
+		return priorityCritical
+	case core.MsgPrepareMessage, core.MsgCommitMessage:
+		return priorityHigh
+	case core.MsgCheckpointMessage, core.MsgRequestStateTransfer, core.MsgStateTransfer:
+		return priorityMedium
+	default:
+		return priorityLow
+	}
+}
+
+func outboundLaneForPriority(priority hubPriority) outboundLane {
+	if priority == priorityLow {
+		return outboundLaneData
+	}
+	return outboundLaneControl
+}
+
+func outboundClientKey(addr string, lane outboundLane) string {
+	return fmt.Sprintf("%d:%s", lane, addr)
+}
+
+func (q *priorityJobQueue) enqueue(job interface{}, priority hubPriority, log *logger.Logger, queueName, msgType string) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	for !q.closed && len(q.queues[priority]) >= q.caps[priority] {
+		now := time.Now()
+		if log != nil && now.Sub(q.lastFullLog[priority]) >= time.Second {
+			log.Info("%s %s queue full for msgType=%s len=%d cap=%d; applying backpressure",
+				queueName, priorityName(priority), msgType, len(q.queues[priority]), q.caps[priority])
+			q.lastFullLog[priority] = now
+		}
+		q.cond.Wait()
+	}
+	if q.closed {
+		return false
+	}
+
+	q.queues[priority] = append(q.queues[priority], job)
+	q.cond.Signal()
+	return true
+}
+
+func (q *priorityJobQueue) dequeue() (interface{}, hubPriority, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	for {
+		if q.closed {
+			return nil, priorityLow, false
+		}
+		if job, ok := q.popLocked(priorityCritical); ok {
+			return job, priorityCritical, true
+		}
+		for i := 0; i < len(weightedPriorityOrder); i++ {
+			priority := weightedPriorityOrder[q.rrIndex]
+			q.rrIndex = (q.rrIndex + 1) % len(weightedPriorityOrder)
+			if job, ok := q.popLocked(priority); ok {
+				return job, priority, true
+			}
+		}
+		q.cond.Wait()
+	}
+}
+
+func (q *priorityJobQueue) popLocked(priority hubPriority) (interface{}, bool) {
+	if len(q.queues[priority]) == 0 {
+		return nil, false
+	}
+	job := q.queues[priority][0]
+	q.queues[priority][0] = nil
+	q.queues[priority] = q.queues[priority][1:]
+	q.cond.Signal()
+	return job, true
+}
+
+func (q *priorityJobQueue) close() {
+	q.mu.Lock()
+	q.closed = true
+	q.cond.Broadcast()
+	q.mu.Unlock()
 }
 
 func (hub *NodeMessageHub) Start(node *Node, wg *sync.WaitGroup) {
@@ -64,6 +250,7 @@ func (hub *NodeMessageHub) Start(node *Node, wg *sync.WaitGroup) {
 		hub.log.Error("Error setting up gRPC listener: err=%v", err)
 		return
 	}
+	hub.startDispatchWorkers()
 
 	hub.mu.Lock()
 	hub.listener = lis
@@ -87,6 +274,17 @@ func (hub *NodeMessageHub) Start(node *Node, wg *sync.WaitGroup) {
 func (hub *NodeMessageHub) Close() {
 	hub.closeOnce.Do(func() {
 		hub.log.Debug("nodeMessageHub closing...")
+
+		if hub.dispatchQueue != nil {
+			hub.dispatchQueue.close()
+		}
+		hub.outboundMu.Lock()
+		for _, peer := range hub.outboundPeers {
+			peer.controlQueue.close()
+			peer.dataQueue.close()
+		}
+		hub.outboundPeers = make(map[string]*outboundPeerState)
+		hub.outboundMu.Unlock()
 
 		hub.mu.Lock()
 		grpcSrv := hub.grpcSrv
@@ -112,7 +310,25 @@ func (hub *NodeMessageHub) Close() {
 		for _, conn := range conns {
 			_ = conn.Close()
 		}
+		hub.workerWg.Wait()
 		hub.log.Debug("messageHub is close.")
+	})
+}
+
+func (hub *NodeMessageHub) startDispatchWorkers() {
+	if hub.dispatchQueue == nil {
+		hub.dispatchQueue = newPriorityJobQueue([priorityCount]int{
+			priorityCritical: dispatchCriticalQueueSize,
+			priorityHigh:     dispatchHighQueueSize,
+			priorityMedium:   dispatchMediumQueueSize,
+			priorityLow:      dispatchLowQueueSize,
+		})
+	}
+	hub.dispatchStartOnce.Do(func() {
+		for i := 0; i < dispatchWorkerCount; i++ {
+			hub.workerWg.Add(1)
+			go hub.dispatchWorker()
+		}
 	})
 }
 
@@ -194,6 +410,114 @@ func (hub *NodeMessageHub) injectArtificialLatency(msgType, targetAddr string) {
 	time.Sleep(delay)
 }
 
+func (hub *NodeMessageHub) enqueueDispatch(job dispatchJob, priority hubPriority) bool {
+	if hub.dispatchQueue == nil {
+		hub.dispatchQueue = newPriorityJobQueue([priorityCount]int{
+			priorityCritical: dispatchCriticalQueueSize,
+			priorityHigh:     dispatchHighQueueSize,
+			priorityMedium:   dispatchMediumQueueSize,
+			priorityLow:      dispatchLowQueueSize,
+		})
+	}
+	return hub.dispatchQueue.enqueue(job, priority, hub.log, "dispatch", job.msgType)
+}
+
+func (hub *NodeMessageHub) dispatchWorker() {
+	defer hub.workerWg.Done()
+	for {
+		rawJob, _, ok := hub.dispatchQueue.dequeue()
+		if !ok {
+			return
+		}
+		job, ok := rawJob.(dispatchJob)
+		if !ok || job.run == nil {
+			continue
+		}
+		job.run()
+	}
+}
+
+func (hub *NodeMessageHub) getOrCreateOutboundPeer(target string) *outboundPeerState {
+	hub.outboundMu.Lock()
+	defer hub.outboundMu.Unlock()
+
+	if hub.outboundPeers == nil {
+		hub.outboundPeers = make(map[string]*outboundPeerState)
+	}
+	if peer, ok := hub.outboundPeers[target]; ok {
+		return peer
+	}
+
+	peer := &outboundPeerState{
+		target: target,
+		controlQueue: newPriorityJobQueue([priorityCount]int{
+			priorityCritical: outboundCriticalQueueSize,
+			priorityHigh:     outboundHighQueueSize,
+			priorityMedium:   outboundMediumQueueSize,
+			priorityLow:      1,
+		}),
+		dataQueue: newPriorityJobQueue([priorityCount]int{
+			priorityCritical: 1,
+			priorityHigh:     1,
+			priorityMedium:   1,
+			priorityLow:      outboundLowQueueSize,
+		}),
+	}
+	hub.outboundPeers[target] = peer
+
+	hub.workerWg.Add(2)
+	go hub.outboundWorker(peer.controlQueue, outboundLaneControl)
+	go hub.outboundWorker(peer.dataQueue, outboundLaneData)
+
+	return peer
+}
+
+func (hub *NodeMessageHub) enqueueOutbound(job outboundJob, priority hubPriority) bool {
+	peer := hub.getOrCreateOutboundPeer(job.target)
+	if job.lane == outboundLaneData {
+		return peer.dataQueue.enqueue(job, priority, hub.log, "outbound data", job.msgType)
+	}
+	return peer.controlQueue.enqueue(job, priority, hub.log, "outbound control", job.msgType)
+}
+
+func (hub *NodeMessageHub) outboundWorker(queue *priorityJobQueue, lane outboundLane) {
+	defer hub.workerWg.Done()
+	for {
+		rawJob, _, ok := queue.dequeue()
+		if !ok {
+			return
+		}
+		job, ok := rawJob.(outboundJob)
+		if !ok {
+			continue
+		}
+		hub.deliverOutbound(job, lane)
+	}
+}
+
+func (hub *NodeMessageHub) deliverOutbound(job outboundJob, lane outboundLane) {
+	hub.injectArtificialLatency(job.msgType, job.target)
+
+	client, err := hub.getOrCreateClient(job.target, lane)
+	if err != nil {
+		hub.log.Error("dial target failed. msgType=%s target=%s err=%v", job.msgType, job.target, err)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
+	defer cancel()
+
+	ack, err := client.Deliver(ctx, job.env)
+	if err != nil {
+		hub.log.Error("deliver rpc failed. msgType=%s target=%s err=%v", job.msgType, job.target, err)
+		hub.dropClient(job.target, lane)
+		return
+	}
+	if ack != nil && !ack.Ok {
+		hub.log.Error("deliver rejected. msgType=%s target=%s err=%s", job.msgType, job.target, ack.Error)
+	}
+}
+
 func (hub *NodeMessageHub) ClientNodeChannel(stream transportpb.PBFTTransport_ClientNodeChannelServer) error {
 	streamState := &clientStreamState{stream: stream}
 	hub.setClientStream(streamState)
@@ -223,7 +547,16 @@ func (hub *NodeMessageHub) ClientNodeChannel(stream transportpb.PBFTTransport_Cl
 				continue
 			}
 			hub.node_ref.recordClientRequestReceived(len(data.Txs))
-			go hub.node_ref.HandleRequestMessage(data)
+			dataCopy := data
+			if ok := hub.enqueueDispatch(dispatchJob{
+				msgType: core.MsgRequestMessage,
+				env:     env,
+				run: func() {
+					hub.node_ref.HandleRequestMessage(dataCopy)
+				},
+			}, messagePriority(core.MsgRequestMessage)); !ok {
+				return errors.New("dispatch queue closed")
+			}
 
 		case core.MsgCloseMessage:
 			return nil
@@ -250,7 +583,15 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
 		}
 		hub.node_ref.recordClientRequestReceived(len(data.Txs))
-		go hub.node_ref.HandleRequestMessage(data)
+		if ok := hub.enqueueDispatch(dispatchJob{
+			msgType: core.MsgRequestMessage,
+			env:     env,
+			run: func() {
+				hub.node_ref.HandleRequestMessage(data)
+			},
+		}, messagePriority(env.MsgType)); !ok {
+			return &transportpb.Ack{Ok: false, Error: "dispatch queue closed"}, nil
+		}
 		return &transportpb.Ack{Ok: true}, nil
 
 	case core.MsgPreprepareMessage:
@@ -266,7 +607,17 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		if err != nil {
 			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
 		}
-		go hub.node_ref.HandlePrePrepare(data, env.Signature)
+		signature := append([]byte(nil), env.Signature...)
+		if ok := hub.enqueueDispatch(dispatchJob{
+			msgType:   core.MsgPreprepareMessage,
+			env:       env,
+			signature: signature,
+			run: func() {
+				hub.node_ref.HandlePrePrepare(data, signature)
+			},
+		}, messagePriority(env.MsgType)); !ok {
+			return &transportpb.Ack{Ok: false, Error: "dispatch queue closed"}, nil
+		}
 		return &transportpb.Ack{Ok: true}, nil
 
 	case core.MsgPrepareMessage:
@@ -282,7 +633,17 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		if err != nil {
 			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
 		}
-		go hub.node_ref.HandlePrepare(data, env.Signature)
+		signature := append([]byte(nil), env.Signature...)
+		if ok := hub.enqueueDispatch(dispatchJob{
+			msgType:   core.MsgPrepareMessage,
+			env:       env,
+			signature: signature,
+			run: func() {
+				hub.node_ref.HandlePrepare(data, signature)
+			},
+		}, messagePriority(env.MsgType)); !ok {
+			return &transportpb.Ack{Ok: false, Error: "dispatch queue closed"}, nil
+		}
 		return &transportpb.Ack{Ok: true}, nil
 
 	case core.MsgCommitMessage:
@@ -298,7 +659,15 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		if err != nil {
 			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
 		}
-		go hub.node_ref.HandleCommit(data)
+		if ok := hub.enqueueDispatch(dispatchJob{
+			msgType: core.MsgCommitMessage,
+			env:     env,
+			run: func() {
+				hub.node_ref.HandleCommit(data)
+			},
+		}, messagePriority(env.MsgType)); !ok {
+			return &transportpb.Ack{Ok: false, Error: "dispatch queue closed"}, nil
+		}
 		return &transportpb.Ack{Ok: true}, nil
 
 	case core.MsgCheckpointMessage:
@@ -316,7 +685,17 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		if err != nil {
 			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
 		}
-		go hub.node_ref.HandleCheckpoint(data, env.Signature)
+		signature := append([]byte(nil), env.Signature...)
+		if ok := hub.enqueueDispatch(dispatchJob{
+			msgType:   core.MsgCheckpointMessage,
+			env:       env,
+			signature: signature,
+			run: func() {
+				hub.node_ref.HandleCheckpoint(data, signature)
+			},
+		}, messagePriority(env.MsgType)); !ok {
+			return &transportpb.Ack{Ok: false, Error: "dispatch queue closed"}, nil
+		}
 		return &transportpb.Ack{Ok: true}, nil
 
 	case core.MsgRequestStateTransfer:
@@ -334,7 +713,17 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		if err != nil {
 			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
 		}
-		go hub.node_ref.HandleRequestStateTransfer(data, env.Signature)
+		signature := append([]byte(nil), env.Signature...)
+		if ok := hub.enqueueDispatch(dispatchJob{
+			msgType:   core.MsgRequestStateTransfer,
+			env:       env,
+			signature: signature,
+			run: func() {
+				hub.node_ref.HandleRequestStateTransfer(data, signature)
+			},
+		}, messagePriority(env.MsgType)); !ok {
+			return &transportpb.Ack{Ok: false, Error: "dispatch queue closed"}, nil
+		}
 		return &transportpb.Ack{Ok: true}, nil
 
 	case core.MsgStateTransfer:
@@ -352,7 +741,17 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		if err != nil {
 			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
 		}
-		go hub.node_ref.HandleStateTransfer(data, env.Signature)
+		signature := append([]byte(nil), env.Signature...)
+		if ok := hub.enqueueDispatch(dispatchJob{
+			msgType:   core.MsgStateTransfer,
+			env:       env,
+			signature: signature,
+			run: func() {
+				hub.node_ref.HandleStateTransfer(data, signature)
+			},
+		}, messagePriority(env.MsgType)); !ok {
+			return &transportpb.Ack{Ok: false, Error: "dispatch queue closed"}, nil
+		}
 		return &transportpb.Ack{Ok: true}, nil
 	case core.MsgViewChangeMessage:
 		viewChange := env.GetViewChange()
@@ -367,7 +766,17 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		if err != nil {
 			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
 		}
-		go hub.node_ref.HandleViewChange(data, env.Signature)
+		signature := append([]byte(nil), env.Signature...)
+		if ok := hub.enqueueDispatch(dispatchJob{
+			msgType:   core.MsgViewChangeMessage,
+			env:       env,
+			signature: signature,
+			run: func() {
+				hub.node_ref.HandleViewChange(data, signature)
+			},
+		}, messagePriority(env.MsgType)); !ok {
+			return &transportpb.Ack{Ok: false, Error: "dispatch queue closed"}, nil
+		}
 		return &transportpb.Ack{Ok: true}, nil
 
 	// case core.MsgGrantVoteMessage:
@@ -397,7 +806,17 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		if err != nil {
 			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
 		}
-		go hub.node_ref.HandleNewView(data, env.Signature)
+		signature := append([]byte(nil), env.Signature...)
+		if ok := hub.enqueueDispatch(dispatchJob{
+			msgType:   core.MsgNewViewMessage,
+			env:       env,
+			signature: signature,
+			run: func() {
+				hub.node_ref.HandleNewView(data, signature)
+			},
+		}, messagePriority(env.MsgType)); !ok {
+			return &transportpb.Ack{Ok: false, Error: "dispatch queue closed"}, nil
+		}
 		return &transportpb.Ack{Ok: true}, nil
 	case core.MsgCloseMessage:
 		_ = env.GetClose()
@@ -410,9 +829,10 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 	}
 }
 
-func (hub *NodeMessageHub) getOrCreateClient(addr string) (transportpb.PBFTTransportClient, error) {
+func (hub *NodeMessageHub) getOrCreateClient(addr string, lane outboundLane) (transportpb.PBFTTransportClient, error) {
+	key := outboundClientKey(addr, lane)
 	hub.mu.RLock()
-	client, ok := hub.clients[addr]
+	client, ok := hub.clients[key]
 	hub.mu.RUnlock()
 	if ok {
 		return client, nil
@@ -449,24 +869,25 @@ func (hub *NodeMessageHub) getOrCreateClient(addr string) (transportpb.PBFTTrans
 	createdClient := transportpb.NewPBFTTransportClient(conn)
 
 	hub.mu.Lock()
-	if existingClient, exists := hub.clients[addr]; exists {
+	if existingClient, exists := hub.clients[key]; exists {
 		hub.mu.Unlock()
 		_ = conn.Close()
 		return existingClient, nil
 	}
-	hub.clients[addr] = createdClient
-	hub.conns[addr] = conn
+	hub.clients[key] = createdClient
+	hub.conns[key] = conn
 	hub.mu.Unlock()
 
 	return createdClient, nil
 }
 
-func (hub *NodeMessageHub) dropClient(addr string) {
+func (hub *NodeMessageHub) dropClient(addr string, lane outboundLane) {
+	key := outboundClientKey(addr, lane)
 	hub.mu.Lock()
-	conn, ok := hub.conns[addr]
+	conn, ok := hub.conns[key]
 	if ok {
-		delete(hub.conns, addr)
-		delete(hub.clients, addr)
+		delete(hub.conns, key)
+		delete(hub.clients, key)
 	}
 	hub.mu.Unlock()
 	if ok {
@@ -647,25 +1068,15 @@ func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, sign
 		return
 	}
 
-	hub.injectArtificialLatency(msgType, ip)
-
-	client, err := hub.getOrCreateClient(ip)
-	if err != nil {
-		hub.log.Error("dial target failed. msgType=%s target=%s err=%v", msgType, ip, err)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
-	defer cancel()
-
-	ack, err := client.Deliver(ctx, env)
-	if err != nil {
-		hub.log.Error("deliver rpc failed. msgType=%s target=%s err=%v", msgType, ip, err)
-		hub.dropClient(ip)
-		return
-	}
-	if ack != nil && !ack.Ok {
-		hub.log.Error("deliver rejected. msgType=%s target=%s err=%s", msgType, ip, ack.Error)
+	priority := messagePriority(msgType)
+	lane := outboundLaneForPriority(priority)
+	if ok := hub.enqueueOutbound(outboundJob{
+		msgType: msgType,
+		target:  ip,
+		env:     env,
+		lane:    lane,
+	}, priority); !ok {
+		hub.log.Error("outbound queue closed. msgType=%s target=%s", msgType, ip)
 	}
 
 }
