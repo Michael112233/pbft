@@ -1519,16 +1519,17 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 
 	n.log.Info("Transitioned to new view %d with leader %d", n.view, n.leaderId)
 	// needSyncLog := make([]*core.PreprepareMsgSig, len(newViewMsg.PreprepareLog))
+	replayView := n.view
+	leaderId := n.leaderId
+	n.viewMu.Unlock()
 	for _, preprepareMsg := range newViewMsg.PreprepareLog {
-		n.HandlePrePrepareNewView(preprepareMsg.PreprepareMsgMini, preprepareMsg.Signature, preprepareMsg.ActualMsg, n.leaderId, n.view)
+		n.HandlePrePrepareNewView(preprepareMsg.PreprepareMsgMini, preprepareMsg.Signature, preprepareMsg.ActualMsg, leaderId, replayView)
 		// if needSync {
 		// 	needSyncLog = append(needSyncLog, &preprepareMsg)
 		// }
 
 	}
-	replayView := n.view
-	leaderId := n.leaderId
-	n.viewMu.Unlock()
+
 	go n.sendLeaderIdUpdate(leaderId, replayView)
 	n.pbftTimerManager.forceResetPBFTTimer()
 	n.replayBufferedMessagesForView(replayView)
@@ -1581,7 +1582,7 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView i
 			} // if not exists then copy proof, if exists may replace some with incoming we will verify checkpoint before when receive vc
 			if checkpointData.balances == nil { // most likely this case not run
 				n.log.Info("requesting state transfer from creat 0 primary")
-				go n.RequestStateTransfer(latestStableCheckpoint.seq, latestStableCheckpoint.digest)
+				go n.RequestStateTransfer(latestStableCheckpoint.seq, latestStableCheckpoint.digest, true)
 			} else {
 				n.lastStableCheckpoint = latestStableCheckpoint // unsafe checkpoint forwarding
 				go n.gcConsensusState(latestStableCheckpoint.seq)
@@ -1707,7 +1708,7 @@ func (n *Node) createOReplica(vcMsgSigs []*core.ViewChangeMsgSig, view int64) (m
 			} // if not exists then copy proof, if exists may replace some with incoming we will verify checkpoint before when receive vc
 			if checkpointData.balances == nil { // most likely this case not run
 				n.log.Info("requesting state transfer from creat 0 replica")
-				go n.RequestStateTransfer(latestStableCheckpoint.seq, latestStableCheckpoint.digest)
+				go n.RequestStateTransfer(latestStableCheckpoint.seq, latestStableCheckpoint.digest, true)
 			} else {
 				n.lastStableCheckpoint = latestStableCheckpoint // unsafe checkpoint forwarding
 				go n.gcConsensusState(latestStableCheckpoint.seq)
