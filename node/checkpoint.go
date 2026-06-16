@@ -93,7 +93,7 @@ func (n *Node) HandleCheckpoint(checkpointMsg core.CheckpointMsg, signature []by
 }
 
 func (n *Node) RequestStateTransfer(seq int64, digest [32]byte) {
-	time.Sleep(2000 * time.Millisecond)
+	time.Sleep(4000 * time.Millisecond)
 
 	n.checkpointMu.Lock()
 	if seq <= n.lastStableCheckpoint.seq {
@@ -146,7 +146,9 @@ func (n *Node) HandleRequestStateTransfer(request core.RequestStateTransferMsg, 
 	checkpointData, exists := n.checkpoints[key]
 	if !exists || checkpointData.balances == nil {
 		n.checkpointMu.Unlock()
-		n.log.Error("Received state transfer request for seq %d digest %x, but no balances available", key.seq, key.digest)
+		if exists && checkpointData.balances == nil {
+			n.log.Error("Received state transfer request for seq %d digest %x, but no balances available", key.seq, key.digest)
+		}
 		return
 	}
 	// balances := cloneBalances(checkpointData.balances)

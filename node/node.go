@@ -665,9 +665,9 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 	n.tryAdvancePrepare(slot, view, preprepareMsg.SeqNum, digestClientMsg)
 }
 
-func (n *Node) HandlePrePrepareNewView(preprepareMsg core.PreprepareMsgMini, signature []byte, actualMsg core.ClientMsgSignature) bool {
+func (n *Node) HandlePrePrepareNewView(preprepareMsg core.PreprepareMsgMini, signature []byte, actualMsg core.ClientMsgSignature, leaderId int, view int64) bool {
 
-	view := n.view
+	// view := n.view
 	// n.viewMu.RUnlock()
 
 	// --- Validation ---
@@ -687,14 +687,14 @@ func (n *Node) HandlePrePrepareNewView(preprepareMsg core.PreprepareMsgMini, sig
 		n.log.Error("Failed to marshal preprepare mini message for signature verification: %v", err)
 		return false
 	}
-	leaderPubKey, exists := n.encryptionKeyStore.GetPublicKey(n.leaderId)
+	leaderPubKey, exists := n.encryptionKeyStore.GetPublicKey(leaderId)
 	if !exists {
 		n.log.Error("Failed to get leader public key: %v", err)
 		return false
 	}
 	verified := crypto.VerifySignatureEd25519(payloadBytes, signature, leaderPubKey)
 	if !verified {
-		n.log.Error("Failed to verify signature in PrePrepareMini from leader %d, view %d seqNum %d", n.leaderId, preprepareMsg.View, preprepareMsg.SeqNum)
+		n.log.Error("Failed to verify signature in PrePrepareMini from leader %d, view %d seqNum %d", leaderId, preprepareMsg.View, preprepareMsg.SeqNum)
 		return false
 	}
 
@@ -1518,17 +1518,18 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	}
 
 	n.log.Info("Transitioned to new view %d with leader %d", n.view, n.leaderId)
-	needSyncLog := make([]*core.PreprepareMsgSig, len(newViewMsg.PreprepareLog))
+	// needSyncLog := make([]*core.PreprepareMsgSig, len(newViewMsg.PreprepareLog))
 	for _, preprepareMsg := range newViewMsg.PreprepareLog {
-		needSync := n.HandlePrePrepareNewView(preprepareMsg.PreprepareMsgMini, preprepareMsg.Signature, preprepareMsg.ActualMsg)
-		if needSync {
-			needSyncLog = append(needSyncLog, &preprepareMsg)
-		}
+		n.HandlePrePrepareNewView(preprepareMsg.PreprepareMsgMini, preprepareMsg.Signature, preprepareMsg.ActualMsg, n.leaderId, n.view)
+		// if needSync {
+		// 	needSyncLog = append(needSyncLog, &preprepareMsg)
+		// }
 
 	}
 	replayView := n.view
+	leaderId := n.leaderId
 	n.viewMu.Unlock()
-	go n.sendLeaderIdUpdate(n.leaderId, n.view)
+	go n.sendLeaderIdUpdate(leaderId, replayView)
 	n.pbftTimerManager.forceResetPBFTTimer()
 	n.replayBufferedMessagesForView(replayView)
 	go n.gcViewChangeMsgs(replayView)
