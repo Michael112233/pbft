@@ -381,7 +381,7 @@ func (n *Node) broadcastPrepare(msg core.PrepareMsg, signature []byte) {
 		if othersIp == n.GetAddr() {
 			continue
 		}
-		n.messageHub.Send(core.MsgPrepareMessage, othersIp, msg, signature)
+		go n.messageHub.Send(core.MsgPrepareMessage, othersIp, msg, signature)
 	}
 }
 func (n *Node) broadcastViewChange(msg core.ViewChangeMsg, signature []byte) {
@@ -390,7 +390,7 @@ func (n *Node) broadcastViewChange(msg core.ViewChangeMsg, signature []byte) {
 		if othersIp == n.GetAddr() {
 			continue
 		}
-		n.messageHub.Send(core.MsgViewChangeMessage, othersIp, msg, signature)
+		go n.messageHub.Send(core.MsgViewChangeMessage, othersIp, msg, signature)
 	}
 }
 
@@ -427,7 +427,7 @@ func (n *Node) broadcastCommit(view, seq int64, digest [32]byte) {
 			continue
 		}
 		// msg.To = othersIp
-		n.messageHub.Send(core.MsgCommitMessage, othersIp, msg, signature)
+		go n.messageHub.Send(core.MsgCommitMessage, othersIp, msg, signature)
 	}
 }
 func (n *Node) preprepare(batch core.ClientMsgSignature) {
@@ -494,20 +494,20 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 	n.pool.Add(digestClientMsg, batch)
 	n.pbftTimerManager.trackPreprepareRequest()
 	n.log.Test("PrePrepare sent for view %d seq %d with batch size %d", view, seqNum, 1)
-	go func() {
-		if n.proposalDelay {
+	// go func() {
+	if n.proposalDelay {
 
-			time.Sleep(time.Duration(n.cfg.ProposalDelayMS) * time.Millisecond)
+		time.Sleep(time.Duration(n.cfg.ProposalDelayMS) * time.Millisecond)
 
+	}
+	for _, othersIp := range config.NodeAddr {
+		if othersIp == n.GetAddr() {
+			continue
 		}
-		for _, othersIp := range config.NodeAddr {
-			if othersIp == n.GetAddr() {
-				continue
-			}
-			// preprepareMsg.To = othersIp
-			n.messageHub.Send(core.MsgPreprepareMessage, othersIp, preprepareMsg, signature) // cant do go in current state race
-		}
-	}()
+		// preprepareMsg.To = othersIp
+		go n.messageHub.Send(core.MsgPreprepareMessage, othersIp, preprepareMsg, signature) // cant do go in current state race
+	}
+	// }()
 
 }
 
@@ -516,7 +516,7 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 	view := n.view
 	forView := n.forView
 	viewChangeRunning := n.viewChangeRunning
-	n.viewMu.RUnlock()
+	defer n.viewMu.RUnlock()
 
 	if viewChangeRunning {
 		if preprepareMsg.View > view {
@@ -601,7 +601,7 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 	// slot.digest = digestClientMsg
 	accepted := true
 	if accepted {
-		n.pool.Add(digestClientMsg, preprepareMsg.ClientMsg)
+
 		n.pbftTimerManager.trackPreprepareRequest()
 	}
 	if !slot.prepareSent {
@@ -628,11 +628,12 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 		slot.prepares[n.GetNodeID()] = &msgForLog
 		slot.mu.Unlock()
 
-		go n.broadcastPrepare(msg, signature)
+		n.broadcastPrepare(msg, signature)
 
 	} else { //redundant else ?
 		slot.mu.Unlock()
 	}
+	n.pool.Add(digestClientMsg, preprepareMsg.ClientMsg)
 
 	// Buffered prepares may now form quorum with the PrePrepare
 	n.tryAdvancePrepare(slot, view, preprepareMsg.SeqNum, digestClientMsg)
@@ -750,7 +751,7 @@ func (n *Node) HandlePrePrepareNewView(preprepareMsg core.PreprepareMsgMini, sig
 
 		slot.prepares[n.GetNodeID()] = &msgForLog
 
-		go n.broadcastPrepare(msg, signature)
+		n.broadcastPrepare(msg, signature)
 
 	}
 	slot.mu.Unlock()
@@ -767,7 +768,7 @@ func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 	view := n.view
 	forView := n.forView
 	viewChangeRunning := n.viewChangeRunning
-	n.viewMu.RUnlock()
+	defer n.viewMu.RUnlock()
 	if viewChangeRunning {
 		if prepareMsg.View > view {
 			n.bufferConsensusMessage(bufferedConsensusMessage{
@@ -835,7 +836,7 @@ func (n *Node) HandleCommit(commitMsg core.CommitMsg) {
 	view := n.view
 	forView := n.forView
 	viewChangeRunning := n.viewChangeRunning
-	n.viewMu.RUnlock()
+	defer n.viewMu.RUnlock()
 	if viewChangeRunning {
 		if commitMsg.View > view {
 			n.bufferConsensusMessage(bufferedConsensusMessage{
@@ -916,12 +917,11 @@ func (n *Node) tryAdvancePrepare(slot *consensusSlot, view, seq int64, digest [3
 	slot.mu.Unlock()
 
 	// Broadcast Commit (release lock first to avoid holding during I/O)
-	go func() {
-		n.broadcastCommit(view, seq, commitDigest)
-		// Commits may already be buffered from peers before we flip commitSent.
-		// Re-check execute to avoid leaving executable slots stuck.
 
-	}()
+	go n.broadcastCommit(view, seq, commitDigest)
+	// Commits may already be buffered from peers before we flip commitSent.
+	// Re-check execute to avoid leaving executable slots stuck.
+
 	n.tryExecute(slot, seq)
 }
 
