@@ -135,6 +135,12 @@ type Node struct {
 	memoryLoggerDone              chan struct{}
 	memoryLoggerStarted           atomic.Bool
 	memoryLoggerStopOnce          sync.Once
+	shareLoggerStop               chan struct{}
+	shareLoggerDone               chan struct{}
+	shareLoggerStarted            atomic.Bool
+	shareLoggerStopOnce           sync.Once
+	shareChan                     chan Share
+	leaderShares                  map[int]int
 
 	//locked by viewmu
 	scoreboard *Scoreboard
@@ -160,7 +166,7 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 
 		encryptionKeyStore:             NewKeyStore(nodeID, cfg.NodeNum),
 		unverifiedClientMsgsChan:       make(chan []core.ClientMsgSignature, 100), // buffer size can be tuned
-		verifiedClientMsgsChan:         make(chan core.ClientMsgSignature, 100),   // buffer size can be tuned
+		verifiedClientMsgsChan:         make(chan core.ClientMsgSignature, 5000),  // buffer size can be tuned
 		preprepareSem:                  make(chan struct{}, 5000),
 		preprepareSeqNumber:            atomic.Int64{},
 		view:                           1,
@@ -195,6 +201,10 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		leaderPreprepareRateDone:   make(chan struct{}),
 		memoryLoggerStop:           make(chan struct{}),
 		memoryLoggerDone:           make(chan struct{}),
+		shareChan:                  make(chan Share, 10000),
+		shareLoggerStop:            make(chan struct{}),
+		shareLoggerDone:            make(chan struct{}),
+		leaderShares:               make(map[int]int),
 		split:                      false,
 		dead:                       cfg.NodesDead[nodeID],
 		proposalDelay:              cfg.ProposalDelayNode == nodeID,
@@ -205,6 +215,10 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		scoreboard:                 NewScoreboard(cfg.NodeNum),
 		gc:                         cfg.GC,
 	}
+}
+
+type Share struct {
+	leaderId int
 }
 
 func (n *Node) Start() {
@@ -223,6 +237,12 @@ func (n *Node) Start() {
 		if n.leaderPreprepareRateStarted.CompareAndSwap(false, true) {
 			go n.leaderPreprepareRateLogger()
 		}
+	}
+	if n.cfg.LogShares {
+		if n.shareLoggerStarted.CompareAndSwap(false, true) {
+			go n.shareLogger()
+		}
+
 	}
 	go n.ClientSignatureVerifier()
 	go n.VerifiedClientMessageHandler()
@@ -268,6 +288,12 @@ func (n *Node) Stop() {
 	})
 	if n.memoryLoggerStarted.Load() {
 		<-n.memoryLoggerDone
+	}
+	n.shareLoggerStopOnce.Do(func() {
+		close(n.shareLoggerStop)
+	})
+	if n.shareLoggerStarted.Load() {
+		<-n.shareLoggerDone
 	}
 	n.log.Info("node stopped")
 }
@@ -915,6 +941,8 @@ func (n *Node) tryAdvancePrepare(slot *consensusSlot, view, seq int64, digest [3
 	// Add own commit vote with digest before releasing lock
 	slot.commits[n.GetNodeID()] = commitDigest
 	slot.mu.Unlock()
+
+	n.recordLeaderShare(n.leaderId)
 
 	// Broadcast Commit (release lock first to avoid holding during I/O)
 

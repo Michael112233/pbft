@@ -30,6 +30,7 @@ type Config struct {
 	ProposalDelayMS    int  `json:"proposal_delay_ms"`
 	GC                 bool `json:"gc"`
 	Logging            bool `json:"logging"`
+	LogShares          bool `json:"log_shares"`
 }
 
 func ReadCfg(filename string) *Config {
