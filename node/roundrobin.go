@@ -4,6 +4,7 @@ import (
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/crypto"
 	"github.com/michael112233/pbft/transportpb"
+	"time"
 )
 
 func (n *Node) roundRobinVCTimeout() {
@@ -30,8 +31,10 @@ func (n *Node) roundRobinVCTimeout() {
 	}
 
 	n.checkpointMu.Unlock()
+	// timeStart := time.Now()
 	preparedCerts := n.createVCContent(checkpointSeq)
-
+	// n.log.FeatureInfo("Time taken to create prepared certs for round robin vc is %d ms", time.Since(timeStart).Milliseconds())
+	
 	vcPayload := core.ViewChangeMsg{
 		ViewNumber:          n.forView,
 		CheckpointSeqNumber: checkpointSeq,
@@ -44,6 +47,8 @@ func (n *Node) roundRobinVCTimeout() {
 			GrantVote: grantVote,
 		},
 	}
+	// n.viewMu.Unlock()
+	timeStart := time.Now()
 	pbMsg := transportpb.ViewChangeToPB(vcPayload)
 	payloadBytes, err := marshalDeterministic(pbMsg)
 	if err != nil {
@@ -51,6 +56,8 @@ func (n *Node) roundRobinVCTimeout() {
 		// return
 	}
 	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+	n.log.FeatureInfo("Time taken to marshal and sign round robin vc message is %d ms", time.Since(timeStart).Milliseconds())
+	// n.viewMu.Lock()
 
 	vcMsg := &core.ViewChangeMsgSig{
 		ViewChangeMsg: vcPayload,
@@ -74,15 +81,25 @@ func (n *Node) roundRobinVCTimeout() {
 
 func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signature []byte) {
 	n.log.FeatureInfo("Received vc msg from node %d for view %d", viewChange.From, viewChange.ViewNumber)
-	n.viewMu.Lock()
-	defer n.viewMu.Unlock()
+	n.viewMu.RLock()
+	
 
 	if viewChange.ViewNumber <= n.view {
+		n.viewMu.RUnlock()
 		return
 	}
 	n.log.Info("received vc as round robin type from node %d for view %d", viewChange.From, viewChange.ViewNumber)
 	verifiedVC := n.verifyVC(viewChange)
 	if !verifiedVC {
+		n.viewMu.RUnlock()
+		return
+	}
+	n.viewMu.RUnlock()
+	n.viewMu.Lock()
+	defer n.viewMu.Unlock()
+
+	if viewChange.ViewNumber <= n.view {
+		// n.viewMu.RUnlock()
 		return
 	}
 

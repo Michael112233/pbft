@@ -10,7 +10,7 @@ ip route get 8.8.8.8
 
 IFACE=lo
 PORT=28100
-RATE=5mbit
+RATE=1gbit
 
 sudo tc qdisc add dev $IFACE root handle 1: htb default 30
 
@@ -18,7 +18,7 @@ sudo tc class add dev $IFACE parent 1: classid 1:30 htb rate 10gbit
 
 sudo tc class add dev $IFACE parent 1: classid 1:10 htb rate $RATE ceil $RATE
 
-sudo tc filter add dev lo protocol ip parent 1: prio 1 u32 match ip src 127.0.0.4/32 flowid 1:10
+sudo tc filter add dev lo protocol ip parent 1: prio 1 u32 match ip src 127.0.0.2/32 flowid 1:10
 
 
 sport 5000 so packet with source port limited by applying class 1:10

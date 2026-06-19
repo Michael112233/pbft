@@ -14,7 +14,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const clientSendInterval = 25 * time.Millisecond
+const clientSendInterval = 33 * time.Millisecond
 
 func GenerateDummyTxs(count int) []*core.Transaction {
 	txs := make([]*core.Transaction, count)
@@ -122,7 +122,7 @@ func (c *Client) InjectTxs() {
 	go func() {
 		defer c.WaitGroup.Done()
 
-		totaltxns := c.config.Period * 10
+		totaltxns := c.config.Period * 2
 		if totaltxns <= 0 {
 			c.log.Info("No transactions to inject")
 			return
@@ -175,7 +175,7 @@ func (c *Client) InjectTxs() {
 				c.leaderMu.RUnlock()
 
 				// c.log.Info(fmt.Sprintf("Send request message to %s with batch %d and %d transactions", leader, int64(i), len(injectTxs)))
-				c.messageHub.Send(core.MsgRequestMessage, c.addr, leader, msg, nil) // couuld be go as stream locked
+				go c.messageHub.Send(core.MsgRequestMessage, c.addr, leader, msg, nil) // couuld be go as stream locked
 
 				// vcStatus := <-c.vcrunChan
 				if true {

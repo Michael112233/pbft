@@ -20,7 +20,7 @@ type Logger struct {
 }
 
 const (
-	LOGOFF = false
+	LOGOFF = true
 )
 
 // Init 初始化日志系统，为每个节点创建日志文件

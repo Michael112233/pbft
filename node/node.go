@@ -545,7 +545,7 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 	view := n.view
 	forView := n.forView
 	viewChangeRunning := n.viewChangeRunning
-	defer n.viewMu.RUnlock()
+	n.viewMu.RUnlock()
 
 	if viewChangeRunning {
 		if preprepareMsg.View > view {
@@ -797,7 +797,7 @@ func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 	view := n.view
 	forView := n.forView
 	viewChangeRunning := n.viewChangeRunning
-	defer n.viewMu.RUnlock()
+	n.viewMu.RUnlock()
 	if viewChangeRunning {
 		if prepareMsg.View > view {
 			n.bufferConsensusMessage(bufferedConsensusMessage{
@@ -865,7 +865,7 @@ func (n *Node) HandleCommit(commitMsg core.CommitMsg) {
 	view := n.view
 	forView := n.forView
 	viewChangeRunning := n.viewChangeRunning
-	defer n.viewMu.RUnlock()
+	n.viewMu.RUnlock()
 	if viewChangeRunning {
 		if commitMsg.View > view {
 			n.bufferConsensusMessage(bufferedConsensusMessage{
@@ -1032,6 +1032,7 @@ func (n *Node) sendLeaderIdUpdate(newLeaderID int, view int64) {
 		NewLeaderId: newLeaderID,
 		View:        view,
 	}
+	time.Sleep(1000 * time.Millisecond) // add delay to ensure client receives view change messages before leader update, can remove when client can handle out of order messages
 	n.messageHub.Send(core.MsgLeaderIdUpdateMessage, config.ClientAddr, leaderUpdateMsg, nil)
 }
 
@@ -1444,11 +1445,11 @@ func verifyOSet(Ocreated map[int64]core.PreprepareMsgSig, Oreceived []core.Prepr
 
 func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	n.log.FeatureInfo("Received new view message for view %d from leader %d and my current view is %d and my for view is %d", newViewMsg.NewViewNumber, newViewMsg.From, n.view, n.forView)
-	n.viewMu.Lock()
+	n.viewMu.RLock()
 	n.log.Info("Received new view message for view %d from leader %d and my current view is %d and my for view is %d", newViewMsg.NewViewNumber, newViewMsg.From, n.view, n.forView)
 
 	if newViewMsg.NewViewNumber < n.view {
-		n.viewMu.Unlock()
+		n.viewMu.RUnlock()
 		return
 	}
 	if newViewMsg.NewViewNumber < n.forView {
@@ -1459,17 +1460,27 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	// return
 	verifiedNewView := n.verifyNewView(newViewMsg)
 	if !verifiedNewView {
-		n.viewMu.Unlock()
+		n.viewMu.RUnlock()
 		return
 	}
+
 	Oset, maxSeq := n.createOReplica(newViewMsg.ViewChangeLog, newViewMsg.NewViewNumber)
 
 	verifiedOsets := verifyOSet(Oset, newViewMsg.PreprepareLog)
 	if !verifiedOsets {
 		n.log.Error("O set verification failed for new view message for view %d", newViewMsg.NewViewNumber)
+		n.viewMu.RUnlock()
+		return
+	}
+	n.viewMu.RUnlock()
+	n.viewMu.Lock()
+
+	if newViewMsg.NewViewNumber < n.view {
 		n.viewMu.Unlock()
 		return
 	}
+
+
 	n.preprepareSeqNumber.Store(maxSeq)
 	n.periodInterval = maxSeq + n.cfg.Period
 	n.log.Info("Next Period end is %d", n.periodInterval)
@@ -1798,7 +1809,7 @@ func (n *Node) broadcastNewView(newViewMsg core.NewViewMsg, signature []byte) {
 		if othersIp == n.GetAddr() {
 			continue
 		}
-		n.messageHub.Send(core.MsgNewViewMessage, othersIp, newViewMsg, signature)
+		go n.messageHub.Send(core.MsgNewViewMessage, othersIp, newViewMsg, signature)
 	}
 }
 
@@ -1966,6 +1977,7 @@ func (n *Node) createVCContent(stableCheckpointSeq int64) map[int64]*core.Prepar
 	n.consensusLog.slotsMu.RLock()
 	// n.log.Info("inside create vc")
 	// we go over slots after stable checkpoint
+	// n.log.FeatureInfo("len of consensus log slots is %d in createVCContent for view change message for view %d", len(n.consensusLog.slots), n.view)
 	for _, slot := range n.consensusLog.slots {
 
 		slot.mu.Lock()

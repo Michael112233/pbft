@@ -12,10 +12,10 @@ func (n *Node) HandleRequestMessage(data core.RequestMessage) {
 	defer n.viewMu.RUnlock()
 	if n.viewChangeRunning {
 		n.log.Info(fmt.Sprintf("Node %d is in view change, drop the request message from client %s, id %d", n.GetNodeID(), data.Txs[0].Data.ClientName, data.Txs[0].Data.Id))
-		n.sendVCRunningStatus(data.Txs, true) // notify client that view change is running and batch is paused
+		// go n.sendVCRunningStatus(data.Txs, true) // notify client that view change is running and batch is paused
 		return
 	}
-	go n.sendVCRunningStatus(data.Txs, false) // notify client that view change is not running and batch can proceed
+	// go n.sendVCRunningStatus(data.Txs, false) // notify client that view change is not running and batch can proceed
 	n.log.Test(fmt.Sprintf("Received request message from client %s, id %d, length of batch is %d", data.Txs[0].Data.ClientName, data.Txs[0].Data.Id, len(data.Txs)))
 	if n.leaderId == n.GetNodeID() {
 
