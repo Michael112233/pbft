@@ -351,9 +351,9 @@ func (n *Node) VerifiedClientMessageHandler() {
 					default:
 					}
 				}
-				if n.GetNodeID() != 1 {
-					time.Sleep(500 * time.Microsecond)
-				}
+				// if n.GetNodeID() != 1 {
+				// 	time.Sleep(500 * time.Microsecond)
+				// }
 				n.processClientMessageBatch(batch) // will block on sem and put backpressure, maybe pool when block
 				batch = nil
 
@@ -1130,6 +1130,8 @@ func (n *Node) drainBufferedMessagesForView(view int64) []bufferedConsensusMessa
 		if msg.view == view {
 			replay = append(replay, msg)
 			continue
+		} else if msg.view < view {
+			n.log.FeatureError("buffer have lower view msgs")
 		}
 		remaining = append(remaining, msg)
 	}
@@ -1441,6 +1443,7 @@ func verifyOSet(Ocreated map[int64]core.PreprepareMsgSig, Oreceived []core.Prepr
 }
 
 func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
+	n.log.FeatureInfo("Received new view message for view %d from leader %d and my current view is %d and my for view is %d", newViewMsg.NewViewNumber, newViewMsg.From, n.view, n.forView)
 	n.viewMu.Lock()
 	n.log.Info("Received new view message for view %d from leader %d and my current view is %d and my for view is %d", newViewMsg.NewViewNumber, newViewMsg.From, n.view, n.forView)
 
@@ -1525,6 +1528,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	replayView := n.view
 	leaderId := n.leaderId
 	n.viewMu.Unlock()
+	n.log.FeatureInfo("Done with new view msg for view %d", n.view)
 	for _, preprepareMsg := range newViewMsg.PreprepareLog {
 		n.HandlePrePrepareNewView(preprepareMsg.PreprepareMsgMini, preprepareMsg.Signature, preprepareMsg.ActualMsg, leaderId, replayView)
 		// if needSync {
