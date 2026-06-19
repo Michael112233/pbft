@@ -166,7 +166,7 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 
 		encryptionKeyStore:             NewKeyStore(nodeID, cfg.NodeNum),
 		unverifiedClientMsgsChan:       make(chan []core.ClientMsgSignature, 100), // buffer size can be tuned
-		verifiedClientMsgsChan:         make(chan core.ClientMsgSignature, 5000),  // buffer size can be tuned
+		verifiedClientMsgsChan:         make(chan core.ClientMsgSignature, 10000), // buffer size can be tuned
 		preprepareSem:                  make(chan struct{}, 5000),
 		preprepareSeqNumber:            atomic.Int64{},
 		view:                           1,
@@ -350,6 +350,9 @@ func (n *Node) VerifiedClientMessageHandler() {
 					case <-timer.C:
 					default:
 					}
+				}
+				if n.GetNodeID() != 1 {
+					time.Sleep(500 * time.Microsecond)
 				}
 				n.processClientMessageBatch(batch) // will block on sem and put backpressure, maybe pool when block
 				batch = nil
