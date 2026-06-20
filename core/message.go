@@ -25,6 +25,13 @@ type ClientMsg struct {
 	Padding    string
 }
 
+type ClientMsgReply struct {
+	Id         int64
+	Timestamp  int64
+	Txn        *Transaction
+	ClientName string
+}
+
 type ClientMsgSignature struct {
 	Data      ClientMsg
 	Signature []byte
@@ -41,7 +48,7 @@ type ReplyMessage struct {
 type CommitTps struct {
 	To        string
 	From      string
-	ClientMsg ClientMsg
+	ClientMsg ClientMsgReply
 }
 
 type LeaderIdUpdate struct {

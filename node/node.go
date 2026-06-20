@@ -1018,9 +1018,14 @@ func (n *Node) sendReply(clientMsg core.ClientMsg, result execution.Result, seq 
 
 func (n *Node) sendCommitTps(clientMsg core.ClientMsg) {
 	commitTpsMsg := core.CommitTps{
-		From:      n.GetAddr(),
-		To:        config.ClientAddr,
-		ClientMsg: clientMsg,
+		From: n.GetAddr(),
+		To:   config.ClientAddr,
+		ClientMsg: core.ClientMsgReply{
+			Id:         clientMsg.Id,
+			Timestamp:  clientMsg.Timestamp,
+			Txn:        clientMsg.Txn,
+			ClientName: clientMsg.ClientName,
+		},
 	}
 	n.messageHub.Send(core.MsgCommitTpsMessage, config.ClientAddr, commitTpsMsg, nil)
 }
@@ -1479,7 +1484,6 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 		n.viewMu.Unlock()
 		return
 	}
-
 
 	n.preprepareSeqNumber.Store(maxSeq)
 	n.periodInterval = maxSeq + n.cfg.Period
