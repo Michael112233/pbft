@@ -381,7 +381,7 @@ func (n *Node) broadcastPrepare(msg core.PrepareMsg, signature []byte) {
 		if othersIp == n.GetAddr() {
 			continue
 		}
-		n.messageHub.Send(core.MsgPrepareMessage, othersIp, msg, signature)
+		go n.messageHub.Send(core.MsgPrepareMessage, othersIp, msg, signature)
 	}
 }
 func (n *Node) broadcastViewChange(msg core.ViewChangeMsg, signature []byte) {
@@ -390,7 +390,7 @@ func (n *Node) broadcastViewChange(msg core.ViewChangeMsg, signature []byte) {
 		if othersIp == n.GetAddr() {
 			continue
 		}
-		n.messageHub.Send(core.MsgViewChangeMessage, othersIp, msg, signature)
+		go n.messageHub.Send(core.MsgViewChangeMessage, othersIp, msg, signature)
 	}
 }
 
@@ -427,7 +427,7 @@ func (n *Node) broadcastCommit(view, seq int64, digest [32]byte) {
 			continue
 		}
 		// msg.To = othersIp
-		n.messageHub.Send(core.MsgCommitMessage, othersIp, msg, signature)
+		go n.messageHub.Send(core.MsgCommitMessage, othersIp, msg, signature)
 	}
 }
 func (n *Node) preprepare(batch core.ClientMsgSignature) {
@@ -505,7 +505,7 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 				continue
 			}
 			// preprepareMsg.To = othersIp
-			n.messageHub.Send(core.MsgPreprepareMessage, othersIp, preprepareMsg, signature) // cant do go in current state race
+			go n.messageHub.Send(core.MsgPreprepareMessage, othersIp, preprepareMsg, signature) // cant do go in current state race
 		}
 	}()
 

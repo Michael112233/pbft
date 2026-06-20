@@ -38,6 +38,12 @@ type Client struct {
 	memoryLoggerDone     chan struct{}
 	memoryLoggerStarted  atomic.Bool
 	memoryLoggerStopOnce sync.Once
+
+	requestSentTxs          atomic.Int64
+	requestSendRateStop     chan struct{}
+	requestSendRateDone     chan struct{}
+	requestSendRateStarted  atomic.Bool
+	requestSendRateStopOnce sync.Once
 }
 
 func NewClient(addr string, name string, config *config.Config, leaderAddr string) *Client {
@@ -56,14 +62,16 @@ func NewClient(addr string, name string, config *config.Config, leaderAddr strin
 		leaderAddr: leaderAddr,
 
 		// leaderElection:     leader_election.NewLeaderElection(config),
-		log:                logger.NewLogger(0, "client"),
-		messageHub:         NewClientMessageHub(),
-		privateKey:         privKey,
-		TransactionManager: NewTransactionManager(),
-		cchan:              make(chan struct{}, 4), // buffer to number of nodes
-		vcrunChan:          make(chan core.VCRunningStatus, 1),
-		memoryLoggerStop:   make(chan struct{}),
-		memoryLoggerDone:   make(chan struct{}),
+		log:                 logger.NewLogger(0, "client"),
+		messageHub:          NewClientMessageHub(),
+		privateKey:          privKey,
+		TransactionManager:  NewTransactionManager(),
+		cchan:               make(chan struct{}, 4), // buffer to number of nodes
+		vcrunChan:           make(chan core.VCRunningStatus, 1),
+		memoryLoggerStop:    make(chan struct{}),
+		memoryLoggerDone:    make(chan struct{}),
+		requestSendRateStop: make(chan struct{}),
+		requestSendRateDone: make(chan struct{}),
 	}
 }
 
@@ -71,6 +79,9 @@ func (c *Client) Start() {
 	c.messageHub.Start(c, &sync.WaitGroup{})
 	if c.config.Logging && c.memoryLoggerStarted.CompareAndSwap(false, true) {
 		go utils.StartMemoryLogger("logs/client_mem.log", "client", 10*time.Second, c.memoryLoggerStop, c.memoryLoggerDone)
+	}
+	if c.config.Logging && c.requestSendRateStarted.CompareAndSwap(false, true) {
+		go c.requestSendRateLogger()
 	}
 	go c.TransactionManager.TransactionTimerWorker(c)
 	c.injectSpeed = c.config.InjectSpeed
@@ -86,6 +97,12 @@ func (c *Client) Stop() {
 	})
 	if c.memoryLoggerStarted.Load() {
 		<-c.memoryLoggerDone
+	}
+	c.requestSendRateStopOnce.Do(func() {
+		close(c.requestSendRateStop)
+	})
+	if c.requestSendRateStarted.Load() {
+		<-c.requestSendRateDone
 	}
 	c.log.Debug("client stopped")
 }

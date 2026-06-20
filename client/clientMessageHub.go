@@ -351,7 +351,11 @@ func (hub *ClientMessageHub) Send(msgType string, from string, to string, msg in
 		hub.log.Error("stream send failed. msgType=%s target=%s err=%v", msgType, to, err)
 		return
 	}
-
+	if msgType == core.MsgRequestMessage && hub.client_ref != nil {
+		if request, ok := msg.(core.RequestMessage); ok {
+			hub.client_ref.recordRequestSent(len(request.Txs))
+		}
+	}
 	if callback != nil {
 		callback()
 	}
