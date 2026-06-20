@@ -12,7 +12,7 @@ func TestCommitTpsRoundTrip(t *testing.T) {
 	in := core.CommitTps{
 		To:   "client-1",
 		From: "node-2",
-		ClientMsg: core.ClientMsg{
+		ClientMsg: core.ClientMsgReply{
 			Id:         42,
 			Timestamp:  123456789,
 			ClientName: "client-a",

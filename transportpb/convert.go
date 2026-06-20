@@ -70,6 +70,31 @@ func ClientMsgFromPB(msg *ClientMsg) (core.ClientMsg, error) {
 	}, nil
 }
 
+func ClientMsgReplyToPB(msg core.ClientMsgReply) *ClientMsgReply {
+	return &ClientMsgReply{
+		Id:         msg.Id,
+		Timestamp:  msg.Timestamp,
+		Txn:        TransactionToPB(msg.Txn),
+		ClientName: msg.ClientName,
+	}
+}
+
+func ClientMsgReplyFromPB(msg *ClientMsgReply) (core.ClientMsgReply, error) {
+	if msg == nil {
+		return core.ClientMsgReply{}, nil
+	}
+	txn, err := TransactionFromPB(msg.Txn)
+	if err != nil {
+		return core.ClientMsgReply{}, err
+	}
+	return core.ClientMsgReply{
+		Id:         msg.Id,
+		Timestamp:  msg.Timestamp,
+		Txn:        txn,
+		ClientName: msg.ClientName,
+	}, nil
+}
+
 func ClientMsgSigToPB(msg core.ClientMsgSignature) *ClientMsgSignature {
 	return &ClientMsgSignature{
 		Data:      ClientMsgToPB(msg.Data),
@@ -380,7 +405,7 @@ func CommitTpsToPB(msg core.CommitTps) *CommitTps {
 	return &CommitTps{
 		To:        msg.To,
 		From:      msg.From,
-		ClientMsg: ClientMsgToPB(msg.ClientMsg),
+		ClientMsg: ClientMsgReplyToPB(msg.ClientMsg),
 	}
 }
 
@@ -388,7 +413,7 @@ func CommitTpsFromPB(msg *CommitTps) (core.CommitTps, error) {
 	if msg == nil {
 		return core.CommitTps{}, nil
 	}
-	clientMsg, err := ClientMsgFromPB(msg.ClientMsg)
+	clientMsg, err := ClientMsgReplyFromPB(msg.ClientMsg)
 	if err != nil {
 		return core.CommitTps{}, err
 	}

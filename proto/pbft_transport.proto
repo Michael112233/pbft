@@ -19,6 +19,13 @@ message ClientMsg {
   string padding = 5;
 }
 
+message ClientMsgReply {
+  int64 id = 1;
+  int64 timestamp = 2;
+  Transaction txn = 3;
+  string client_name = 4;
+}
+
 message ClientMsgSignature {
   ClientMsg data = 1;
   bytes signature = 2;
@@ -188,7 +195,7 @@ message ReplyMessage {
 message CommitTps {
   string to = 1;
   string from = 2;
-  ClientMsg client_msg = 3;
+  ClientMsgReply client_msg = 3;
 }
 
 message LeaderIdUpdate {

@@ -75,7 +75,7 @@ func TestTransactionManagerCommitTpsTriggersShardGC(t *testing.T) {
 	addTestTransactions(tm, 9999, 10000, 10001, 30000)
 
 	tm.CommitTps(core.CommitTps{
-		ClientMsg: core.ClientMsg{Id: 30000},
+		ClientMsg: core.ClientMsgReply{Id: 30000},
 	})
 
 	if transactionExists(tm, 9999) {
