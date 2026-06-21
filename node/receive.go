@@ -20,6 +20,7 @@ func (n *Node) HandleRequestMessage(data core.RequestMessage) {
 	n.log.Test(fmt.Sprintf("Received request message from client %s, id %d, length of batch is %d", data.Txs[0].Data.ClientName, data.Txs[0].Data.Id, len(data.Txs)))
 
 	for _, clientMsgSig := range data.Txs {
-		go n.preprepare(clientMsgSig)
+		// go n.preprepare(clientMsgSig)
+		n.verifiedClientMsgsChan <- clientMsgSig
 	}
 }

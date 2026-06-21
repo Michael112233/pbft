@@ -166,7 +166,7 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 
 		encryptionKeyStore:             NewKeyStore(nodeID, cfg.NodeNum),
 		unverifiedClientMsgsChan:       make(chan []core.ClientMsgSignature, 100), // buffer size can be tuned
-		verifiedClientMsgsChan:         make(chan core.ClientMsgSignature, 10000), // buffer size can be tuned
+		verifiedClientMsgsChan:         make(chan core.ClientMsgSignature, 100),   // buffer size can be tuned
 		preprepareSem:                  make(chan struct{}, 5000),
 		preprepareSeqNumber:            atomic.Int64{},
 		view:                           1,
@@ -370,12 +370,13 @@ func (n *Node) VerifiedClientMessageHandler() {
 }
 
 func (n *Node) processClientMessageBatch(batch []core.ClientMsgSignature) {
-	n.preprepareSem <- struct{}{} // Acquire semaphore, may add default to drop batch if full
+	// n.preprepareSem <- struct{}{} // Acquire semaphore, may add default to drop batch if full
 
-	go func() {
-		defer func() { <-n.preprepareSem }()
-		n.preprepare(batch[0])
-	}()
+	// go func() {
+	// 	defer func() { <-n.preprepareSem }()
+	// 	n.preprepare(batch[0])
+	// }()
+	n.preprepare(batch[0])
 }
 
 func ComputeBatchDigest(batch core.ClientMsg) ([32]byte, error) {

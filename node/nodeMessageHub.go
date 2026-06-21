@@ -223,7 +223,7 @@ func (hub *NodeMessageHub) ClientNodeChannel(stream transportpb.PBFTTransport_Cl
 				continue
 			}
 			hub.node_ref.recordClientRequestReceived(len(data.Txs))
-			go hub.node_ref.HandleRequestMessage(data)
+			hub.node_ref.HandleRequestMessage(data)
 
 		case core.MsgCloseMessage:
 			return nil
