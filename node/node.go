@@ -100,7 +100,7 @@ type Node struct {
 	pool *Pool
 
 	executionMachine  execution.StateMachine
-	executionMu       sync.Mutex
+	executionMu       sync.RWMutex
 	lastExecuted      int64
 	noOpsExecuted     atomic.Int64
 	pendingExecutions map[int64]pendingExecution
@@ -462,34 +462,57 @@ func (n *Node) broadcastCommit(view, seq int64, digest [32]byte) {
 func (n *Node) preprepare(batch core.ClientMsgSignature) {
 
 	n.viewMu.RLock()
-	defer n.viewMu.RUnlock()
-	if n.viewChangeRunning || n.leaderId != n.GetNodeID() {
-		// n.viewMu.RUnlock()
-		return
-	}
-	view := n.view
-	periodInterval := n.periodInterval
+
 	// n.viewMu.RUnlock()
 	var seqNum int64
-	if n.cfg.Periodic {
-		for {
-			currentSeq := n.preprepareSeqNumber.Load()
-			if currentSeq >= periodInterval {
-				n.log.Info("PrePrepare skipped for view %d because seq %d reached period interval %d", view, currentSeq, periodInterval)
-				return
-			}
-			if n.preprepareSeqNumber.CompareAndSwap(currentSeq, currentSeq+1) {
-				seqNum = currentSeq + 1
-				break
-			}
+	var view int64
+	retriedOnce := false
+	for {
+		if n.viewChangeRunning || n.leaderId != n.GetNodeID() {
+			// n.viewMu.RUnlock()
+
+			n.viewMu.RUnlock()
+			return
 		}
-	} else {
-		seqNum = n.preprepareSeqNumber.Add(1)
+
+		view = n.view
+		periodInterval := n.periodInterval
+		n.executionMu.RLock()
+		lastexeSeq := n.lastExecuted
+		n.executionMu.RUnlock()
+		currentSeq := n.preprepareSeqNumber.Load()
+		inflight := currentSeq - lastexeSeq
+
+		if inflight >= n.cfg.MaxInflightSeq && !retriedOnce {
+			n.viewMu.RUnlock()
+			time.Sleep(time.Duration(n.cfg.RetrySleep) * time.Millisecond)
+			n.viewMu.RLock()
+			retriedOnce = true
+			continue
+		} else if inflight >= n.cfg.MaxInflightSeq && retriedOnce {
+			n.log.Error("PrePrepare skipped for view %d because seq %d reached max inflight seq %d", view, currentSeq, n.cfg.MaxInflightSeq)
+			n.viewMu.RUnlock()
+			return
+		}
+
+		if n.cfg.Periodic && currentSeq >= periodInterval {
+			n.log.Info("PrePrepare skipped for view %d because seq %d reached period interval %d", view, currentSeq, periodInterval)
+
+			n.viewMu.RUnlock()
+			return
+		}
+
+		if n.preprepareSeqNumber.CompareAndSwap(currentSeq, currentSeq+1) {
+			seqNum = currentSeq + 1
+			break
+		}
 	}
+	n.viewMu.RUnlock()
 
 	digestClientMsg, err := ComputeBatchDigest(batch.Data)
 	if err != nil {
 		n.log.Error("Failed to compute batch digest: %v", err)
+
 		return
 	}
 
@@ -504,6 +527,11 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 
 	// pbMsg := transportpb.PreprepareToPB(preprepareMsg)
 	payloadBytes, err := marshalDeterministic(preprepareSignPayload(view, seqNum, digestClientMsg[:]))
+	if err != nil {
+		n.log.Error("Failed to marshal PrePrepare message for signing: %v", err)
+
+		return
+	}
 	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
 
 	slot := n.consensusLog.getOrCreateLog(seqNum, view)
@@ -1617,7 +1645,7 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView i
 
 	}
 	n.checkpointMu.Unlock()
-	n.executionMu.Lock()
+	n.executionMu.RLock()
 	if latestStableCheckpoint.seq > n.lastExecuted {
 		// n.lastExecuted = latestStableCheckpoint.seq // unsafe checkpoint forwarding
 		// n.log.Error("updating last executed to stable checkpoint seq %d", n.lastExecuted)
@@ -1625,7 +1653,7 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView i
 	} else if latestStableCheckpoint.seq < n.lastExecuted {
 		n.log.Error("my stable checkpoint seq %d is less than my last executed %d, this should not happen", latestStableCheckpoint.seq, n.lastExecuted)
 	}
-	n.executionMu.Unlock()
+	n.executionMu.RUnlock()
 	maxS := minS - 1
 	for _, viewChangeMsg := range vcMsgSigs {
 		for seqNumber, pm := range viewChangeMsg.ViewChangeMsg.PreparedCerts {
@@ -1744,7 +1772,7 @@ func (n *Node) createOReplica(vcMsgSigs []*core.ViewChangeMsgSig, view int64) (m
 	}
 	n.checkpointMu.Unlock()
 
-	n.executionMu.Lock()
+	n.executionMu.RLock()
 	if latestStableCheckpoint.seq > n.lastExecuted {
 		// n.lastExecuted = latestStableCheckpoint.seq // unsafe checkpoint forwarding
 		// n.log.Error("updating last executed to stable checkpoint seq %d", n.lastExecuted)
@@ -1752,7 +1780,7 @@ func (n *Node) createOReplica(vcMsgSigs []*core.ViewChangeMsgSig, view int64) (m
 	} else if latestStableCheckpoint.seq < n.lastExecuted {
 		n.log.Error("my stable checkpoint seq %d is less than my last executed %d, this should not happen", latestStableCheckpoint.seq, n.lastExecuted)
 	}
-	n.executionMu.Unlock()
+	n.executionMu.RUnlock()
 	maxS := minS - 1
 	// maxS := minS
 	for _, viewChangeMsg := range vcMsgSigs {

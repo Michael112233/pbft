@@ -23,14 +23,16 @@ type Config struct {
 	FarNodeID          int          `json:"far_node_id"`
 	FarNodeDelayMs     int64        `json:"far_node_delay_ms"`
 	LeaderTypeEnum     core.VCType
-	ActiveL            bool `json:"active_l"`
-	PerformanceTrigger bool `json:"performance_trigger"`
-	Performance        bool `json:"performance"`
-	ProposalDelayNode  int  `json:"proposal_delay_node"`
-	ProposalDelayMS    int  `json:"proposal_delay_ms"`
-	GC                 bool `json:"gc"`
-	Logging            bool `json:"logging"`
-	LogShares          bool `json:"log_shares"`
+	ActiveL            bool  `json:"active_l"`
+	PerformanceTrigger bool  `json:"performance_trigger"`
+	Performance        bool  `json:"performance"`
+	ProposalDelayNode  int   `json:"proposal_delay_node"`
+	ProposalDelayMS    int   `json:"proposal_delay_ms"`
+	GC                 bool  `json:"gc"`
+	Logging            bool  `json:"logging"`
+	LogShares          bool  `json:"log_shares"`
+	RetrySleep         int   `json:"retry_sleep"`
+	MaxInflightSeq     int64 `json:"max_inflight_seq"`
 }
 
 func ReadCfg(filename string) *Config {

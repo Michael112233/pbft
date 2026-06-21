@@ -175,7 +175,7 @@ func (c *Client) InjectTxs() {
 				c.leaderMu.RUnlock()
 
 				// c.log.Info(fmt.Sprintf("Send request message to %s with batch %d and %d transactions", leader, int64(i), len(injectTxs)))
-				go c.messageHub.Send(core.MsgRequestMessage, c.addr, leader, msg, nil) // couuld be go as stream locked
+				c.messageHub.Send(core.MsgRequestMessage, c.addr, leader, msg, nil) // couuld be go as stream locked
 
 				// vcStatus := <-c.vcrunChan
 				if true {
