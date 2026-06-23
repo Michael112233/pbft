@@ -415,8 +415,8 @@ func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view i
 	// if !isCheckpointBoundary { // seq 1 case
 	// 	return false
 	// }
-	if seq == n.throughputIntervalStartSeq {
-		n.log.Info("Throughput interval start seq %d is equal to current seq %d, starting timing", n.throughputIntervalStartSeq, seq)
+	if seq >= n.throughputIntervalStartSeq && !n.throughputObservationStarted {
+		n.log.Info("Throughput interval start seq %d is greater than or equal to current seq %d, starting timing", n.throughputIntervalStartSeq, seq)
 		n.throughputIntervalStart = now
 		n.throughputObservationStarted = true
 		return false

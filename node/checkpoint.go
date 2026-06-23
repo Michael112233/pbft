@@ -88,15 +88,15 @@ func (n *Node) HandleCheckpoint(checkpointMsg core.CheckpointMsg, signature []by
 
 	if needStateTransfer {
 		n.log.Info("Requesting state transfer for seq %d digest %x due to checkpoint quorum", key.seq, key.digest)
-		go n.RequestStateTransfer(key.seq, key.digest, false)
+		n.RequestStateTransfer(key.seq, key.digest, false)
 	}
 }
 
 func (n *Node) RequestStateTransfer(seq int64, digest [32]byte, fromVc bool) {
-	time.Sleep(4000 * time.Millisecond)
-	if !fromVc {
-		return
-	}
+	time.Sleep(1000 * time.Millisecond)
+	// if !fromVc {
+	// 	return
+	// }
 
 	n.checkpointMu.Lock()
 	if seq <= n.lastStableCheckpoint.seq {

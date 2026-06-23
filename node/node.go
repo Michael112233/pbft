@@ -253,9 +253,9 @@ func (n *Node) Start() {
 		if n.clientReceiveRateStarted.CompareAndSwap(false, true) {
 			go n.clientReceiveRateLogger()
 		}
-		if n.leaderPreprepareRateStarted.CompareAndSwap(false, true) {
-			go n.leaderPreprepareRateLogger()
-		}
+		// if n.leaderPreprepareRateStarted.CompareAndSwap(false, true) {
+		// 	go n.leaderPreprepareRateLogger()
+		// }
 	}
 	if n.cfg.LogShares {
 		if n.shareLoggerStarted.CompareAndSwap(false, true) {
@@ -581,9 +581,9 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 	slot.prePrepareSig = signature
 	slot.prepareSent = true
 	slot.mu.Unlock()
-	if n.cfg.Logging {
-		n.leaderPrepreparesProcessed.Add(1)
-	}
+	// if n.cfg.Logging {
+	// 	n.leaderPrepreparesProcessed.Add(1)
+	// }
 	// n.viewMu.RUnlock()
 
 	n.pool.Add(digestClientMsg, batch)

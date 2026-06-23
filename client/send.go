@@ -122,7 +122,7 @@ func (c *Client) InjectTxs() {
 	go func() {
 		defer c.WaitGroup.Done()
 
-		totaltxns := c.config.Period * 2
+		totaltxns := c.config.Period * 7
 		if totaltxns <= 0 {
 			c.log.Info("No transactions to inject")
 			return
