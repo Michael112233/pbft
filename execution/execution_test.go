@@ -1,8 +1,10 @@
 package execution_test
 
 import (
+	"fmt"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/execution"
@@ -114,4 +116,21 @@ func newClientMsg(id int64, sender, receiver string, amount int64) core.ClientMs
 			Amount:   big.NewInt(amount),
 		},
 	}
+}
+
+func TestTimeToCreateCopyOfBalances(t *testing.T) {
+	sm := execution.NewAccountStateMachine()
+
+	// Create a large number of accounts and balances
+	for i := 0; i < 10000; i++ {
+
+		account := fmt.Sprintf("account%d", i)
+		sm.CreateAccount(account)
+	}
+
+	start := time.Now()
+	_ = sm.CheckpointSnapshot()
+	end := time.Now()
+
+	t.Logf("Time to create copy of balances: %v", end.Sub(start))
 }

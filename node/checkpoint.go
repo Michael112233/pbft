@@ -104,8 +104,8 @@ func (n *Node) RequestStateTransfer(seq int64, digest [32]byte, fromVc bool) {
 		n.checkpointMu.Unlock()
 		return
 	}
-	if seq == n.stateRequestTransferInProgress {
-		n.log.Info("State transfer request for seq %d digest %x already in progress", seq, digest)
+	if seq <= n.stateRequestTransferInProgress {
+		n.log.Info("State transfer request for > seq %d digest %x already in progress", seq, digest)
 		n.checkpointMu.Unlock()
 		return
 	}
@@ -148,10 +148,11 @@ func (n *Node) HandleRequestStateTransfer(request core.RequestStateTransferMsg, 
 	}
 	checkpointData, exists := n.checkpoints[key]
 	if !exists || checkpointData.balances == nil {
-		n.checkpointMu.Unlock()
+
 		if exists && checkpointData.balances == nil {
 			n.log.Error("Received state transfer request for seq %d digest %x, but no balances available", key.seq, key.digest)
 		}
+		n.checkpointMu.Unlock()
 		return
 	}
 	// balances := cloneBalances(checkpointData.balances)
@@ -177,6 +178,11 @@ func (n *Node) HandleRequestStateTransfer(request core.RequestStateTransferMsg, 
 	responseSignature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
 	n.log.Warn("Sending state transfer for seq %d digest %x to node %d", key.seq, key.digest, request.From)
 	go n.messageHub.Send(core.MsgStateTransfer, target, stateTransferMsg, responseSignature)
+}
+
+type CheckpointCatchupState struct {
+	seq      int64
+	balances map[string]*big.Int
 }
 
 func (n *Node) HandleStateTransfer(stateTransferMsg core.StateTransferMsg, signature []byte) {
@@ -221,19 +227,24 @@ func (n *Node) HandleStateTransfer(stateTransferMsg core.StateTransferMsg, signa
 	}
 	n.checkpointMu.Unlock()
 	if stateUpdated {
-		n.executionMu.Lock()
-
-		if stateTransferMsg.SeqNum > n.lastExecuted {
-			n.log.Warn("Moving forward execution machine")
-			n.executionMachine.RestoreCheckpoint(restoredBalances)
-			n.lastExecuted = stateTransferMsg.SeqNum
-		} else {
-			n.log.Error("cant move forward execution machine as last executed is ahead of state transfer checkpoint")
+		n.cpStateTransfer <- CheckpointCatchupState{
+			seq:      stateTransferMsg.SeqNum,
+			balances: restoredBalances,
 		}
+		// n.executionMu.Lock()
+
+		// if stateTransferMsg.SeqNum > n.lastExecuted {
+		// 	n.log.Warn("Moving forward execution machine")
+		// 	n.executionMachine.RestoreCheckpoint(restoredBalances)
+		// 	n.lastExecuted = stateTransferMsg.SeqNum
+		// } else {
+		// 	n.log.Error("cant move forward execution machine as last executed is ahead of state transfer checkpoint")
+		// }
 		// run exe loop
 		// reduce chpoint limit
 		// first do easy change of time and gc
-		n.executionMu.Unlock()
+		// n.executionMu.Unlock()
+
 	}
 
 }

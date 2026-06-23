@@ -1,10 +1,11 @@
 package node
 
 import (
+	"time"
+
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/crypto"
 	"github.com/michael112233/pbft/transportpb"
-	"time"
 )
 
 func (n *Node) roundRobinVCTimeout() {
@@ -34,7 +35,7 @@ func (n *Node) roundRobinVCTimeout() {
 	// timeStart := time.Now()
 	preparedCerts := n.createVCContent(checkpointSeq)
 	// n.log.FeatureInfo("Time taken to create prepared certs for round robin vc is %d ms", time.Since(timeStart).Milliseconds())
-	
+
 	vcPayload := core.ViewChangeMsg{
 		ViewNumber:          n.forView,
 		CheckpointSeqNumber: checkpointSeq,
@@ -65,7 +66,7 @@ func (n *Node) roundRobinVCTimeout() {
 	}
 	n.viewChangeMsgsLog[n.forView] = append(n.viewChangeMsgsLog[n.forView], vcMsg)
 
-	go n.broadcastViewChange(vcPayload, signature)
+	n.broadcastViewChange(vcPayload, signature)
 
 	if len(n.viewChangeMsgsLog[n.forView]) == 2*n.fNodes+1 {
 		// timer start
@@ -82,7 +83,6 @@ func (n *Node) roundRobinVCTimeout() {
 func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signature []byte) {
 	n.log.FeatureInfo("Received vc msg from node %d for view %d", viewChange.From, viewChange.ViewNumber)
 	n.viewMu.RLock()
-	
 
 	if viewChange.ViewNumber <= n.view {
 		n.viewMu.RUnlock()

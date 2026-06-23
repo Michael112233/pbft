@@ -142,6 +142,18 @@ type Node struct {
 	shareChan                     chan Share
 	leaderShares                  map[int]int
 
+	commitSerializedRoutineStarted      atomic.Bool
+	commitSerializedRoutineStop         chan struct{}
+	commitSerializedRoutineDone         chan struct{}
+	commitSerializedRoutineStopOnce     sync.Once
+	commitChan                          chan commitAction
+	cpStateTransfer                     chan CheckpointCatchupState
+	checkpointSerializedRoutineStarted  atomic.Bool
+	checkpointSerializedRoutineStop     chan struct{}
+	checkpointSerializedRoutineDone     chan struct{}
+	checkpointSerializedRoutineStopOnce sync.Once
+	checkpointChan                      chan checkpointAction
+
 	//locked by viewmu
 	scoreboard *Scoreboard
 
@@ -192,28 +204,35 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		targetThroughput:               defaultTargetThroughput,
 		throughputObservationStarted:   false,
 
-		throughputMeasurementsChan: make(chan throughputMeasurement, throughputMeasurementBufferSize),
-		throughputMeasurementsStop: make(chan struct{}),
-		throughputMeasurementsDone: make(chan struct{}),
-		clientReceiveRateStop:      make(chan struct{}),
-		clientReceiveRateDone:      make(chan struct{}),
-		leaderPreprepareRateStop:   make(chan struct{}),
-		leaderPreprepareRateDone:   make(chan struct{}),
-		memoryLoggerStop:           make(chan struct{}),
-		memoryLoggerDone:           make(chan struct{}),
-		shareChan:                  make(chan Share, 10000),
-		shareLoggerStop:            make(chan struct{}),
-		shareLoggerDone:            make(chan struct{}),
-		leaderShares:               make(map[int]int),
-		split:                      false,
-		dead:                       cfg.NodesDead[nodeID],
-		proposalDelay:              cfg.ProposalDelayNode == nodeID,
-		periodic:                   cfg.Periodic,
-		performanceTrigger:         cfg.PerformanceTrigger,
-		peakTpsTest:                cfg.PeakTpsTest,
-		periodInterval:             cfg.Period,
-		scoreboard:                 NewScoreboard(cfg.NodeNum),
-		gc:                         cfg.GC,
+		throughputMeasurementsChan:      make(chan throughputMeasurement, throughputMeasurementBufferSize),
+		throughputMeasurementsStop:      make(chan struct{}),
+		throughputMeasurementsDone:      make(chan struct{}),
+		clientReceiveRateStop:           make(chan struct{}),
+		clientReceiveRateDone:           make(chan struct{}),
+		leaderPreprepareRateStop:        make(chan struct{}),
+		leaderPreprepareRateDone:        make(chan struct{}),
+		memoryLoggerStop:                make(chan struct{}),
+		memoryLoggerDone:                make(chan struct{}),
+		shareChan:                       make(chan Share, 10000),
+		shareLoggerStop:                 make(chan struct{}),
+		shareLoggerDone:                 make(chan struct{}),
+		leaderShares:                    make(map[int]int),
+		commitChan:                      make(chan commitAction, 1000),
+		cpStateTransfer:                 make(chan CheckpointCatchupState, 10), // can even be one as nothing blocked on it
+		commitSerializedRoutineStop:     make(chan struct{}),
+		commitSerializedRoutineDone:     make(chan struct{}),
+		checkpointChan:                  make(chan checkpointAction, 1000),
+		checkpointSerializedRoutineStop: make(chan struct{}),
+		checkpointSerializedRoutineDone: make(chan struct{}),
+		split:                           false,
+		dead:                            cfg.NodesDead[nodeID],
+		proposalDelay:                   cfg.ProposalDelayNode == nodeID,
+		periodic:                        cfg.Periodic,
+		performanceTrigger:              cfg.PerformanceTrigger,
+		peakTpsTest:                     cfg.PeakTpsTest,
+		periodInterval:                  cfg.Period,
+		scoreboard:                      NewScoreboard(cfg.NodeNum),
+		gc:                              cfg.GC,
 	}
 }
 
@@ -243,6 +262,12 @@ func (n *Node) Start() {
 			go n.shareLogger()
 		}
 
+	}
+	if n.commitSerializedRoutineStarted.CompareAndSwap(false, true) {
+		go n.commitSerializedRoutine()
+	}
+	if n.checkpointSerializedRoutineStarted.CompareAndSwap(false, true) {
+		go n.checkpointSerializedRoutine()
 	}
 	go n.ClientSignatureVerifier()
 	go n.VerifiedClientMessageHandler()
@@ -294,6 +319,18 @@ func (n *Node) Stop() {
 	})
 	if n.shareLoggerStarted.Load() {
 		<-n.shareLoggerDone
+	}
+	n.commitSerializedRoutineStopOnce.Do(func() {
+		close(n.commitSerializedRoutineStop)
+	})
+	if n.commitSerializedRoutineStarted.Load() {
+		<-n.commitSerializedRoutineDone
+	}
+	n.checkpointSerializedRoutineStopOnce.Do(func() {
+		close(n.checkpointSerializedRoutineStop)
+	})
+	if n.checkpointSerializedRoutineStarted.Load() {
+		<-n.checkpointSerializedRoutineDone
 	}
 	n.log.Info("node stopped")
 }
@@ -657,11 +694,11 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 	slot.prePrepareSig = signature
 	slot.missingData = false
 	// slot.digest = digestClientMsg
-	accepted := true
-	if accepted {
+	// accepted := true
+	// if accepted {
 
-		n.pbftTimerManager.trackPreprepareRequest()
-	}
+	// 	n.pbftTimerManager.trackPreprepareRequest()
+	// }
 	if !slot.prepareSent {
 
 		msg := core.PrepareMsg{
@@ -692,6 +729,7 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 		slot.mu.Unlock()
 	}
 	n.pool.Add(digestClientMsg, preprepareMsg.ClientMsg)
+	n.pbftTimerManager.trackPreprepareRequest()
 
 	// Buffered prepares may now form quorum with the PrePrepare
 	n.tryAdvancePrepare(slot, view, preprepareMsg.SeqNum, digestClientMsg)
@@ -1012,6 +1050,7 @@ func (n *Node) tryExecute(slot *consensusSlot, seq int64) {
 	}
 
 	slot.executionPending = true
+	digestClientMsg := slot.prePrepare.DigestClientMsg
 	noOp := slot.prePrepare.DigestClientMsg == [32]byte{}
 	missingData := slot.missingData
 
@@ -1028,7 +1067,7 @@ func (n *Node) tryExecute(slot *consensusSlot, seq int64) {
 	// n.log.Info("reached here")
 	go n.sendCommitTps(executedMsg)
 
-	go n.queueCommittedExecution(seq, slot, executedMsg, noOp, missingData)
+	n.queueCommittedExecution(seq, slot, executedMsg, noOp, missingData, digestClientMsg)
 }
 
 func (n *Node) sendReply(clientMsg core.ClientMsg, result execution.Result, seq int64) {

@@ -10,10 +10,11 @@ import (
 )
 
 type pendingExecution struct {
-	slot        *consensusSlot
-	msg         core.ClientMsg
-	noOp        bool
-	missingData bool
+	slot            *consensusSlot
+	msg             core.ClientMsg
+	noOp            bool
+	missingData     bool
+	digestClientMsg [32]byte
 }
 
 type executionPostAction struct {
@@ -24,53 +25,168 @@ type executionPostAction struct {
 	noOp   bool
 }
 
-func (n *Node) queueCommittedExecution(seq int64, slot *consensusSlot, msg core.ClientMsg, noOp bool, missingData bool) {
-	postActions, periodicTrigger, periodInterval, checkpointTrigger, performanceTrigger, checkpointDigest, checkpointSeq := n.collectReadyExecutions(seq, slot, msg, noOp, missingData)
-	for _, action := range postActions {
+type commitAction struct {
+	seq             int64
+	slot            *consensusSlot
+	msg             core.ClientMsg
+	noOp            bool
+	missingData     bool
+	digestClientMsg [32]byte
+}
+
+type checkpointAction struct {
+	seq      int64
+	balances map[string]*big.Int
+}
+
+// func (n *Node) oldqueueCommittedExecution(seq int64, slot *consensusSlot, msg core.ClientMsg, noOp bool, missingData bool) {
+// 	postActions, periodicTrigger, periodInterval, checkpointTrigger, performanceTrigger, checkpointDigest, checkpointSeq := n.collectReadyExecutions(seq, slot, msg, noOp, missingData)
+// 	for _, action := range postActions {
+// 		n.log.Test("Executed request for seq %d success=%t", action.seq, action.result.Success)
+// 		if !action.noOp {
+// 			// go n.sendReply(action.msg, action.result, action.seq)
+// 			n.pool.Delete(action.digest, action.seq)
+// 			n.pbftTimerManager.onRequestExecuted(action.msg, n) // resets timer and periodic vc stop timer
+// 		}
+// 	}
+// 	if periodicTrigger && checkpointTrigger {
+// 		n.log.Info("Both periodic and checkpoint trigger checkpointDigest=%x", checkpointDigest)
+// 	}
+// 	if periodicTrigger && n.periodic {
+// 		go n.periodicVC(periodInterval)
+// 	}
+// 	if checkpointTrigger {
+// 		n.log.Info("Checkpoint trigger for seq %d with digest %x", checkpointSeq, checkpointDigest)
+// 		// go n.checkpointVC(checkpointSeq, checkpointDigest)
+// 	}
+// 	if performanceTrigger {
+// 		n.log.Info("Performance trigger for seq %d", seq)
+// 		if n.performanceTrigger {
+// 			go n.perfVC()
+// 		}
+// 	}
+
+// }
+
+func (n *Node) postActions(actions []executionPostAction) {
+	for _, action := range actions {
 		n.log.Test("Executed request for seq %d success=%t", action.seq, action.result.Success)
 		if !action.noOp {
 			// go n.sendReply(action.msg, action.result, action.seq)
 			n.pool.Delete(action.digest, action.seq)
-			n.pbftTimerManager.onRequestExecuted(action.msg, n) // resets timer and periodic vc stop timer
+			n.pbftTimerManager.onRequestExecuted(n) // resets timer and periodic vc stop timer
 		}
 	}
-	if periodicTrigger && checkpointTrigger {
-		n.log.Info("Both periodic and checkpoint trigger checkpointDigest=%x", checkpointDigest)
-	}
+}
+
+func (n *Node) periodicTrigger(periodicTrigger bool, periodInterval int64) {
 	if periodicTrigger && n.periodic {
 		go n.periodicVC(periodInterval)
 	}
-	if checkpointTrigger {
-		n.log.Info("Checkpoint trigger for seq %d with digest %x", checkpointSeq, checkpointDigest)
-		// go n.checkpointVC(checkpointSeq, checkpointDigest)
+}
+func (n *Node) perfTrigger(perfTrigger bool) {
+	if perfTrigger && n.performanceTrigger {
+		go n.perfVC()
 	}
-	if performanceTrigger {
-		n.log.Info("Performance trigger for seq %d", seq)
-		if n.performanceTrigger {
-			go n.perfVC()
-		}
+}
+
+func (n *Node) queueCommittedExecution(seq int64, slot *consensusSlot, msg core.ClientMsg, noOp bool, missingData bool, digestClientMsg [32]byte) {
+	commitAction := commitAction{
+		seq:             seq,
+		slot:            slot,
+		msg:             msg,
+		noOp:            noOp,
+		missingData:     missingData,
+		digestClientMsg: digestClientMsg,
 	}
+	n.commitChan <- commitAction
 
 }
 
-func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.ClientMsg, noOp bool, missingData bool) ([]executionPostAction, bool, int64, bool, bool, [32]byte, int64) {
+func (n *Node) commitSerializedRoutine() {
+	defer close(n.commitSerializedRoutineDone)
+	for {
+		select {
+		case cpState := <-n.cpStateTransfer:
+
+			if cpState.seq > n.lastExecuted {
+				n.log.Warn("Moving forward execution machine")
+				n.executionMachine.RestoreCheckpoint(cpState.balances)
+				n.lastExecuted = cpState.seq
+				n.newcollectReadyExecutions(
+					-1,
+					nil,
+					core.ClientMsg{},
+					false,
+					false,
+					[32]byte{},
+					true,
+				)
+			}
+
+		case commitAction := <-n.commitChan:
+			n.newcollectReadyExecutions(
+				commitAction.seq,
+				commitAction.slot,
+				commitAction.msg,
+				commitAction.noOp,
+				commitAction.missingData,
+				commitAction.digestClientMsg,
+				false,
+			)
+
+		case <-n.commitSerializedRoutineStop:
+			return
+		}
+	}
+}
+
+func (n *Node) queueCheckpoint(action checkpointAction) {
+	n.checkpointChan <- action
+}
+
+func (n *Node) checkpointSerializedRoutine() {
+	defer close(n.checkpointSerializedRoutineDone)
+	for {
+		select {
+		case action := <-n.checkpointChan:
+			n.processCheckpointAction(action)
+		case <-n.checkpointSerializedRoutineStop:
+			return
+		}
+	}
+}
+
+func (n *Node) processCheckpointAction(action checkpointAction) {
+
+	checkpointDigest := digestBalances(action.balances)
+	n.log.Info("Checkpoint trigger for seq %d with digest %x", action.seq, checkpointDigest)
+	n.checkpointUpdateConditionLocal(core.CheckpointMsg{
+		SeqNum: action.seq,
+		Digest: checkpointDigest,
+		From:   n.GetNodeID(),
+	}, action.balances, true)
+
+}
+
+func (n *Node) newcollectReadyExecutions(seq int64, slot *consensusSlot, msg core.ClientMsg, noOp bool, missingData bool, digestClientMsg [32]byte, fromcpStateTransfer bool) {
 	n.viewMu.RLock()
 	periodInterval := n.periodInterval
 	view := n.view
 	leaderId := n.leaderId
 	n.viewMu.RUnlock()
-	n.executionMu.Lock()
-	defer n.executionMu.Unlock()
-
-	if seq <= n.lastExecuted {
-		return nil, false, periodInterval, false, false, [32]byte{}, 0
-	}
-	if _, exists := n.pendingExecutions[seq]; !exists {
-		n.pendingExecutions[seq] = pendingExecution{
-			slot:        slot,
-			msg:         msg,
-			noOp:        noOp,
-			missingData: missingData,
+	if !fromcpStateTransfer {
+		if seq <= n.lastExecuted {
+			return
+		}
+		if _, exists := n.pendingExecutions[seq]; !exists {
+			n.pendingExecutions[seq] = pendingExecution{
+				slot:            slot,
+				msg:             msg,
+				noOp:            noOp,
+				missingData:     missingData,
+				digestClientMsg: digestClientMsg,
+			}
 		}
 	}
 
@@ -78,8 +194,6 @@ func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.C
 	periodicTrigger := false
 	checkpointTrigger := 0
 	performanceTrigger := 0
-	var checkpointDigest [32]byte
-	var copyOfBalances map[string]*big.Int
 	var checkpointSeq int64
 	for {
 		nextSeq := n.lastExecuted + 1
@@ -87,22 +201,20 @@ func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.C
 		if !exists {
 			break
 		}
-		pending.slot.mu.Lock()
-		if !pending.noOp && pending.missingData {
-			clientPoolMsg, clientPoolMsgExists, clientPoolMsgExecuted := n.pool.Get(pending.slot.prePrepare.DigestClientMsg)
-			if clientPoolMsgExists {
-				if clientPoolMsgExecuted {
-					n.log.Error("Client message for seq %d with digest %x already executed 1, skipping execution", nextSeq, pending.slot.prePrepare.DigestClientMsg)
 
-				}
+		if !pending.noOp && pending.missingData {
+			clientPoolMsg, clientPoolMsgExists, clientPoolMsgExecuted := n.pool.Get(pending.digestClientMsg) // A BIT UNSAFE TO USE DIGEST FROM SLOT maybe can pass it from queue
+			if clientPoolMsgExists {
+
 				pending.msg = clientPoolMsg.Data
 
 			} else {
 				if clientPoolMsgExecuted {
-					n.log.Error("Client message for seq %d with digest %x already executed 2, skipping execution", nextSeq, pending.slot.prePrepare.DigestClientMsg)
+					n.log.Error("Client message for seq %d with digest %x already executed 2, skipping execution", nextSeq, pending.digestClientMsg)
 
+				} else {
+					n.log.Error("Never made it to pool or gced for seq %d with digest %x", nextSeq, pending.digestClientMsg)
 				}
-				pending.slot.mu.Unlock()
 				break
 			}
 		}
@@ -111,19 +223,23 @@ func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.C
 		if !pending.noOp {
 			result = n.executionMachine.Apply(pending.msg)
 			if !result.Success {
-				n.log.Error("Execution failed for seq %d with digest %x: %s", nextSeq, pending.slot.prePrepare.DigestClientMsg, result.Error)
+				n.log.Error("Execution failed for seq %d with digest %x: %s", nextSeq, pending.digestClientMsg, result.Error)
 			}
 		} else {
 			n.log.Info("noop in execution for seq %d messes up periodic trigger", nextSeq)
 			n.noOpsExecuted.Add(1)
 		}
-
+		pending.slot.mu.Lock()
 		pending.slot.executionPending = true
 		pending.slot.executed = true
-		digestClientMsg := pending.slot.prePrepare.DigestClientMsg
+		// digestClientMsg := pending.slot.prePrepare.DigestClientMsg
 		pending.slot.mu.Unlock()
-
+		n.executionMu.Lock()
 		n.lastExecuted = nextSeq
+		n.executionMu.Unlock()
+		if fromcpStateTransfer {
+			n.log.Info("From cp state transfer and did execution for seq %d ", nextSeq)
+		}
 		if n.cfg.Performance {
 			performanceTriggert := n.observeExecutedSlotForThroughput(n.lastExecuted, time.Now(), view, leaderId)
 			if performanceTriggert {
@@ -136,30 +252,23 @@ func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.C
 		}
 
 		if n.lastExecuted%CHECKPOINT_INTERVAL == 0 {
-			var err error
-			checkpointDigest, copyOfBalances, err = n.executionMachine.CheckpointDigest()
-			if err != nil {
-				n.log.Error("Failed to get checkpoint material for seq %d: %v", nextSeq, err)
-			} else {
-				n.checkpointUpdateConditionLocal(core.CheckpointMsg{
-					SeqNum: nextSeq,
-					Digest: checkpointDigest,
-					From:   n.GetNodeID(),
-				}, copyOfBalances, true)
-				checkpointTrigger += 1
-				checkpointSeq = nextSeq
-			}
-
+			copyOfBalances := n.executionMachine.CheckpointSnapshot()
+			n.queueCheckpoint(checkpointAction{
+				seq:      nextSeq,
+				balances: copyOfBalances,
+			})
+			checkpointTrigger += 1
+			checkpointSeq = nextSeq
 		}
 		postActions = append(postActions, executionPostAction{
 			msg:    pending.msg,
 			result: result,
 			seq:    nextSeq,
-			digest: digestClientMsg,
+			digest: pending.digestClientMsg,
 			noOp:   pending.noOp,
 		})
 	}
-	checkpointTriggered := checkpointTrigger > 0
+	go n.postActions(postActions)
 	performanceTriggered := performanceTrigger > 0
 	if checkpointTrigger > 1 {
 		n.log.Info("Multiple checkpoint triggers for seq %d, checkpointTrigger count %d", checkpointSeq, checkpointTrigger)
@@ -167,8 +276,126 @@ func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.C
 	if performanceTrigger > 1 {
 		n.log.Info("Multiple performance triggers for seq %d, performanceTrigger count %d", checkpointSeq, performanceTrigger)
 	}
-	return postActions, periodicTrigger, periodInterval, checkpointTriggered, performanceTriggered, checkpointDigest, checkpointSeq
+	n.perfTrigger(performanceTriggered)
+	n.periodicTrigger(periodicTrigger, periodInterval)
 }
+
+// func (n *Node) collectReadyExecutions(seq int64, slot *consensusSlot, msg core.ClientMsg, noOp bool, missingData bool) ([]executionPostAction, bool, int64, bool, bool, [32]byte, int64) {
+// 	n.viewMu.RLock()
+// 	periodInterval := n.periodInterval
+// 	view := n.view
+// 	leaderId := n.leaderId
+// 	n.viewMu.RUnlock()
+// 	n.executionMu.Lock()
+// 	defer n.executionMu.Unlock()
+
+// 	if seq <= n.lastExecuted {
+// 		return nil, false, periodInterval, false, false, [32]byte{}, 0
+// 	}
+// 	if _, exists := n.pendingExecutions[seq]; !exists {
+// 		n.pendingExecutions[seq] = pendingExecution{
+// 			slot:        slot,
+// 			msg:         msg,
+// 			noOp:        noOp,
+// 			missingData: missingData,
+// 		}
+// 	}
+
+// 	postActions := make([]executionPostAction, 0)
+// 	periodicTrigger := false
+// 	checkpointTrigger := 0
+// 	performanceTrigger := 0
+// 	var checkpointDigest [32]byte
+// 	var copyOfBalances map[string]*big.Int
+// 	var checkpointSeq int64
+// 	for {
+// 		nextSeq := n.lastExecuted + 1
+// 		pending, exists := n.pendingExecutions[nextSeq]
+// 		if !exists {
+// 			break
+// 		}
+// 		pending.slot.mu.Lock()
+// 		if !pending.noOp && pending.missingData {
+// 			clientPoolMsg, clientPoolMsgExists, clientPoolMsgExecuted := n.pool.Get(pending.slot.prePrepare.DigestClientMsg)
+// 			if clientPoolMsgExists {
+// 				if clientPoolMsgExecuted {
+// 					n.log.Error("Client message for seq %d with digest %x already executed 1, skipping execution", nextSeq, pending.slot.prePrepare.DigestClientMsg)
+
+// 				}
+// 				pending.msg = clientPoolMsg.Data
+
+// 			} else {
+// 				if clientPoolMsgExecuted {
+// 					n.log.Error("Client message for seq %d with digest %x already executed 2, skipping execution", nextSeq, pending.slot.prePrepare.DigestClientMsg)
+
+// 				}
+// 				pending.slot.mu.Unlock()
+// 				break
+// 			}
+// 		}
+// 		delete(n.pendingExecutions, nextSeq)
+// 		result := execution.Result{}
+// 		if !pending.noOp {
+// 			result = n.executionMachine.Apply(pending.msg)
+// 			if !result.Success {
+// 				n.log.Error("Execution failed for seq %d with digest %x: %s", nextSeq, pending.slot.prePrepare.DigestClientMsg, result.Error)
+// 			}
+// 		} else {
+// 			n.log.Info("noop in execution for seq %d messes up periodic trigger", nextSeq)
+// 			n.noOpsExecuted.Add(1)
+// 		}
+
+// 		pending.slot.executionPending = true
+// 		pending.slot.executed = true
+// 		digestClientMsg := pending.slot.prePrepare.DigestClientMsg
+// 		pending.slot.mu.Unlock()
+
+// 		n.lastExecuted = nextSeq
+// 		if n.cfg.Performance {
+// 			performanceTriggert := n.observeExecutedSlotForThroughput(n.lastExecuted, time.Now(), view, leaderId)
+// 			if performanceTriggert {
+// 				performanceTrigger += 1
+// 			}
+// 		}
+// 		// period := int64(9*CHECKPOINT_INTERVAL) / 2
+// 		if n.lastExecuted == periodInterval {
+// 			periodicTrigger = true
+// 		}
+
+// 		if n.lastExecuted%CHECKPOINT_INTERVAL == 0 {
+// 			var err error
+// 			checkpointDigest, copyOfBalances, err = n.executionMachine.CheckpointDigest()
+// 			if err != nil {
+// 				n.log.Error("Failed to get checkpoint material for seq %d: %v", nextSeq, err)
+// 			} else {
+// 				n.checkpointUpdateConditionLocal(core.CheckpointMsg{
+// 					SeqNum: nextSeq,
+// 					Digest: checkpointDigest,
+// 					From:   n.GetNodeID(),
+// 				}, copyOfBalances, true)
+// 				checkpointTrigger += 1
+// 				checkpointSeq = nextSeq
+// 			}
+
+// 		}
+// 		postActions = append(postActions, executionPostAction{
+// 			msg:    pending.msg,
+// 			result: result,
+// 			seq:    nextSeq,
+// 			digest: digestClientMsg,
+// 			noOp:   pending.noOp,
+// 		})
+// 	}
+// 	checkpointTriggered := checkpointTrigger > 0
+// 	performanceTriggered := performanceTrigger > 0
+// 	if checkpointTrigger > 1 {
+// 		n.log.Info("Multiple checkpoint triggers for seq %d, checkpointTrigger count %d", checkpointSeq, checkpointTrigger)
+// 	}
+// 	if performanceTrigger > 1 {
+// 		n.log.Info("Multiple performance triggers for seq %d, performanceTrigger count %d", checkpointSeq, performanceTrigger)
+// 	}
+// 	return postActions, periodicTrigger, periodInterval, checkpointTriggered, performanceTriggered, checkpointDigest, checkpointSeq
+// }
 
 func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view int64, leaderId int) bool {
 	if seq <= 0 {
