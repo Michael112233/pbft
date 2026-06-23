@@ -187,9 +187,9 @@ func (tm *TimerManager) forceStopPBFTTimer() {
 		tm.stopPBFTTimerLocked()
 	}
 }
-func (tm *TimerManager) onRequestExecuted(msg core.ClientMsg, n *Node) {
+func (tm *TimerManager) onRequestExecuted(n *Node) {
 
-	if n.pool.PendingRequests() == 0 { // imp in case gap in client req then for new req premature timeout
+	if n.pool.PendingRequests() == 0 { // imp in case gap in client req then for new req premature
 		// tm.log.Time("No more pending requests; stopping PBFT timer at execute")
 		tm.lock.Lock()
 		tm.stopPBFTTimerLocked()
