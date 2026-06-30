@@ -6,6 +6,8 @@ source ~/.profile
 go version
 sudo apt update
 sudo apt install python3-pip
+pip install pandas
+pip install matplotlib
 
 
 git clone https://github.com/Michael112233/pbft.git

@@ -1012,7 +1012,7 @@ func (n *Node) tryAdvancePrepare(slot *consensusSlot, view, seq int64, digest [3
 	slot.commits[n.GetNodeID()] = commitDigest
 	slot.mu.Unlock()
 
-	n.recordLeaderShare(n.leaderId)
+	// n.recordLeaderShare(n.leaderId)
 
 	// Broadcast Commit (release lock first to avoid holding during I/O)
 

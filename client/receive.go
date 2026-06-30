@@ -33,12 +33,12 @@ func (c *Client) HandleLeaderUpdate(data core.LeaderIdUpdate) {
 	leaderAddr := c.leaderAddr
 	c.leaderMu.Unlock()
 	c.log.Info(fmt.Sprintf("Received leader update message, new leader id %d, new leader addr %s", data.NewLeaderId, leaderAddr))
-	select {
-	case c.cchan <- struct{}{}:
-		c.log.Info(fmt.Sprintf("send to chan Received leader update message, new leader id %d, new leader addr %s", data.NewLeaderId, leaderAddr))
-	default:
-		c.log.Info(fmt.Sprintf("leader update signal already pending, new leader id %d, new leader addr %s", data.NewLeaderId, leaderAddr))
-	}
+	// select {
+	// case c.cchan <- struct{}{}:
+	// 	c.log.Info(fmt.Sprintf("send to chan Received leader update message, new leader id %d, new leader addr %s", data.NewLeaderId, leaderAddr))
+	// default:
+	// 	c.log.Info(fmt.Sprintf("leader update signal already pending, new leader id %d, new leader addr %s", data.NewLeaderId, leaderAddr))
+	// }
 }
 
 func (c *Client) HandleVCRunningStatus(data core.VCRunningStatus) {
