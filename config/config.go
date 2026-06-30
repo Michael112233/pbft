@@ -16,6 +16,7 @@ type Config struct {
 
 	NodeNum            int64        `json:"node_num"`
 	NodesDead          map[int]bool `json:"nodes_dead"`
+	NodesInDark        map[int]bool `json:"nodes_in_dark"`
 	Periodic           bool         `json:"periodic"`
 	Period             int64        `json:"period"`
 	PeakTpsTest        bool         `json:"peak_tps_test"`

@@ -158,6 +158,7 @@ type Node struct {
 	scoreboard *Scoreboard
 
 	dead               bool
+	nodesInDark        map[int]bool
 	split              bool
 	periodic           bool
 	performanceTrigger bool
@@ -226,6 +227,7 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		checkpointSerializedRoutineDone: make(chan struct{}),
 		split:                           false,
 		dead:                            cfg.NodesDead[nodeID],
+		nodesInDark:                     cfg.NodesInDark,
 		proposalDelay:                   cfg.ProposalDelayNode == nodeID,
 		periodic:                        cfg.Periodic,
 		performanceTrigger:              cfg.PerformanceTrigger,
@@ -444,8 +446,8 @@ func matchingVotesC(votes map[int][32]byte, target [32]byte) int {
 	return count
 }
 func (n *Node) broadcastPrepare(msg core.PrepareMsg, signature []byte) {
-	for _, othersIp := range config.NodeAddr {
-		if othersIp == n.GetAddr() {
+	for id, othersIp := range config.NodeAddr {
+		if othersIp == n.GetAddr() || (n.cfg.NodesInDark[id] && n.GetNodeID() == 1) {
 			continue
 		}
 		go n.messageHub.Send(core.MsgPrepareMessage, othersIp, msg, signature)
@@ -453,8 +455,8 @@ func (n *Node) broadcastPrepare(msg core.PrepareMsg, signature []byte) {
 }
 func (n *Node) broadcastViewChange(msg core.ViewChangeMsg, signature []byte) {
 	n.log.Info("Broadcasting ViewChange for view %d from node %d", msg.ViewNumber, n.GetNodeID())
-	for _, othersIp := range config.NodeAddr {
-		if othersIp == n.GetAddr() {
+	for id, othersIp := range config.NodeAddr {
+		if othersIp == n.GetAddr() || (n.cfg.NodesInDark[id] && n.GetNodeID() == 1) {
 			continue
 		}
 		go n.messageHub.Send(core.MsgViewChangeMessage, othersIp, msg, signature)
@@ -489,8 +491,8 @@ func (n *Node) broadcastCommit(view, seq int64, digest [32]byte) {
 	}
 	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
 
-	for _, othersIp := range config.NodeAddr {
-		if othersIp == n.GetAddr() {
+	for id, othersIp := range config.NodeAddr {
+		if othersIp == n.GetAddr() || (n.cfg.NodesInDark[id] && n.GetNodeID() == 1) {
 			continue
 		}
 		// msg.To = othersIp
@@ -595,8 +597,8 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 		time.Sleep(time.Duration(n.cfg.ProposalDelayMS) * time.Millisecond)
 
 	}
-	for _, othersIp := range config.NodeAddr {
-		if othersIp == n.GetAddr() {
+	for id, othersIp := range config.NodeAddr {
+		if othersIp == n.GetAddr() || (n.cfg.NodesInDark[id] && n.GetNodeID() == 1) {
 			continue
 		}
 		// preprepareMsg.To = othersIp

@@ -135,6 +135,10 @@ func (n *Node) RequestStateTransfer(seq int64, digest [32]byte, fromVc bool) {
 }
 
 func (n *Node) HandleRequestStateTransfer(request core.RequestStateTransferMsg, signature []byte) {
+	if n.GetNodeID() == 1 && n.cfg.NodesInDark[request.From] {
+		// n.log.Info("Ignoring state transfer request from dark node %d", request.From)
+		return
+	}
 	n.checkpointMu.Lock()
 
 	key := checkpoint{
@@ -309,8 +313,8 @@ func (n *Node) checkpointUpdateConditionLocal(msg core.CheckpointMsg, copyOfBala
 	}
 	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
 	n.log.Info("Broadcasting checkpoint message for seq %d with digest %x", msg.SeqNum, msg.Digest)
-	for _, otherIP := range config.NodeAddr {
-		if otherIP == n.GetAddr() {
+	for id, otherIP := range config.NodeAddr {
+		if otherIP == n.GetAddr() || (n.cfg.NodesInDark[id] && n.GetNodeID() == 1) {
 			continue
 		}
 		go n.messageHub.Send(core.MsgCheckpointMessage, otherIP, msg, signature)
