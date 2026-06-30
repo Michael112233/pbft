@@ -148,6 +148,7 @@ type Node struct {
 	commitSerializedRoutineStopOnce     sync.Once
 	commitChan                          chan commitAction
 	cpStateTransfer                     chan CheckpointCatchupState
+	clientMissingDataReceived           chan struct{}
 	checkpointSerializedRoutineStarted  atomic.Bool
 	checkpointSerializedRoutineStop     chan struct{}
 	checkpointSerializedRoutineDone     chan struct{}
@@ -156,6 +157,8 @@ type Node struct {
 
 	//locked by viewmu
 	scoreboard *Scoreboard
+
+	missingClientStateManager *MissingClientStateManager
 
 	dead               bool
 	split              bool
@@ -219,6 +222,7 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		leaderShares:                    make(map[int]int),
 		commitChan:                      make(chan commitAction, 1000),
 		cpStateTransfer:                 make(chan CheckpointCatchupState, 10), // can even be one as nothing blocked on it
+		clientMissingDataReceived:       make(chan struct{}, 10),
 		commitSerializedRoutineStop:     make(chan struct{}),
 		commitSerializedRoutineDone:     make(chan struct{}),
 		checkpointChan:                  make(chan checkpointAction, 1000),
@@ -232,6 +236,7 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		peakTpsTest:                     cfg.PeakTpsTest,
 		periodInterval:                  cfg.Period,
 		scoreboard:                      NewScoreboard(cfg.NodeNum),
+		missingClientStateManager:       NewMissingClientStateManager(),
 		gc:                              cfg.GC,
 	}
 }
@@ -820,8 +825,11 @@ func (n *Node) HandlePrePrepareNewView(preprepareMsg core.PreprepareMsgMini, sig
 			// n.log.Info("PrePrepareMini for already executed client message, view %d seq %d", preprepareMsg.View, preprepareMsg.SeqNum)
 		}
 		// fail safe for now to handle missing state
-		slot.prePrepare.ClientMsg = actualMsg
-		slot.missingData = false
+		if n.cfg.CarryState {
+			missingSlot = false
+			slot.prePrepare.ClientMsg = actualMsg
+			slot.missingData = false
+		}
 	}
 
 	if !slot.prepareSent {
@@ -1607,23 +1615,30 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	}
 
 	n.log.Info("Transitioned to new view %d with leader %d", n.view, n.leaderId)
-	// needSyncLog := make([]*core.PreprepareMsgSig, len(newViewMsg.PreprepareLog))
-	replayView := n.view
+	missingStates := make([][32]byte, 0, len(newViewMsg.PreprepareLog))
+	newview := n.view
 	leaderId := n.leaderId
 	n.viewMu.Unlock()
 	n.log.FeatureInfo("Done with new view msg for view %d", n.view)
 	for _, preprepareMsg := range newViewMsg.PreprepareLog {
-		n.HandlePrePrepareNewView(preprepareMsg.PreprepareMsgMini, preprepareMsg.Signature, preprepareMsg.ActualMsg, leaderId, replayView)
+		missing := n.HandlePrePrepareNewView(preprepareMsg.PreprepareMsgMini, preprepareMsg.Signature, preprepareMsg.ActualMsg, leaderId, newview)
+		if missing {
+			missingStates = append(missingStates, preprepareMsg.PreprepareMsgMini.DigestClientMsg)
+		}
+
 		// if needSync {
 		// 	needSyncLog = append(needSyncLog, &preprepareMsg)
 		// }
 
 	}
+	if len(missingStates) > 0 {
+		go n.sendReqMissingClientMsg(missingStates, newview, leaderId)
+	}
 
-	go n.sendLeaderIdUpdate(leaderId, replayView)
+	go n.sendLeaderIdUpdate(leaderId, newview)
 	n.pbftTimerManager.forceResetPBFTTimer()
-	n.replayBufferedMessagesForView(replayView)
-	go n.gcViewChangeMsgs(replayView)
+	n.replayBufferedMessagesForView(newview)
+	go n.gcViewChangeMsgs(newview)
 
 }
 
@@ -1726,7 +1741,7 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView i
 			O = append(O, core.PreprepareMsgSig{
 				PreprepareMsgMini: preprepare.PreprepareMsgMini,
 				Signature:         signature,
-				ActualMsg:         preprepare.ActualMsg,
+				// ActualMsg:         preprepare.ActualMsg,
 			})
 
 		} else {
@@ -1950,7 +1965,7 @@ func (n *Node) newView() {
 		n.log.Info("%s", n.scoreboard.String())
 
 	}
-
+	missingStates := make([][32]byte, 0)
 	for _, preprepareMsg := range O {
 		slot := n.consensusLog.getOrCreateLog(preprepareMsg.PreprepareMsgMini.SeqNum, preprepareMsg.PreprepareMsgMini.View)
 		slot.mu.Lock()
@@ -1980,12 +1995,15 @@ func (n *Node) newView() {
 					n.log.Error("Primary missing slot but received txn from %s and to %s ", preprepareMsg.ActualMsg.Data.Txn.Sender, preprepareMsg.ActualMsg.Data.Txn.Receiver)
 				}
 				slot.missingData = true
+				missingStates = append(missingStates, preprepareMsg.PreprepareMsgMini.DigestClientMsg)
 			} else if !exists && executed {
 				slot.missingData = false
 			}
 			// fail safe for
-			slot.prePrepare.ClientMsg = preprepareMsg.ActualMsg
-			slot.missingData = false
+			if n.cfg.CarryState {
+				slot.prePrepare.ClientMsg = preprepareMsg.ActualMsg
+				slot.missingData = false
+			}
 		}
 		slot.mu.Unlock()
 
@@ -2017,7 +2035,9 @@ func (n *Node) newView() {
 	} else {
 		n.broadcastNewView(newViewMsg, signature)
 	}
-
+	if len(missingStates) > 0 {
+		go n.sendReqMissingClientMsg(missingStates, n.view, n.leaderId)
+	}
 	n.log.Info("Entering replay from primary might not need at primary")
 	go n.replayBufferedMessagesForView(n.view)
 	go n.gcViewChangeMsgs(n.view)
@@ -2061,15 +2081,29 @@ func (n *Node) createVCContent(stableCheckpointSeq int64) map[int64]*core.Prepar
 			n.log.Error("Sending a prepare for a view lower than n.view where my n.view is %d and prepare is for view %d and checkpoint is %d", n.view, slot.prePrepare.View, stableCheckpointSeq)
 		}
 		seqNum := slot.prePrepare.SeqNum
-		preprepareV := core.PreprepareMsgSig{
+		preprepareV := core.PreprepareMsgSig{}
+		if n.cfg.CarryState {
+			preprepareV = core.PreprepareMsgSig{
 
-			PreprepareMsgMini: core.PreprepareMsgMini{
-				View:            slot.prePrepare.View,
-				SeqNum:          seqNum,
-				DigestClientMsg: slot.prePrepare.DigestClientMsg,
-			},
-			Signature: append([]byte(nil), slot.prePrepareSig...),
-			ActualMsg: slot.prePrepare.ClientMsg,
+				PreprepareMsgMini: core.PreprepareMsgMini{
+					View:            slot.prePrepare.View,
+					SeqNum:          seqNum,
+					DigestClientMsg: slot.prePrepare.DigestClientMsg,
+				},
+				Signature: append([]byte(nil), slot.prePrepareSig...),
+				ActualMsg: slot.prePrepare.ClientMsg,
+			}
+		} else {
+			preprepareV = core.PreprepareMsgSig{
+
+				PreprepareMsgMini: core.PreprepareMsgMini{
+					View:            slot.prePrepare.View,
+					SeqNum:          seqNum,
+					DigestClientMsg: slot.prePrepare.DigestClientMsg,
+				},
+				Signature: append([]byte(nil), slot.prePrepareSig...),
+				// ActualMsg: slot.prePrepare.ClientMsg,
+			}
 		}
 
 		prepareLog := make(map[int]*core.PrepareMsgSig, len(slot.prepares))

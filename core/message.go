@@ -189,3 +189,18 @@ type NewViewMsgSig struct {
 	NewViewMsg NewViewMsg
 	Signature  []byte
 }
+
+type MissingClientData struct {
+	Digest [32]byte
+	Msg    ClientMsgSignature
+}
+
+type ReqMissingClientMsg struct {
+	MissingClientMsgs [][32]byte
+	From              int
+}
+
+type ReplyMissingClientMsg struct {
+	MissingClientMsgs []MissingClientData
+	From              int
+}

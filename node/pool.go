@@ -60,7 +60,36 @@ func (p *Pool) Get(digest [32]byte) (core.ClientMsgSignature, bool, bool) {
 	_, executed := p.delMap[digest]
 	return msg, exists, executed
 }
+func (p *Pool) GetMultiple(digests [][32]byte) []core.MissingClientData {
+	p.lock.RLock()
+	defer p.lock.RUnlock()
+	// var msgs []core.ClientMsgSignature
+	msgs := make([]core.MissingClientData, 0, len(digests))
+	for _, digest := range digests {
+		if msg, exists := p.existsMap[digest]; exists {
+			msgs = append(msgs, core.MissingClientData{
+				Digest: digest,
+				Msg:    msg,
+			})
+		}
+	}
+	return msgs
+}
 
+func (p *Pool) AddMultiple(msgs []core.MissingClientData) bool {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	added := false
+	for _, msg := range msgs {
+		if _, exists := p.existsMap[msg.Digest]; !exists {
+			if _, deleted := p.delMap[msg.Digest]; !deleted {
+				p.existsMap[msg.Digest] = msg.Msg
+				added = true
+			}
+		}
+	}
+	return added
+}
 func (p *Pool) GCDelMap(seq int64) {
 	p.lock.Lock()
 	defer p.lock.Unlock()

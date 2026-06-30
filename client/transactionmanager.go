@@ -198,6 +198,7 @@ func (tm *TransactionManager) ReplyTxn(reply core.ReplyMessage) {
 }
 
 func (tm *TransactionManager) CommitTps(reply core.CommitTps) {
+
 	s := tm.getShard(reply.ClientMsg.Id)
 
 	// Short shard lock just to grab the txn pointer

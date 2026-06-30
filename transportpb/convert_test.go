@@ -88,6 +88,60 @@ func TestPreprepareMsgSigRoundTripIncludesActualMsg(t *testing.T) {
 	}
 }
 
+func TestReqMissingClientMsgRoundTrip(t *testing.T) {
+	in := core.ReqMissingClientMsg{
+		MissingClientMsgs: [][32]byte{
+			{1, 2, 3},
+			{4, 5, 6},
+		},
+		From: 2,
+	}
+
+	out, err := ReqMissingClientMsgFromPB(ReqMissingClientMsgToPB(in))
+	if err != nil {
+		t.Fatalf("ReqMissingClientMsgFromPB returned error: %v", err)
+	}
+
+	if !reflect.DeepEqual(out, in) {
+		t.Fatalf("round trip mismatch:\n got: %+v\nwant: %+v", out, in)
+	}
+}
+
+func TestReplyMissingClientMsgRoundTrip(t *testing.T) {
+	digest := [32]byte{9, 8, 7}
+	in := core.ReplyMissingClientMsg{
+		MissingClientMsgs: []core.MissingClientData{
+			{
+				Digest: digest,
+				Msg: core.ClientMsgSignature{
+					Data: core.ClientMsg{
+						Id:         101,
+						Timestamp:  123456789,
+						ClientName: "client-a",
+						Txn: &core.Transaction{
+							Sender:    "alice",
+							Receiver:  "bob",
+							Amount:    big.NewInt(75),
+							Timestamp: 123456789,
+						},
+					},
+					Signature: []byte{1, 2, 3},
+				},
+			},
+		},
+		From: 3,
+	}
+
+	out, err := ReplyMissingClientMsgFromPB(ReplyMissingClientMsgToPB(in))
+	if err != nil {
+		t.Fatalf("ReplyMissingClientMsgFromPB returned error: %v", err)
+	}
+
+	if !reflect.DeepEqual(out, in) {
+		t.Fatalf("round trip mismatch:\n got: %+v\nwant: %+v", out, in)
+	}
+}
+
 func TestLeaderIdUpdateRoundTrip(t *testing.T) {
 	in := core.LeaderIdUpdate{
 		To:          "client-1",

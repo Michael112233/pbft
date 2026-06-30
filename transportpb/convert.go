@@ -329,6 +329,74 @@ func RequestStateTransferFromPB(msg *RequestStateTransferMsg) (core.RequestState
 	}, nil
 }
 
+func ReqMissingClientMsgToPB(msg core.ReqMissingClientMsg) *ReqMissingClientMsg {
+	out := &ReqMissingClientMsg{
+		MissingClientMsgs: make([][]byte, 0, len(msg.MissingClientMsgs)),
+		From:              int32(msg.From),
+	}
+	for _, digest := range msg.MissingClientMsgs {
+		out.MissingClientMsgs = append(out.MissingClientMsgs, digestToPB(digest))
+	}
+	return out
+}
+
+func ReqMissingClientMsgFromPB(msg *ReqMissingClientMsg) (core.ReqMissingClientMsg, error) {
+	if msg == nil {
+		return core.ReqMissingClientMsg{}, nil
+	}
+	out := core.ReqMissingClientMsg{
+		MissingClientMsgs: make([][32]byte, 0, len(msg.MissingClientMsgs)),
+		From:              int(msg.From),
+	}
+	for _, digestBytes := range msg.MissingClientMsgs {
+		digest, err := digestFromPB(digestBytes)
+		if err != nil {
+			return core.ReqMissingClientMsg{}, err
+		}
+		out.MissingClientMsgs = append(out.MissingClientMsgs, digest)
+	}
+	return out, nil
+}
+
+func ReplyMissingClientMsgToPB(msg core.ReplyMissingClientMsg) *ReplyMissingClientMsg {
+	out := &ReplyMissingClientMsg{
+		MissingClientMsgs: make([]*MissingClientData, 0, len(msg.MissingClientMsgs)),
+		From:              int32(msg.From),
+	}
+	for _, clientData := range msg.MissingClientMsgs {
+		out.MissingClientMsgs = append(out.MissingClientMsgs, &MissingClientData{
+			Digest: digestToPB(clientData.Digest),
+			Msg:    ClientMsgSigToPB(clientData.Msg),
+		})
+	}
+	return out
+}
+
+func ReplyMissingClientMsgFromPB(msg *ReplyMissingClientMsg) (core.ReplyMissingClientMsg, error) {
+	if msg == nil {
+		return core.ReplyMissingClientMsg{}, nil
+	}
+	out := core.ReplyMissingClientMsg{
+		MissingClientMsgs: make([]core.MissingClientData, 0, len(msg.MissingClientMsgs)),
+		From:              int(msg.From),
+	}
+	for _, clientData := range msg.MissingClientMsgs {
+		digest, err := digestFromPB(clientData.Digest)
+		if err != nil {
+			return core.ReplyMissingClientMsg{}, err
+		}
+		coreClientMsg, err := ClientMsgSigFromPB(clientData.Msg)
+		if err != nil {
+			return core.ReplyMissingClientMsg{}, err
+		}
+		out.MissingClientMsgs = append(out.MissingClientMsgs, core.MissingClientData{
+			Digest: digest,
+			Msg:    coreClientMsg,
+		})
+	}
+	return out, nil
+}
+
 func StateTransferToPB(msg core.StateTransferMsg) *StateTransferMsg {
 	out := &StateTransferMsg{
 		SeqNum:   msg.SeqNum,

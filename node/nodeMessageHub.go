@@ -337,6 +337,42 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		go hub.node_ref.HandleRequestStateTransfer(data, env.Signature)
 		return &transportpb.Ack{Ok: true}, nil
 
+	case core.MsgReqMissingClientMessage:
+		request := env.GetReqMissingClientMsg()
+		if request == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing request missing client body"}, nil
+		}
+		if int(request.From) != int(env.From) {
+			return &transportpb.Ack{Ok: false, Error: "request missing client sender mismatch"}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, request) {
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.ReqMissingClientMsgFromPB(request)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		go hub.node_ref.HandleReqMissingClientMsg(data, env.Signature)
+		return &transportpb.Ack{Ok: true}, nil
+
+	case core.MsgReplyMissingClientMessage:
+		reply := env.GetReplyMissingClientMsg()
+		if reply == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing reply missing client body"}, nil
+		}
+		if int(reply.From) != int(env.From) {
+			return &transportpb.Ack{Ok: false, Error: "reply missing client sender mismatch"}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, reply) {
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.ReplyMissingClientMsgFromPB(reply)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		go hub.node_ref.HandleReplyMissingClientMsg(data, env.Signature)
+		return &transportpb.Ack{Ok: true}, nil
+
 	case core.MsgStateTransfer:
 		stateTransfer := env.GetStateTransfer()
 		if stateTransfer == nil {
@@ -542,6 +578,22 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}, signat
 			return nil, errInvalidPayloadType(msgType, msg)
 		}
 		env.Body = &transportpb.Envelope_RequestStateTransfer{RequestStateTransfer: transportpb.RequestStateTransferToPB(request)}
+		env.From = int32(hub.node_ref.GetNodeID())
+
+	case core.MsgReqMissingClientMessage:
+		request, ok := msg.(core.ReqMissingClientMsg)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_ReqMissingClientMsg{ReqMissingClientMsg: transportpb.ReqMissingClientMsgToPB(request)}
+		env.From = int32(hub.node_ref.GetNodeID())
+
+	case core.MsgReplyMissingClientMessage:
+		reply, ok := msg.(core.ReplyMissingClientMsg)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_ReplyMissingClientMsg{ReplyMissingClientMsg: transportpb.ReplyMissingClientMsgToPB(reply)}
 		env.From = int32(hub.node_ref.GetNodeID())
 
 	case core.MsgStateTransfer:

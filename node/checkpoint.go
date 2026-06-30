@@ -97,6 +97,11 @@ func (n *Node) RequestStateTransfer(seq int64, digest [32]byte, fromVc bool) {
 	// if !fromVc {
 	// 	return
 	// }
+	clientMissingStateTransferring := n.missingClientStateManager.isMissingClientStateTransferring()
+	if clientMissingStateTransferring && !fromVc { // can block forever if client one doesnt complete, fromvc one always go through
+		n.log.Warn("Client missing state is transferring, skipping checkpointstate transfer request")
+		return
+	}
 
 	n.checkpointMu.Lock()
 	if seq <= n.lastStableCheckpoint.seq {

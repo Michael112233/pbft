@@ -107,6 +107,16 @@ func (n *Node) commitSerializedRoutine() {
 	defer close(n.commitSerializedRoutineDone)
 	for {
 		select {
+		case <-n.clientMissingDataReceived:
+			n.newcollectReadyExecutions(
+				-1,
+				nil,
+				core.ClientMsg{},
+				false,
+				false,
+				[32]byte{},
+				true,
+			)
 		case cpState := <-n.cpStateTransfer:
 
 			if cpState.seq > n.lastExecuted {
@@ -169,13 +179,13 @@ func (n *Node) processCheckpointAction(action checkpointAction) {
 
 }
 
-func (n *Node) newcollectReadyExecutions(seq int64, slot *consensusSlot, msg core.ClientMsg, noOp bool, missingData bool, digestClientMsg [32]byte, fromcpStateTransfer bool) {
+func (n *Node) newcollectReadyExecutions(seq int64, slot *consensusSlot, msg core.ClientMsg, noOp bool, missingData bool, digestClientMsg [32]byte, transferPath bool) {
 	n.viewMu.RLock()
 	periodInterval := n.periodInterval
 	view := n.view
 	leaderId := n.leaderId
 	n.viewMu.RUnlock()
-	if !fromcpStateTransfer {
+	if !transferPath {
 		if seq <= n.lastExecuted {
 			return
 		}
@@ -237,7 +247,7 @@ func (n *Node) newcollectReadyExecutions(seq int64, slot *consensusSlot, msg cor
 		n.executionMu.Lock()
 		n.lastExecuted = nextSeq
 		n.executionMu.Unlock()
-		if fromcpStateTransfer {
+		if transferPath {
 			n.log.Info("From cp state transfer and did execution for seq %d ", nextSeq)
 		}
 		if n.cfg.Performance {

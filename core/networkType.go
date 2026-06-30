@@ -17,9 +17,11 @@ const (
 	MsgNewViewMessage         string = "MsgNewViewMessage"
 	MsgMempoolMessage         string = "MsgMempoolMessage"
 
-	MsgRequestVote         string = "MsgRequestVote"
-	MsgRequestVoteResponse string = "MsgRequestVoteResponse"
-	MsgAppendEntries       string = "MsgAppendEntries"
-	MsgHeartbeatMessage    string = "MsgHeartbeatMessage"
-	MsgGrantVoteMessage    string = "MsgGrantVoteMessage"
+	MsgRequestVote               string = "MsgRequestVote"
+	MsgRequestVoteResponse       string = "MsgRequestVoteResponse"
+	MsgAppendEntries             string = "MsgAppendEntries"
+	MsgHeartbeatMessage          string = "MsgHeartbeatMessage"
+	MsgGrantVoteMessage          string = "MsgGrantVoteMessage"
+	MsgReqMissingClientMessage   string = "MsgReqMissingClientMessage"
+	MsgReplyMissingClientMessage string = "MsgReplyMissingClientMessage"
 )

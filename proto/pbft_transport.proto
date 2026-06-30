@@ -83,6 +83,21 @@ message RequestStateTransferMsg {
   int32 from = 3;
 }
 
+message ReqMissingClientMsg {
+  repeated bytes missing_client_msgs = 1;
+  int32 from = 2;
+}
+
+message MissingClientData {
+  bytes digest = 1;
+  ClientMsgSignature msg = 2;
+}
+
+message ReplyMissingClientMsg {
+  repeated MissingClientData missing_client_msgs = 1;
+  int32 from = 2;
+}
+
 message StateTransferMsg {
   int64 seq_num = 1;
   bytes digest = 2;
@@ -232,6 +247,8 @@ message Envelope {
     VCRunningStatus vc_running_status = 22;
     RequestStateTransferMsg request_state_transfer = 23;
     StateTransferMsg state_transfer = 24;
+    ReqMissingClientMsg req_missing_client_msg = 25;
+    ReplyMissingClientMsg reply_missing_client_msg = 26;
   }
 }
 
