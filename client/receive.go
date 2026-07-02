@@ -16,6 +16,9 @@ func (c *Client) HandleReplyMessage(data core.ReplyMessage) {
 }
 
 func (c *Client) HandleCommitTpsMessage(data core.CommitTps) {
+	if data.From == "127.0.0.2:28100" {
+		return
+	}
 
 	// c.log.Info(fmt.Sprintf("Received commit tps message from %s, client message id %d", data.From, data.ClientMsg.Id))
 	go c.TransactionManager.CommitTps(data)
