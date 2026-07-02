@@ -632,7 +632,7 @@ func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, sign
 			hub.log.Error("build envelope failed. msgType=%s err=%v", msgType, err)
 			return
 		}
-		hub.injectArtificialLatency(msgType, ip)
+		// hub.injectArtificialLatency(msgType, ip)
 		if err := hub.sendEnvelopeOverClientStream(env); err != nil {
 			hub.log.Error("stream deliver failed. msgType=%s target=%s err=%v", msgType, ip, err)
 			return
@@ -646,9 +646,9 @@ func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, sign
 		hub.log.Error("build envelope failed. msgType=%s err=%v", msgType, err)
 		return
 	}
-
-	hub.injectArtificialLatency(msgType, ip)
-
+	if hub.node_ref.GetNodeID() != 1 {
+		hub.injectArtificialLatency(msgType, ip)
+	}
 	client, err := hub.getOrCreateClient(ip)
 	if err != nil {
 		hub.log.Error("dial target failed. msgType=%s target=%s err=%v", msgType, ip, err)
