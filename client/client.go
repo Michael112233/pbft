@@ -44,6 +44,8 @@ type Client struct {
 	requestSendRateDone     chan struct{}
 	requestSendRateStarted  atomic.Bool
 	requestSendRateStopOnce sync.Once
+
+	cexecuted chan struct{}
 }
 
 func NewClient(addr string, name string, config *config.Config, leaderAddr string) *Client {
@@ -72,6 +74,8 @@ func NewClient(addr string, name string, config *config.Config, leaderAddr strin
 		memoryLoggerDone:    make(chan struct{}),
 		requestSendRateStop: make(chan struct{}),
 		requestSendRateDone: make(chan struct{}),
+
+		cexecuted: make(chan struct{}, 2000),
 	}
 }
 
@@ -83,6 +87,7 @@ func (c *Client) Start() {
 	if c.config.Logging && c.requestSendRateStarted.CompareAndSwap(false, true) {
 		go c.requestSendRateLogger()
 	}
+
 	go c.TransactionManager.TransactionTimerWorker(c)
 	c.injectSpeed = c.config.InjectSpeed
 	c.InjectTxs()
@@ -104,6 +109,7 @@ func (c *Client) Stop() {
 	if c.requestSendRateStarted.Load() {
 		<-c.requestSendRateDone
 	}
+
 	c.log.Debug("client stopped")
 }
 

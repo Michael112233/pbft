@@ -153,6 +153,7 @@ func (c *Client) InjectTxs() {
 
 		c.TransactionManager.Start()
 		injected := int64(0)
+		numInitialBatchesSend := 0
 		for ok {
 			timestart := time.Now()
 
@@ -196,12 +197,50 @@ func (c *Client) InjectTxs() {
 			} else {
 				// c.log.Info("Injected %d transactions in %s", len(batch), timetaken)
 			}
-
+			numInitialBatchesSend++
+			if numInitialBatchesSend == 10 {
+				break
+			}
 			collectStart := time.Now()
 			batch, ok = collectSignedBatch(signedTxs, batchSize)
 			if wait := time.Since(collectStart); ok && wait > 5*time.Millisecond {
 				c.log.Info("Waited %s for signed transaction batch; signer pipeline may be bottlenecked", wait)
 			}
 		}
+
+		batch, ok = collectSignedBatch(signedTxs, 1)
+		if !ok {
+			c.log.Info("No signed transactions generated")
+			return
+		}
+		for ok {
+			<-c.cexecuted
+
+			injected += int64(len(batch))
+			if injected == int64(len(batch)) || injected%10000 == 0 || injected == totaltxns {
+				c.log.Info("upto %d transactions injected", injected)
+			}
+
+			// c.TransactionManager.StartTimer()
+			c.TransactionManager.AddTransaction(batch)
+
+			msg := core.RequestMessage{
+
+				Txs: batch,
+			}
+
+			c.leaderMu.RLock()
+			leader := c.leaderAddr
+			c.leaderMu.RUnlock()
+			c.messageHub.Send(core.MsgRequestMessage, c.addr, leader, msg, nil)
+			collectStart := time.Now()
+			batch, ok = collectSignedBatch(signedTxs, 1)
+			if wait := time.Since(collectStart); ok && wait > 5*time.Millisecond {
+				c.log.Info("Waited %s for signed transaction batch; signer pipeline may be bottlenecked", wait)
+			}
+
+		}
+		c.log.Info("done")
+
 	}()
 }

@@ -197,7 +197,7 @@ func (tm *TransactionManager) ReplyTxn(reply core.ReplyMessage) {
 
 }
 
-func (tm *TransactionManager) CommitTps(reply core.CommitTps) {
+func (tm *TransactionManager) CommitTps(reply core.CommitTps) bool {
 	s := tm.getShard(reply.ClientMsg.Id)
 
 	// Short shard lock just to grab the txn pointer
@@ -205,14 +205,14 @@ func (tm *TransactionManager) CommitTps(reply core.CommitTps) {
 	txn, ok := s.txns[reply.ClientMsg.Id]
 	s.mu.RUnlock()
 	if !ok {
-		return
+		return false
 	}
 
 	// Per-txn lock for longer operations - doesn't block other txns in shard
 	txn.mu.Lock()
 	if txn.committed {
 		txn.mu.Unlock()
-		return
+		return false
 	}
 
 	txn.finishTimestamp = time.Now().UnixNano()
@@ -225,8 +225,9 @@ func (tm *TransactionManager) CommitTps(reply core.CommitTps) {
 	txn.mu.Unlock()
 
 	if reply.ClientMsg.Id > txnGCRetentionWindow && reply.ClientMsg.Id%30000 == 0 {
-		tm.GCTxns(reply.ClientMsg.Id - txnGCRetentionWindow)
+		go tm.GCTxns(reply.ClientMsg.Id - txnGCRetentionWindow)
 	}
+	return true
 }
 
 func (tm *TransactionManager) GCTxns(cutoff int64) {

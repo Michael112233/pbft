@@ -21,7 +21,10 @@ func (c *Client) HandleCommitTpsMessage(data core.CommitTps) {
 	}
 
 	// c.log.Info(fmt.Sprintf("Received commit tps message from %s, client message id %d", data.From, data.ClientMsg.Id))
-	go c.TransactionManager.CommitTps(data)
+	exec := c.TransactionManager.CommitTps(data)
+	if exec {
+		c.cexecuted <- struct{}{}
+	}
 }
 
 func (c *Client) HandleLeaderUpdate(data core.LeaderIdUpdate) {
