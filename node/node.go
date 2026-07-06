@@ -527,6 +527,7 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 			n.viewMu.RUnlock()
 			time.Sleep(time.Duration(n.cfg.RetrySleep) * time.Millisecond)
 			n.viewMu.RLock()
+			n.log.Error("will retry %d because seq %d reached max inflight seq %d", view, currentSeq, n.cfg.MaxInflightSeq)
 			retriedOnce = true
 			continue
 		} else if inflight >= n.cfg.MaxInflightSeq && retriedOnce {
