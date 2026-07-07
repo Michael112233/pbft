@@ -165,6 +165,13 @@ type Node struct {
 	peakTpsTest        bool
 	proposalDelay      bool
 	gc                 bool
+
+	latencySamples        []int64
+	latencyLoggerStop     chan struct{}
+	latencyLoggerDone     chan struct{}
+	latencyLoggerStarted  atomic.Bool
+	latencyLoggerStopOnce sync.Once
+	latencyChan           chan int64
 }
 
 func NewNode(nodeID int, cfg *config.Config) *Node {
@@ -235,6 +242,10 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		periodInterval:                  cfg.Period,
 		scoreboard:                      NewScoreboard(cfg.NodeNum),
 		gc:                              cfg.GC,
+		latencySamples:                  make([]int64, 0),
+		latencyChan:                     make(chan int64, 10000),
+		latencyLoggerStop:               make(chan struct{}),
+		latencyLoggerDone:               make(chan struct{}),
 	}
 }
 
@@ -255,6 +266,9 @@ func (n *Node) Start() {
 		if n.clientReceiveRateStarted.CompareAndSwap(false, true) {
 			go n.clientReceiveRateLogger()
 		}
+		if n.latencyLoggerStarted.CompareAndSwap(false, true) {
+			go n.latencyLogger()
+		}
 		// if n.leaderPreprepareRateStarted.CompareAndSwap(false, true) {
 		// 	go n.leaderPreprepareRateLogger()
 		// }
@@ -264,6 +278,11 @@ func (n *Node) Start() {
 			go n.shareLogger()
 		}
 
+	}
+	if n.cfg.NodeLatencyLogger {
+		if n.latencyLoggerStarted.CompareAndSwap(false, true) {
+			go n.latencyLogger()
+		}
 	}
 	if n.commitSerializedRoutineStarted.CompareAndSwap(false, true) {
 		go n.commitSerializedRoutine()
@@ -321,6 +340,12 @@ func (n *Node) Stop() {
 	})
 	if n.shareLoggerStarted.Load() {
 		<-n.shareLoggerDone
+	}
+	n.latencyLoggerStopOnce.Do(func() {
+		close(n.latencyLoggerStop)
+	})
+	if n.latencyLoggerStarted.Load() {
+		<-n.latencyLoggerDone
 	}
 	n.commitSerializedRoutineStopOnce.Do(func() {
 		close(n.commitSerializedRoutineStop)
@@ -1053,6 +1078,9 @@ func (n *Node) tryExecute(slot *consensusSlot, seq int64) {
 	}
 
 	slot.executionPending = true
+	slot.timeCommitted = time.Now().UnixNano()
+	slot.latency = slot.timeCommitted - slot.timeCreated
+	latency := slot.latency
 	digestClientMsg := slot.prePrepare.DigestClientMsg
 	noOp := slot.prePrepare.DigestClientMsg == [32]byte{}
 	missingData := slot.missingData
@@ -1067,6 +1095,9 @@ func (n *Node) tryExecute(slot *consensusSlot, seq int64) {
 
 	// digest := slot.prePrepare.DigestClientMsg
 	slot.mu.Unlock()
+	if n.cfg.NodeLatencyLogger {
+		n.recordLatencySample(latency)
+	}
 	// n.log.Info("reached here")
 	go n.sendCommitTps(executedMsg)
 

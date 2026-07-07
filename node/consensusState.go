@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/michael112233/pbft/core"
 )
@@ -36,6 +37,10 @@ type consensusSlot struct {
 	commitSent       bool // did *this* node already broadcast Commit
 	executionPending bool // committed-local and waiting for ordered execution
 	executed         bool // already delivered to application
+
+	timeCreated   int64 // timestamp when this slot was created
+	timeCommitted int64 // timestamp when this slot was committed (quorum of commits)
+	latency       int64 // time from creation to commit
 }
 
 type ConsensusLog struct {
@@ -296,9 +301,10 @@ func (log *ConsensusLog) getOrCreateLog(seq int64, view int64) *consensusSlot {
 	}
 	slot := &consensusSlot{
 
-		view:     view,
-		prepares: make(map[int]*core.PrepareMsgSig),
-		commits:  make(map[int][32]byte),
+		view:        view,
+		prepares:    make(map[int]*core.PrepareMsgSig),
+		commits:     make(map[int][32]byte),
+		timeCreated: time.Now().UnixNano(),
 	}
 	log.slots[slotKey{View: view, SeqNum: seq}] = slot
 	return slot

@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/crypto"
 	"github.com/michael112233/pbft/logger"
@@ -187,14 +186,14 @@ func (hub *NodeMessageHub) injectArtificialLatency(msgType, targetAddr string) {
 		return
 	}
 	fromAddr := hub.node_ref.GetAddr()
-	if (fromAddr == config.NodeAddr[1] && targetAddr == config.NodeAddr[3]) || (fromAddr == config.NodeAddr[3] && targetAddr == config.NodeAddr[1]) {
-		return
-	}
+	// if (fromAddr == config.NodeAddr[1] && targetAddr == config.NodeAddr[3]) || (fromAddr == config.NodeAddr[3] && targetAddr == config.NodeAddr[1]) {
+	// 	return
+	// }
 	delay := hub.node_ref.cfg.ArtificialLatency(fromAddr, targetAddr)
 	if delay <= 0 {
 		return
 	}
-	hub.log.Info("Injecting artificial latency. msgType=%s from=%s to=%s delay=%s", msgType, fromAddr, targetAddr, delay)
+	// hub.log.Info("Injecting artificial latency. msgType=%s from=%s to=%s delay=%s", msgType, fromAddr, targetAddr, delay)
 	time.Sleep(delay)
 }
 

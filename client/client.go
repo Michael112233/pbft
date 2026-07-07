@@ -90,6 +90,7 @@ func (c *Client) Start() {
 
 	go c.TransactionManager.TransactionTimerWorker(c)
 	c.injectSpeed = c.config.InjectSpeed
+	time.Sleep(100 * time.Millisecond) // wait for the message hub to start
 	c.InjectTxs()
 }
 
