@@ -1114,7 +1114,7 @@ func (n *Node) sendLeaderIdUpdate(newLeaderID int, view int64) {
 		NewLeaderId: newLeaderID,
 		View:        view,
 	}
-	time.Sleep(1000 * time.Millisecond) // add delay to ensure client receives view change messages before leader update, can remove when client can handle out of order messages
+	// time.Sleep(1000 * time.Millisecond) // add delay to ensure client receives view change messages before leader update, can remove when client can handle out of order messages
 	n.messageHub.Send(core.MsgLeaderIdUpdateMessage, config.ClientAddr, leaderUpdateMsg, nil)
 }
 
@@ -2032,9 +2032,9 @@ func (n *Node) newView() {
 	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
 	// should strart pbft timer
 	if n.GetNodeID() == 3 {
-		n.broadcastNewView(newViewMsg, signature)
+		go n.broadcastNewView(newViewMsg, signature)
 	} else {
-		n.broadcastNewView(newViewMsg, signature)
+		go n.broadcastNewView(newViewMsg, signature)
 	}
 	if len(missingStates) > 0 {
 		go n.sendReqMissingClientMsg(missingStates, n.view, n.leaderId)

@@ -47,3 +47,44 @@ sudo tcpdump -i lo -n 'tcp and (port 28100 or port 28200 or port 28300 or port 2
 50ms sleep
 30000 period
 12*chinterval
+
+
+rules for latency
+
+sudo tc qdisc del dev lo root 2>/dev/null || true
+
+sudo tc qdisc add dev lo root handle 1: prio bands 3 \
+  priomap 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+
+sudo tc qdisc add dev lo parent 1:3 handle 30: netem delay 100ms
+
+NODE_NETS=(
+  127.0.0.2/31
+  127.0.0.4/30
+  127.0.0.8/32
+)
+
+for src in "${NODE_NETS[@]}"; do
+  for dst in "${NODE_NETS[@]}"; do
+    sudo tc filter add dev lo parent 1: protocol ip prio 10 flower \
+      src_ip "$src" dst_ip "$dst" classid 1:3
+  done
+done
+
+change delay without rebuild filter
+sudo tc qdisc change dev lo parent 1:3 handle 30: netem delay 200ms
+
+
+to delete
+
+sudo tc qdisc del dev lo root
+
+to show
+sudo tc qdisc show dev lo
+
+test node to node
+ping -I 127.0.0.2 -c 4 127.0.0.3 
+
+
+test node to client
+ping -I 127.0.0.10 -c 4 127.0.0.2
