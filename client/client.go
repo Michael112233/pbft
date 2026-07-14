@@ -14,13 +14,20 @@ import (
 	"github.com/michael112233/pbft/utils"
 )
 
+type LeaderUpdate struct {
+	view     int64
+	leaderId int
+}
+
 type Client struct {
-	addr        string
-	name        string
-	config      *config.Config
-	injectSpeed int64
-	txs         []*core.Transaction
-	currentView int64
+	addr            string
+	name            string
+	config          *config.Config
+	injectSpeed     int64
+	txs             []*core.Transaction
+	currentView     int64
+	newLeaderQuorum map[LeaderUpdate]int
+	fNodes          int
 
 	WaitGroup sync.WaitGroup
 
@@ -31,7 +38,6 @@ type Client struct {
 	leaderMu           sync.RWMutex
 	leaderAddr         string
 
-	cchan     chan struct{}
 	vcrunChan chan core.VCRunningStatus
 
 	memoryLoggerStop     chan struct{}
@@ -53,20 +59,22 @@ func NewClient(addr string, name string, config *config.Config, leaderAddr strin
 	}
 	// leaderid := config.NodeAddr[1]
 	return &Client{
-		addr:        addr,
-		name:        name,
-		currentView: 1,
-		config:      config,
+		addr:            addr,
+		name:            name,
+		currentView:     1,
+		config:          config,
+		newLeaderQuorum: make(map[LeaderUpdate]int),
+		fNodes:          (int(config.NodeNum) - 1) / 3,
 
 		WaitGroup:  sync.WaitGroup{},
 		leaderAddr: leaderAddr,
 
 		// leaderElection:     leader_election.NewLeaderElection(config),
-		log:                 logger.NewLogger(0, "client"),
-		messageHub:          NewClientMessageHub(),
-		privateKey:          privKey,
-		TransactionManager:  NewTransactionManager(),
-		cchan:               make(chan struct{}, 4), // buffer to number of nodes
+		log:                logger.NewLogger(0, "client"),
+		messageHub:         NewClientMessageHub(),
+		privateKey:         privKey,
+		TransactionManager: NewTransactionManager(),
+
 		vcrunChan:           make(chan core.VCRunningStatus, 1),
 		memoryLoggerStop:    make(chan struct{}),
 		memoryLoggerDone:    make(chan struct{}),
@@ -85,6 +93,7 @@ func (c *Client) Start() {
 	}
 	go c.TransactionManager.TransactionTimerWorker(c)
 	c.injectSpeed = c.config.InjectSpeed
+	time.Sleep(100 * time.Millisecond) // msg hub to start
 	c.InjectTxs()
 }
 

@@ -226,7 +226,7 @@ func (tm *TransactionManager) CommitTps(reply core.CommitTps) {
 	txn.mu.Unlock()
 
 	if reply.ClientMsg.Id > txnGCRetentionWindow && reply.ClientMsg.Id%30000 == 0 {
-		tm.GCTxns(reply.ClientMsg.Id - txnGCRetentionWindow)
+		go tm.GCTxns(reply.ClientMsg.Id - txnGCRetentionWindow)
 	}
 }
 
@@ -325,11 +325,12 @@ func (tm *TransactionManager) ExportTPSSeries(path string) error {
 }
 
 type LatencySummaryResult struct {
-	Count int     `json:"count"`
-	AvgMs float64 `json:"avg_ms"`
-	P50Ms float64 `json:"p50_ms"`
-	P95Ms float64 `json:"p95_ms"`
-	P99Ms float64 `json:"p99_ms"`
+	Count            int       `json:"count"`
+	AvgMs            float64   `json:"avg_ms"`
+	P50Ms            float64   `json:"p50_ms"`
+	P95Ms            float64   `json:"p95_ms"`
+	P99Ms            float64   `json:"p99_ms"`
+	LatencySamplesMs []float64 `json:"latency_samples_ms"`
 }
 
 func (tm *TransactionManager) LatencySummary(path string) error {
@@ -337,16 +338,28 @@ func (tm *TransactionManager) LatencySummary(path string) error {
 	samples := append([]int64(nil), tm.latencySamples...)
 	tm.latencyMu.Unlock()
 
+	sampleCount := len(samples)
+	if sampleCount > 10 {
+		sampleCount = 10
+	}
+	latencySamplesMs := make([]float64, sampleCount)
+	for i := 0; i < sampleCount; i++ {
+		latencySamplesMs[i] = nanosToMs(samples[i])
+	}
+
 	if len(samples) == 0 {
-		data, err := json.MarshalIndent(LatencySummaryResult{}, "", "  ")
+		data, err := json.MarshalIndent(LatencySummaryResult{
+			LatencySamplesMs: latencySamplesMs,
+		}, "", "  ")
 		if err != nil {
 			return err
 		}
 		return os.WriteFile(path, data, 0o644)
 	}
 
-	sort.Slice(samples, func(i, j int) bool {
-		return samples[i] < samples[j]
+	sortedSamples := append([]int64(nil), samples...)
+	sort.Slice(sortedSamples, func(i, j int) bool {
+		return sortedSamples[i] < sortedSamples[j]
 	})
 
 	var total float64
@@ -355,11 +368,12 @@ func (tm *TransactionManager) LatencySummary(path string) error {
 	}
 
 	result := LatencySummaryResult{
-		Count: len(samples),
-		AvgMs: nanosToMs(int64(total / float64(len(samples)))),
-		P50Ms: nanosToMs(percentileLatency(samples, 0.50)),
-		P95Ms: nanosToMs(percentileLatency(samples, 0.95)),
-		P99Ms: nanosToMs(percentileLatency(samples, 0.99)),
+		Count:            len(samples),
+		AvgMs:            nanosToMs(int64(total / float64(len(samples)))),
+		P50Ms:            nanosToMs(percentileLatency(sortedSamples, 0.50)),
+		P95Ms:            nanosToMs(percentileLatency(sortedSamples, 0.95)),
+		P99Ms:            nanosToMs(percentileLatency(sortedSamples, 0.99)),
+		LatencySamplesMs: latencySamplesMs,
 	}
 
 	data, err := json.MarshalIndent(result, "", "  ")

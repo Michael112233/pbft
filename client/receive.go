@@ -28,17 +28,21 @@ func (c *Client) HandleLeaderUpdate(data core.LeaderIdUpdate) {
 		c.log.Info(fmt.Sprintf("Received old leader update message with view %d, current view is %d, ignore the message", data.View, c.currentView))
 		return
 	}
-	c.leaderAddr = config.NodeAddr[data.NewLeaderId]
-	c.currentView = data.View
-	leaderAddr := c.leaderAddr
-	c.leaderMu.Unlock()
-	c.log.Info(fmt.Sprintf("Received leader update message, new leader id %d, new leader addr %s", data.NewLeaderId, leaderAddr))
-	select {
-	case c.cchan <- struct{}{}:
-		c.log.Info(fmt.Sprintf("send to chan Received leader update message, new leader id %d, new leader addr %s", data.NewLeaderId, leaderAddr))
-	default:
-		c.log.Info(fmt.Sprintf("leader update signal already pending, new leader id %d, new leader addr %s", data.NewLeaderId, leaderAddr))
+	leaderUpdate := LeaderUpdate{
+		view:     data.View,
+		leaderId: data.NewLeaderId,
 	}
+	c.newLeaderQuorum[leaderUpdate]++
+	if c.newLeaderQuorum[leaderUpdate] == c.fNodes+1 {
+		c.leaderAddr = config.NodeAddr[data.NewLeaderId]
+		c.currentView = data.View
+		leaderAddr := c.leaderAddr
+		c.log.Info(fmt.Sprintf("Received leader update message, new leader id %d, new leader addr %s", data.NewLeaderId, leaderAddr))
+
+	}
+
+	c.leaderMu.Unlock()
+
 }
 
 func (c *Client) HandleVCRunningStatus(data core.VCRunningStatus) {

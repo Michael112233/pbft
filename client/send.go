@@ -186,9 +186,6 @@ func (c *Client) InjectTxs() {
 					break
 				}
 
-				// c.log.Info("Received view change running status with %d transactions in flight, pausing injection until view change completes", len(vcStatus.Txs))
-				<-c.cchan                         // wait for signal to continue injection after view change completes
-				time.Sleep(50 * time.Millisecond) // small sleep to allow system to stabilize after view change before retry
 			}
 			timetaken := time.Since(timestart)
 			if timetaken > clientSendInterval {
