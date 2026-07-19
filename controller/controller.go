@@ -17,12 +17,19 @@ import (
 var log = logger.NewLogger(0, "controller")
 
 func runNode(nodeID int64, cfg *config.Config) {
-	Node := node.NewNode(int(nodeID), cfg)
+	Node, err := node.NewNode(int(nodeID), cfg)
+	if err != nil {
+		fmt.Printf("Failed to create node %d: %v\n", nodeID, err)
+		return
+	}
 	Node.PrintDetails()
 
 	defer Node.Stop()
 
-	Node.Start()
+	if err := Node.Start(); err != nil {
+		fmt.Printf("Failed to start node %d: %v\n", nodeID, err)
+		return
+	}
 
 	// time.Sleep(time.Duration(cfg.RunTime+20) * time.Second)
 	scanner := bufio.NewScanner(os.Stdin)

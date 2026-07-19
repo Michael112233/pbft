@@ -1,6 +1,23 @@
 #!/bin/bash
 set -e
 
+CONFIG_PATH="config/run2new.json"
+
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "Error: python3 is required to run the learning-agent servers." >&2
+    exit 1
+fi
+if ! python3 -c 'import grpc, google.protobuf' >/dev/null 2>&1; then
+    echo "Error: Python gRPC dependencies are missing. Run: python3 -m pip install -r requirements.txt" >&2
+    exit 1
+fi
+
+NODE_COUNT=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["node_num"])' "$CONFIG_PATH")
+if ! [[ "$NODE_COUNT" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Error: node_num in $CONFIG_PATH must be a positive integer." >&2
+    exit 1
+fi
+
 echo "Cleaning up log files..."
 rm -f logs/*.log
 echo "Log files cleaned up."
@@ -45,40 +62,18 @@ rm -f pbft_main
 go mod tidy
 go build -o pbft_main main.go
 
-echo "Starting nodes and client in separate terminals..."
+echo "Starting $NODE_COUNT learning-agent servers, nodes, and client in separate terminals..."
 
 # Get current directory
 CURRENT_DIR=$(pwd)
 
-# Start Node 0
-osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 1\""
+# Start all Python servers under one launcher in its own Terminal window.
+osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && python3 -m learningagent.launcher --node-count $NODE_COUNT --mode local\""
 
-# Start Node 1
-osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 2\""
-
-# Start Node 2
-osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 3\""
-
-# Start Node 3
-osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 4\""
-
-# # Start Node 4
-# osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 5\""
-
-# # Start Node 5
-# osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 6\""
-
-# # Start Node 6
-# osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 7\""
-
-# # Start Node 7
-# osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 8\""
-
-# # Start Node 8
-# osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 9\""
-
-# # Start Node 9
-# osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n 10\""
+# Start every Go node in its own Terminal window.
+for i in $(seq 1 "$NODE_COUNT"); do
+    osascript -e "tell application \"Terminal\" to do script \"cd '$CURRENT_DIR' && ./pbft_main -r node -m local -n $i\""
+done
 
 # Sleep for 5 seconds
 sleep 5

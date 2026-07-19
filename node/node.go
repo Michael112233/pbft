@@ -2,6 +2,8 @@ package node
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"math/big"
 	"strconv"
 
@@ -67,9 +69,10 @@ type bufferedConsensusMessage struct {
 type Node struct {
 	NodeID int
 
-	cfg        *config.Config
-	log        *logger.Logger
-	messageHub *NodeMessageHub
+	cfg           *config.Config
+	log           *logger.Logger
+	messageHub    *NodeMessageHub
+	learningAgent *LearningAgentClient
 
 	////
 	unverifiedClientMsgsChan  chan []core.ClientMsgSignature // ptr or no
@@ -169,10 +172,10 @@ type Node struct {
 	gc                 bool
 }
 
-func NewNode(nodeID int, cfg *config.Config) *Node {
+func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 
 	log := logger.NewLogger(nodeID, "node")
-	return &Node{
+	n := &Node{
 		NodeID: nodeID,
 
 		cfg:        cfg,
@@ -239,13 +242,33 @@ func NewNode(nodeID int, cfg *config.Config) *Node {
 		missingClientStateManager:       NewMissingClientStateManager(),
 		gc:                              cfg.GC,
 	}
+	if address := config.LearningAgentAddr[nodeID]; address != "" {
+		learningAgent, err := NewLearningAgentClient(nodeID, address)
+		if err != nil {
+			log.Error("failed to create learning-agent client: %v", err)
+			return nil, fmt.Errorf("failed to create learning-agent client: %w", err)
+		} else {
+			n.learningAgent = learningAgent
+		}
+	}
+	return n, nil
 }
 
 type Share struct {
 	leaderId int
 }
 
-func (n *Node) Start() {
+func (n *Node) Start() error {
+
+	if n.learningAgent != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), learningAgentStartupTimeout)
+		err := n.learningAgentHandshake(ctx, learningAgentRPCTimeout, learningAgentRetryInterval)
+		cancel()
+		if err != nil {
+			return err
+		}
+		n.log.Info("learning-agent startup handshake succeeded")
+	}
 	n.messageHub.Start(n, &sync.WaitGroup{})
 	if n.throughputMeasurementsStarted.CompareAndSwap(false, true) {
 		go n.throughputMeasurementCSVWriter()
@@ -280,13 +303,19 @@ func (n *Node) Start() {
 		go n.pbftTimerManager.pbftTimerWorker(n)
 	}
 	n.log.Info("node started")
+	return nil
 }
 
 func (n *Node) Stop() {
+	if n.learningAgent != nil {
+		if err := n.learningAgent.Close(); err != nil {
+			n.log.Error("failed to close learning-agent connection: %v", err)
+		}
+	}
 	// Stop all expire timers to prevent resource leaks
 	// n.StopAllExpireTimers()
 	// Close network resources to stop listeners and connections
-	if n.messageHub != nil {
+	if n.messageHub != nil && n.messageHub.node_ref != nil {
 		n.messageHub.Close()
 	}
 	n.pbftTimerManager.pbftTimerStopOnce.Do(func() {

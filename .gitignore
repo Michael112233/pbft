@@ -9,6 +9,8 @@
 venv/
 env/
 ENV/
+__pycache__/
+*.py[cod]
 
 # Build artifacts
 pbft_main

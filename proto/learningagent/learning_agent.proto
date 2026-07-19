@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package pbft.learningagent.v1;
+
+option go_package = "github.com/michael112233/pbft/learningagentpb;learningagentpb";
+
+message NodeRequest {
+  int32 node_id = 1;
+  bytes payload = 2;
+}
+
+message NodeResponse {
+  int32 node_id = 1;
+  bytes payload = 2;
+}
+
+service LearningAgent {
+  rpc Exchange(NodeRequest) returns (NodeResponse);
+}
