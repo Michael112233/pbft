@@ -7,6 +7,7 @@ func (n *Node) gcConsensusState(stableSeq int64) {
 	n.consensusLog.slotsMu.Lock()
 	removedSlots := 0
 	lenOfConsensusLog := len(n.consensusLog.slots)
+	_ = lenOfConsensusLog
 	for slot := range n.consensusLog.slots {
 		if slot.SeqNum <= stableSeq-1000 {
 			delete(n.consensusLog.slots, slot)
@@ -14,8 +15,8 @@ func (n *Node) gcConsensusState(stableSeq int64) {
 		}
 	}
 	n.consensusLog.slotsMu.Unlock()
-	n.log.Info("Garbage collected %d consensus slots up to  stable seq %d and len of log was %d", removedSlots, stableSeq-100, lenOfConsensusLog)
-	n.pool.GCDelMap(stableSeq - 1500)
+	// n.log.Info("Garbage collected %d consensus slots up to  stable seq %d and len of log was %d", removedSlots, stableSeq-100, lenOfConsensusLog)
+	n.pool.GCDelMap(stableSeq - 15000)
 
 }
 
@@ -33,7 +34,7 @@ func (n *Node) gcCheckpoints(key checkpoint) {
 		}
 	}
 	n.checkpointMu.Unlock()
-	n.log.Info("Garbage collected %d checkpoints below seq %d for stable checkpoint seq %d and digest %x", removedCheckpoints, keepFromSeq, key.seq, key.digest)
+	// n.log.Info("Garbage collected %d checkpoints below seq %d for stable checkpoint seq %d and digest %x", removedCheckpoints, keepFromSeq, key.seq, key.digest)
 }
 
 func (n *Node) gcViewChangeMsgs(view int64) {
@@ -49,5 +50,5 @@ func (n *Node) gcViewChangeMsgs(view int64) {
 		}
 	}
 	n.viewMu.Unlock()
-	n.log.Info("Garbage collected %d view change messages up to view %d", removedVCMsgs, view-3)
+	// n.log.Info("Garbage collected %d view change messages up to view %d", removedVCMsgs, view-3)
 }

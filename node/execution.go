@@ -171,7 +171,7 @@ func (n *Node) checkpointSerializedRoutine() {
 func (n *Node) processCheckpointAction(action checkpointAction) {
 
 	checkpointDigest := digestBalances(action.balances)
-	n.log.Info("Checkpoint trigger for seq %d with digest %x", action.seq, checkpointDigest)
+	// n.log.Info("Checkpoint trigger for seq %d with digest %x", action.seq, checkpointDigest)
 	n.checkpointUpdateConditionLocal(core.CheckpointMsg{
 		SeqNum: action.seq,
 		Digest: checkpointDigest,
@@ -471,16 +471,17 @@ func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view i
 	if elapsedSeconds > 2 && seq%(CHECKPOINT_INTERVAL*12) == 0 {
 		belowTarget = throughput <= n.targetThroughput-1
 		if belowTarget {
-			n.log.Info("Elapsed secs greater than 2 and Throughput %.2f is below target %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, n.targetThroughput, view, seq, elapsedSeconds, executedSlots)
+			// n.log.Info("Elapsed secs greater than 2 and Throughput %.2f is below target %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, n.targetThroughput, view, seq, elapsedSeconds, executedSlots)
 		} else {
-			n.log.Info("Elapsed secs greater than 2 and Throughput %.2f is above target %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, n.targetThroughput, view, seq, elapsedSeconds, executedSlots)
+			// n.log.Info("Elapsed secs greater than 2 and Throughput %.2f is above target %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, n.targetThroughput, view, seq, elapsedSeconds, executedSlots)
 			oldtput := n.targetThroughput
+			_ = oldtput
 			n.targetThroughput *= 1.01
-			n.log.Info("Increasing target throughput from %.2f to %.2f for view %d as observed throughput %.2f is above target", oldtput, n.targetThroughput, view, throughput)
+			// n.log.Info("Increasing target throughput from %.2f to %.2f for view %d as observed throughput %.2f is above target", oldtput, n.targetThroughput, view, throughput)
 		}
 
 	} else if elapsedSeconds <= 2 {
-		n.log.Info("Elapsed secs less than 2 doing nothing, the measured throughput is %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, view, seq, elapsedSeconds, executedSlots)
+		// n.log.Info("Elapsed secs less than 2 doing nothing, the measured throughput is %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, view, seq, elapsedSeconds, executedSlots)
 	}
 
 	n.checkpointThroughputs[view] = append(n.checkpointThroughputs[view], throughput)

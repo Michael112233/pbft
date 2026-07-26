@@ -313,7 +313,7 @@ func (n *Node) checkpointUpdateConditionLocal(msg core.CheckpointMsg, copyOfBala
 		return
 	}
 	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
-	n.log.Info("Broadcasting checkpoint message for seq %d with digest %x", msg.SeqNum, msg.Digest)
+	// n.log.Info("Broadcasting checkpoint message for seq %d with digest %x", msg.SeqNum, msg.Digest)
 	for _, otherIP := range config.NodeAddr {
 		if otherIP == n.GetAddr() {
 			continue

@@ -931,7 +931,7 @@ func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 				prepare:   prepareMsg,
 				signature: append([]byte(nil), signature...),
 			})
-			n.log.Info("Buffered Prepare for future view %d seq %d while current view is %d", prepareMsg.View, prepareMsg.SeqNum, view)
+			// n.log.Info("Buffered Prepare for future view %d seq %d while current view is %d", prepareMsg.View, prepareMsg.SeqNum, view)
 			return
 		} else if prepareMsg.View < view {
 			n.log.Info("Received Prepare for past view %d seq %d while current view is %d, ignoring and for view is %d", prepareMsg.View, prepareMsg.SeqNum, view, forView)
@@ -998,7 +998,7 @@ func (n *Node) HandleCommit(commitMsg core.CommitMsg) {
 				view:   commitMsg.View,
 				commit: commitMsg,
 			})
-			n.log.Info("Buffered Commit for future view %d seq %d while current view is %d", commitMsg.View, commitMsg.SeqNum, view)
+			// n.log.Info("Buffered Commit for future view %d seq %d while current view is %d", commitMsg.View, commitMsg.SeqNum, view)
 			return
 		} else if commitMsg.View < view {
 			n.log.Info("Received Commit for past view %d seq %d while current view is %d, ignoring", commitMsg.View, commitMsg.SeqNum, view)
@@ -1070,7 +1070,7 @@ func (n *Node) tryAdvancePrepare(slot *consensusSlot, view, seq int64, digest [3
 	slot.commits[n.GetNodeID()] = commitDigest
 	slot.mu.Unlock()
 
-	n.recordLeaderShare(n.leaderId)
+	// n.recordLeaderShare(n.leaderId)
 
 	// Broadcast Commit (release lock first to avoid holding during I/O)
 
@@ -1117,7 +1117,7 @@ func (n *Node) tryExecute(slot *consensusSlot, seq int64) {
 	}
 
 	if missingData && !noOp {
-		n.log.Error("Executing with missing data for seq %d, view %d", seq, slot.prePrepare.View)
+		n.log.Warn("This is not a problem: trying to execute with missing data for seq %d, view %d", seq, slot.prePrepare.View)
 	}
 
 	// digest := slot.prePrepare.DigestClientMsg
@@ -1723,7 +1723,7 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView i
 	}
 
 	if latestStableCheckpoint.seq > myStableCheckpoint.seq {
-		n.log.Error("missing the latest stable checkpoint at o primary")
+		n.log.Debug("missing the latest stable checkpoint at o primary")
 		checkpointData, exists := n.checkpoints[latestStableCheckpoint]
 		if !exists {
 			checkpointData = CheckpointData{
@@ -1757,26 +1757,45 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView i
 		// n.log.Error("updating last executed to stable checkpoint seq %d", n.lastExecuted)
 
 	} else if latestStableCheckpoint.seq < n.lastExecuted {
-		n.log.Error("my stable checkpoint seq %d is less than my last executed %d, this should not happen", latestStableCheckpoint.seq, n.lastExecuted)
+		n.log.Debug("my stable checkpoint seq %d is less than my last executed %d, this should not happen", latestStableCheckpoint.seq, n.lastExecuted)
 	}
 	n.executionMu.RUnlock()
 	maxS := minS - 1
 	for _, viewChangeMsg := range vcMsgSigs {
 		for seqNumber, pm := range viewChangeMsg.ViewChangeMsg.PreparedCerts {
+			if pm == nil || seqNumber < minS {
+				continue
+			}
+			candidate := pm.PreprepareMsg
+			candidateView := candidate.PreprepareMsgMini.View
+
+			if candidateView >= view {
+				n.log.Error(
+					"prepared cert seq %d has view %d ahead of my new view %d in createO at Primary",
+					seqNumber, candidateView, view,
+				)
+				continue
+			}
+
 			if seqNumber > maxS {
 				maxS = seqNumber
 
 			}
-			if pm.PreprepareMsg.PreprepareMsgMini.View < oldView {
-				n.log.Error("preprepare message has an older view number createO at Primary")
+			existing, exists := preprepareLog[seqNumber]
+			if !exists ||
+				candidateView > existing.PreprepareMsgMini.View {
+				preprepareLog[seqNumber] = candidate
 			}
-			preprepareLog[seqNumber] = pm.PreprepareMsg
+			// if pm.PreprepareMsg.PreprepareMsgMini.View < oldView {
+			// 	n.log.Error("preprepare message has an older view number createO at Primary")
+			// }
+			// preprepareLog[seqNumber] = pm.PreprepareMsg
 
 		}
 	}
 
 	if maxS < minS {
-		n.log.Error("no suffix at o primary")
+		n.log.Debug("no suffix at o primary")
 		return O, minS - 1
 	}
 	for seq := minS; seq <= maxS; seq++ {
@@ -1856,7 +1875,7 @@ func (n *Node) createOReplica(vcMsgSigs []*core.ViewChangeMsgSig, view int64) (m
 	}
 
 	if latestStableCheckpoint.seq > myStableCheckpoint.seq {
-		n.log.Error("missing the latest stable checkpoint at o replica")
+		n.log.Debug("missing the latest stable checkpoint at o replica")
 		checkpointData, exists := n.checkpoints[latestStableCheckpoint]
 		if !exists {
 			checkpointData = CheckpointData{
@@ -1891,27 +1910,46 @@ func (n *Node) createOReplica(vcMsgSigs []*core.ViewChangeMsgSig, view int64) (m
 		// n.log.Error("updating last executed to stable checkpoint seq %d", n.lastExecuted)
 
 	} else if latestStableCheckpoint.seq < n.lastExecuted {
-		n.log.Error("my stable checkpoint seq %d is less than my last executed %d, this should not happen", latestStableCheckpoint.seq, n.lastExecuted)
+		n.log.Debug("my stable checkpoint seq %d is less than my last executed %d, this should not happen", latestStableCheckpoint.seq, n.lastExecuted)
 	}
 	n.executionMu.RUnlock()
 	maxS := minS - 1
 	// maxS := minS
 	for _, viewChangeMsg := range vcMsgSigs {
 		for seqNumber, pm := range viewChangeMsg.ViewChangeMsg.PreparedCerts {
+			if pm == nil || seqNumber < minS {
+				continue
+			}
+			candidate := pm.PreprepareMsg
+			candidateView := candidate.PreprepareMsgMini.View
+
+			if candidateView >= view {
+				n.log.Error(
+					"prepared cert seq %d has view %d ahead of my new view %d at createOReplica",
+					seqNumber, candidateView, view,
+				)
+				continue
+			}
+
 			if seqNumber > maxS {
 				maxS = seqNumber
 
 			}
-			preprepareLog[seqNumber] = pm.PreprepareMsg
-			if pm.PreprepareMsg.PreprepareMsgMini.View < n.view {
-				n.log.Error("preprepare message has an older view number createOReplica at o replica")
+			existing, exists := preprepareLog[seqNumber]
+			if !exists ||
+				candidateView > existing.PreprepareMsgMini.View {
+				preprepareLog[seqNumber] = candidate
 			}
+			// if pm.PreprepareMsg.PreprepareMsgMini.View < oldView {
+			// 	n.log.Error("preprepare message has an older view number createO at Primary")
+			// }
+			// preprepareLog[seqNumber] = pm.PreprepareMsg
 
 		}
 	}
 
 	if maxS < minS {
-		n.log.Error("no suffix o at replica")
+		n.log.Debug("no suffix o at replica")
 		return preprepareLog, minS - 1
 	}
 	for seq := minS; seq <= maxS; seq++ {
@@ -2128,7 +2166,7 @@ func (n *Node) createVCContent(stableCheckpointSeq int64) map[int64]*core.Prepar
 	n.consensusLog.slotsMu.RLock()
 	// n.log.Info("inside create vc")
 	// we go over slots after stable checkpoint
-	// n.log.FeatureInfo("len of consensus log slots is %d in createVCContent for view change message for view %d", len(n.consensusLog.slots), n.view)
+	n.log.Info("len of consensus log slots is %d in createVCContent for view change message for view %d", len(n.consensusLog.slots), n.view)
 	for _, slot := range n.consensusLog.slots {
 
 		slot.mu.Lock()
@@ -2137,9 +2175,22 @@ func (n *Node) createVCContent(stableCheckpointSeq int64) map[int64]*core.Prepar
 			continue
 		}
 		if slot.prePrepare.View < n.view {
-			n.log.Error("Sending a prepare for a view lower than n.view where my n.view is %d and prepare is for view %d and checkpoint is %d", n.view, slot.prePrepare.View, stableCheckpointSeq)
+			n.log.Warn("Sending a prepare for a view lower than n.view where my n.view is %d and prepare is for view %d and checkpoint is %d", n.view, slot.prePrepare.View, stableCheckpointSeq)
 		}
 		seqNum := slot.prePrepare.SeqNum
+		candidateView := slot.prePrepare.View
+		existingCert, exists := preparedCerts[seqNum]
+		if exists {
+			if existingCert.PreprepareMsg.PreprepareMsgMini.View > candidateView {
+				n.log.Warn("skipping over a prepared cert for seq %d with view %d because we already have a prepared cert for view %d", seqNum, candidateView, existingCert.PreprepareMsg.PreprepareMsgMini.View)
+				slot.mu.Unlock()
+				continue
+			} else if existingCert.PreprepareMsg.PreprepareMsgMini.View == candidateView {
+				n.log.Warn("this should not happen, we should not have two prepared certs for the same seq and view, but we do for seq %d and view %d", seqNum, candidateView)
+				slot.mu.Unlock()
+				continue
+			}
+		}
 		preprepareV := core.PreprepareMsgSig{}
 		if n.cfg.CarryState {
 			preprepareV = core.PreprepareMsgSig{

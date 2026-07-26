@@ -57,6 +57,7 @@ func (vi *ViewIntent) sendViewIntent(view int64) {
 		vi.mu.Unlock()
 		return
 	}
+	vi.log.Info("Node %d sending view intent for view %d", vi.node.GetNodeID(), view)
 	go vi.node.BroadcastViewIntent(view)
 	if len(vi.changeViewIntentMsgs[view]) == vi.node.GetFNodes()+1 {
 		vi.mu.Unlock()
@@ -89,6 +90,7 @@ func (vi *ViewIntent) receiveViewIntent(view int64, fromNode int) {
 		vi.mu.Unlock()
 		return
 	}
+	vi.log.Info("received view intent from node %d for view %d", fromNode, view)
 	if len(vi.changeViewIntentMsgs[view]) == vi.node.GetFNodes()+1 {
 		// maybe broadcast from here as well and then stop timer in initiate view change
 		vi.mu.Unlock()

@@ -24,6 +24,7 @@ echo "Cleaning up log files..."
 rm -f logs/*.log
 rm -f logs/*.csv
 rm -f logs/*.txt
+rm -f logs/*.json
 echo "Log files cleaned up."
 
 echo "Cleaning up keys directory..."
@@ -63,8 +64,10 @@ fi
 # tmux new-session -d -s "$SESSION" -n "learning-agents" \
 #     "cd \"$CURRENT_DIR\" && python3 -m learningagent.launcher --node-count $NODE_COUNT --mode loopbackip; status=\$?; echo; echo \"learning-agent launcher exited with status \$status\"; exec bash"
 
+tmux new-session -d -s "$SESSION" -n "node1" \
+    "cd \"$CURRENT_DIR\" && ./pbft_main -r node -m loopbackip -n 1; status=\$?; echo; echo \"node1 exited with status \$status\"; exec bash"
 # Start every Go node in its own window.
-for i in $(seq 1 "$NODE_COUNT"); do
+for i in $(seq 2 "$NODE_COUNT"); do
     tmux new-window -t "$SESSION" -n "node$i" \
         "cd \"$CURRENT_DIR\" && ./pbft_main -r node -m loopbackip -n $i; status=\$?; echo; echo \"node$i exited with status \$status\"; exec bash"
 done
