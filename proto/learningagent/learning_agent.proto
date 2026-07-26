@@ -14,6 +14,29 @@ message NodeResponse {
   bytes payload = 2;
 }
 
+
+
+message LearningDecision {
+  int32 node_id = 1;
+  uint64 sequence_id = 2;
+  string next_protocol = 3;
+  map<string, double> data = 4;
+}
+
+message DecisionAck {
+  int32 node_id = 1;
+  uint64 sequence_id = 2;
+  bool accepted = 3;
+  string error = 4;
+}
+
 service LearningAgent {
   rpc Exchange(NodeRequest) returns (NodeResponse);
+  rpc SendLearningData(LearningDecision) returns (DecisionAck);
 }
+
+service LearningAgentNode {
+  rpc SendDecision(LearningDecision) returns (DecisionAck);
+}
+
+

@@ -34,6 +34,8 @@ type Config struct {
 	LogShares          bool  `json:"log_shares"`
 	RetrySleep         int   `json:"retry_sleep"`
 	MaxInflightSeq     int64 `json:"max_inflight_seq"`
+	Fixed              bool  `json:"fixed"`
+	PeriodicReq        bool  `json:"periodic_req"`
 }
 
 func ReadCfg(filename string) *Config {

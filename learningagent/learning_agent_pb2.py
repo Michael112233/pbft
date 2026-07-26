@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\"learningagent/learning_agent.proto\x12\x15pbft.learningagent.v1\"/\n\x0bNodeRequest\x12\x0f\n\x07node_id\x18\x01 \x01(\x05\x12\x0f\n\x07payload\x18\x02 \x01(\x0c\"0\n\x0cNodeResponse\x12\x0f\n\x07node_id\x18\x01 \x01(\x05\x12\x0f\n\x07payload\x18\x02 \x01(\x0c\x32\x64\n\rLearningAgent\x12S\n\x08\x45xchange\x12\".pbft.learningagent.v1.NodeRequest\x1a#.pbft.learningagent.v1.NodeResponseB?Z=github.com/michael112233/pbft/learningagentpb;learningagentpbb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\"learningagent/learning_agent.proto\x12\x15pbft.learningagent.v1\"/\n\x0bNodeRequest\x12\x0f\n\x07node_id\x18\x01 \x01(\x05\x12\x0f\n\x07payload\x18\x02 \x01(\x0c\"0\n\x0cNodeResponse\x12\x0f\n\x07node_id\x18\x01 \x01(\x05\x12\x0f\n\x07payload\x18\x02 \x01(\x0c\"\xbd\x01\n\x10LearningDecision\x12\x0f\n\x07node_id\x18\x01 \x01(\x05\x12\x13\n\x0bsequence_id\x18\x02 \x01(\x04\x12\x15\n\rnext_protocol\x18\x03 \x01(\t\x12?\n\x04\x64\x61ta\x18\x04 \x03(\x0b\x32\x31.pbft.learningagent.v1.LearningDecision.DataEntry\x1a+\n\tDataEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x01:\x02\x38\x01\"T\n\x0b\x44\x65\x63isionAck\x12\x0f\n\x07node_id\x18\x01 \x01(\x05\x12\x13\n\x0bsequence_id\x18\x02 \x01(\x04\x12\x10\n\x08\x61\x63\x63\x65pted\x18\x03 \x01(\x08\x12\r\n\x05\x65rror\x18\x04 \x01(\t2\xc5\x01\n\rLearningAgent\x12S\n\x08\x45xchange\x12\".pbft.learningagent.v1.NodeRequest\x1a#.pbft.learningagent.v1.NodeResponse\x12_\n\x10SendLearningData\x12\'.pbft.learningagent.v1.LearningDecision\x1a\".pbft.learningagent.v1.DecisionAck2p\n\x11LearningAgentNode\x12[\n\x0cSendDecision\x12\'.pbft.learningagent.v1.LearningDecision\x1a\".pbft.learningagent.v1.DecisionAckB?Z=github.com/michael112233/pbft/learningagentpb;learningagentpbb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -32,10 +32,20 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'learningagent.learning_agen
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'Z=github.com/michael112233/pbft/learningagentpb;learningagentpb'
+  _globals['_LEARNINGDECISION_DATAENTRY']._loaded_options = None
+  _globals['_LEARNINGDECISION_DATAENTRY']._serialized_options = b'8\001'
   _globals['_NODEREQUEST']._serialized_start=61
   _globals['_NODEREQUEST']._serialized_end=108
   _globals['_NODERESPONSE']._serialized_start=110
   _globals['_NODERESPONSE']._serialized_end=158
-  _globals['_LEARNINGAGENT']._serialized_start=160
-  _globals['_LEARNINGAGENT']._serialized_end=260
+  _globals['_LEARNINGDECISION']._serialized_start=161
+  _globals['_LEARNINGDECISION']._serialized_end=350
+  _globals['_LEARNINGDECISION_DATAENTRY']._serialized_start=307
+  _globals['_LEARNINGDECISION_DATAENTRY']._serialized_end=350
+  _globals['_DECISIONACK']._serialized_start=352
+  _globals['_DECISIONACK']._serialized_end=436
+  _globals['_LEARNINGAGENT']._serialized_start=439
+  _globals['_LEARNINGAGENT']._serialized_end=636
+  _globals['_LEARNINGAGENTNODE']._serialized_start=638
+  _globals['_LEARNINGAGENTNODE']._serialized_end=750
 # @@protoc_insertion_point(module_scope)

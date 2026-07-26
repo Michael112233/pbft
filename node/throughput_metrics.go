@@ -13,6 +13,9 @@ const (
 	throughputMeasurementBufferSize = 10000
 )
 
+// this is on hot path of exe if channel full
+// batch size too small
+
 type throughputMeasurement struct {
 	MeasurementTime time.Time
 	View            int64

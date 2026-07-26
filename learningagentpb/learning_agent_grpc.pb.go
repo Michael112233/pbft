@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	LearningAgent_Exchange_FullMethodName = "/pbft.learningagent.v1.LearningAgent/Exchange"
+	LearningAgent_Exchange_FullMethodName         = "/pbft.learningagent.v1.LearningAgent/Exchange"
+	LearningAgent_SendLearningData_FullMethodName = "/pbft.learningagent.v1.LearningAgent/SendLearningData"
 )
 
 // LearningAgentClient is the client API for LearningAgent service.
@@ -27,6 +28,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type LearningAgentClient interface {
 	Exchange(ctx context.Context, in *NodeRequest, opts ...grpc.CallOption) (*NodeResponse, error)
+	SendLearningData(ctx context.Context, in *LearningDecision, opts ...grpc.CallOption) (*DecisionAck, error)
 }
 
 type learningAgentClient struct {
@@ -47,11 +49,22 @@ func (c *learningAgentClient) Exchange(ctx context.Context, in *NodeRequest, opt
 	return out, nil
 }
 
+func (c *learningAgentClient) SendLearningData(ctx context.Context, in *LearningDecision, opts ...grpc.CallOption) (*DecisionAck, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DecisionAck)
+	err := c.cc.Invoke(ctx, LearningAgent_SendLearningData_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LearningAgentServer is the server API for LearningAgent service.
 // All implementations must embed UnimplementedLearningAgentServer
 // for forward compatibility.
 type LearningAgentServer interface {
 	Exchange(context.Context, *NodeRequest) (*NodeResponse, error)
+	SendLearningData(context.Context, *LearningDecision) (*DecisionAck, error)
 	mustEmbedUnimplementedLearningAgentServer()
 }
 
@@ -64,6 +77,9 @@ type UnimplementedLearningAgentServer struct{}
 
 func (UnimplementedLearningAgentServer) Exchange(context.Context, *NodeRequest) (*NodeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Exchange not implemented")
+}
+func (UnimplementedLearningAgentServer) SendLearningData(context.Context, *LearningDecision) (*DecisionAck, error) {
+	return nil, status.Error(codes.Unimplemented, "method SendLearningData not implemented")
 }
 func (UnimplementedLearningAgentServer) mustEmbedUnimplementedLearningAgentServer() {}
 func (UnimplementedLearningAgentServer) testEmbeddedByValue()                       {}
@@ -104,6 +120,24 @@ func _LearningAgent_Exchange_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LearningAgent_SendLearningData_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LearningDecision)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LearningAgentServer).SendLearningData(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LearningAgent_SendLearningData_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LearningAgentServer).SendLearningData(ctx, req.(*LearningDecision))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // LearningAgent_ServiceDesc is the grpc.ServiceDesc for LearningAgent service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -114,6 +148,112 @@ var LearningAgent_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Exchange",
 			Handler:    _LearningAgent_Exchange_Handler,
+		},
+		{
+			MethodName: "SendLearningData",
+			Handler:    _LearningAgent_SendLearningData_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "learningagent/learning_agent.proto",
+}
+
+const (
+	LearningAgentNode_SendDecision_FullMethodName = "/pbft.learningagent.v1.LearningAgentNode/SendDecision"
+)
+
+// LearningAgentNodeClient is the client API for LearningAgentNode service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type LearningAgentNodeClient interface {
+	SendDecision(ctx context.Context, in *LearningDecision, opts ...grpc.CallOption) (*DecisionAck, error)
+}
+
+type learningAgentNodeClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewLearningAgentNodeClient(cc grpc.ClientConnInterface) LearningAgentNodeClient {
+	return &learningAgentNodeClient{cc}
+}
+
+func (c *learningAgentNodeClient) SendDecision(ctx context.Context, in *LearningDecision, opts ...grpc.CallOption) (*DecisionAck, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DecisionAck)
+	err := c.cc.Invoke(ctx, LearningAgentNode_SendDecision_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// LearningAgentNodeServer is the server API for LearningAgentNode service.
+// All implementations must embed UnimplementedLearningAgentNodeServer
+// for forward compatibility.
+type LearningAgentNodeServer interface {
+	SendDecision(context.Context, *LearningDecision) (*DecisionAck, error)
+	mustEmbedUnimplementedLearningAgentNodeServer()
+}
+
+// UnimplementedLearningAgentNodeServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedLearningAgentNodeServer struct{}
+
+func (UnimplementedLearningAgentNodeServer) SendDecision(context.Context, *LearningDecision) (*DecisionAck, error) {
+	return nil, status.Error(codes.Unimplemented, "method SendDecision not implemented")
+}
+func (UnimplementedLearningAgentNodeServer) mustEmbedUnimplementedLearningAgentNodeServer() {}
+func (UnimplementedLearningAgentNodeServer) testEmbeddedByValue()                           {}
+
+// UnsafeLearningAgentNodeServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to LearningAgentNodeServer will
+// result in compilation errors.
+type UnsafeLearningAgentNodeServer interface {
+	mustEmbedUnimplementedLearningAgentNodeServer()
+}
+
+func RegisterLearningAgentNodeServer(s grpc.ServiceRegistrar, srv LearningAgentNodeServer) {
+	// If the following call panics, it indicates UnimplementedLearningAgentNodeServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&LearningAgentNode_ServiceDesc, srv)
+}
+
+func _LearningAgentNode_SendDecision_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LearningDecision)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LearningAgentNodeServer).SendDecision(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LearningAgentNode_SendDecision_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LearningAgentNodeServer).SendDecision(ctx, req.(*LearningDecision))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// LearningAgentNode_ServiceDesc is the grpc.ServiceDesc for LearningAgentNode service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var LearningAgentNode_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "pbft.learningagent.v1.LearningAgentNode",
+	HandlerType: (*LearningAgentNodeServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "SendDecision",
+			Handler:    _LearningAgentNode_SendDecision_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -2,7 +2,6 @@ package node
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"math/big"
 	"strconv"
@@ -72,7 +71,7 @@ type Node struct {
 	cfg           *config.Config
 	log           *logger.Logger
 	messageHub    *NodeMessageHub
-	learningAgent *LearningAgentClient
+	learningAgent *LearningAgentHub
 
 	////
 	unverifiedClientMsgsChan  chan []core.ClientMsgSignature // ptr or no
@@ -95,7 +94,9 @@ type Node struct {
 	fNodes                    int
 	verificationWorkerStarted atomic.Bool
 
-	pbftTimerManager *TimerManager
+	pbftTimerManager     *TimerManager
+	periodicTimerManager *PeriodicTimerManager
+	viewIntent           *ViewIntent
 
 	viewChangeMsgsLog map[int64][]*core.ViewChangeMsgSig
 	voteLog           map[int64][]int
@@ -166,6 +167,8 @@ type Node struct {
 	dead               bool
 	split              bool
 	periodic           bool
+	fixed              bool
+	periodicReq        bool
 	performanceTrigger bool
 	peakTpsTest        bool
 	proposalDelay      bool
@@ -235,15 +238,21 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		dead:                            cfg.NodesDead[nodeID],
 		proposalDelay:                   cfg.ProposalDelayNode == nodeID,
 		periodic:                        cfg.Periodic,
+		periodicReq:                     cfg.PeriodicReq,
+		fixed:                           cfg.Fixed,
 		performanceTrigger:              cfg.PerformanceTrigger,
 		peakTpsTest:                     cfg.PeakTpsTest,
 		periodInterval:                  cfg.Period,
 		scoreboard:                      NewScoreboard(cfg.NodeNum),
-		missingClientStateManager:       NewMissingClientStateManager(),
+		missingClientStateManager:       NewMissingClientStateManager(log),
 		gc:                              cfg.GC,
 	}
+	periodicTimerManager := NewPeriodicTimerManager(n, log)
+	viewIntent := NewViewIntent(n, log)
+	n.viewIntent = viewIntent
+	n.periodicTimerManager = periodicTimerManager
 	if address := config.LearningAgentAddr[nodeID]; address != "" {
-		learningAgent, err := NewLearningAgentClient(nodeID, address)
+		learningAgent, err := NewLearningAgent(n, address)
 		if err != nil {
 			log.Error("failed to create learning-agent client: %v", err)
 			return nil, fmt.Errorf("failed to create learning-agent client: %w", err)
@@ -261,12 +270,17 @@ type Share struct {
 func (n *Node) Start() error {
 
 	if n.learningAgent != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), learningAgentStartupTimeout)
-		err := n.learningAgentHandshake(ctx, learningAgentRPCTimeout, learningAgentRetryInterval)
-		cancel()
-		if err != nil {
-			return err
-		}
+		// err := n.learningAgent.Start()
+		// if err != nil {
+		// 	n.log.Error("failed to start learning-agent client: %v", err)
+		// 	return err
+		// }
+		// ctx, cancel := context.WithTimeout(context.Background(), learningAgentStartupTimeout)
+		// err = n.learningAgentHandshake(ctx, learningAgentRPCTimeout, learningAgentRetryInterval)
+		// cancel()
+		// if err != nil {
+		// 	return err
+		// }
 		n.log.Info("learning-agent startup handshake succeeded")
 	}
 	n.messageHub.Start(n, &sync.WaitGroup{})
@@ -302,6 +316,9 @@ func (n *Node) Start() error {
 	if n.pbftTimerManager.pbftTimerStarted.CompareAndSwap(false, true) {
 		go n.pbftTimerManager.pbftTimerWorker(n)
 	}
+	if n.periodicTimerManager != nil {
+		n.periodicTimerManager.Start()
+	}
 	n.log.Info("node started")
 	return nil
 }
@@ -324,6 +341,9 @@ func (n *Node) Stop() {
 	n.pbftTimerManager.lock.Lock()
 	n.pbftTimerManager.stopPBFTTimerLocked()
 	n.pbftTimerManager.lock.Unlock()
+	if n.periodicTimerManager != nil {
+		n.periodicTimerManager.Close()
+	}
 	n.throughputMeasurementsOnce.Do(func() {
 		close(n.throughputMeasurementsStop)
 	})
@@ -568,7 +588,7 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 			return
 		}
 
-		if n.cfg.Periodic && currentSeq >= periodInterval {
+		if n.periodicReq && currentSeq >= periodInterval {
 			n.log.Info("PrePrepare skipped for view %d because seq %d reached period interval %d", view, currentSeq, periodInterval)
 
 			n.viewMu.RUnlock()
@@ -1565,7 +1585,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	}
 	if newViewMsg.NewViewNumber < n.forView {
 		n.log.Error("Received new view message for view %d which is less than my for view %d, ignoring", newViewMsg.NewViewNumber, n.forView)
-		// return
+		return
 	}
 	// n.pbftTimerManager.stopNewViewTimer()
 	// return
@@ -1667,6 +1687,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 
 	go n.sendLeaderIdUpdate(leaderId, newview)
 	n.pbftTimerManager.forceResetPBFTTimer()
+	n.startPeriodicTimerForNewView(newview)
 	n.replayBufferedMessagesForView(newview)
 	go n.gcViewChangeMsgs(newview)
 
@@ -1768,11 +1789,18 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView i
 				continue
 			}
 			signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
-			O = append(O, core.PreprepareMsgSig{
-				PreprepareMsgMini: preprepare.PreprepareMsgMini,
-				Signature:         signature,
-				// ActualMsg:         preprepare.ActualMsg,
-			})
+			if n.cfg.CarryState {
+				O = append(O, core.PreprepareMsgSig{
+					PreprepareMsgMini: preprepare.PreprepareMsgMini,
+					Signature:         signature,
+					ActualMsg:         preprepare.ActualMsg,
+				})
+			} else {
+				O = append(O, core.PreprepareMsgSig{
+					PreprepareMsgMini: preprepare.PreprepareMsgMini,
+					Signature:         signature,
+				})
+			}
 
 		} else {
 			n.log.Info("No prepared cert for seq %d in view change messages, creating dummy preprepare the min and max seq are %d and %d", seq, minS, maxS)
@@ -2069,6 +2097,7 @@ func (n *Node) newView() {
 		go n.sendReqMissingClientMsg(missingStates, n.view, n.leaderId)
 	}
 	n.log.Info("Entering replay from primary might not need at primary")
+	n.startPeriodicTimerForNewView(n.view)
 	go n.replayBufferedMessagesForView(n.view)
 	go n.gcViewChangeMsgs(n.view)
 
@@ -2156,4 +2185,14 @@ func (n *Node) createVCContent(stableCheckpointSeq int64) map[int64]*core.Prepar
 	}
 	n.consensusLog.slotsMu.RUnlock()
 	return preparedCerts
+}
+
+func (n *Node) GetView() int64 {
+	n.viewMu.RLock()
+	defer n.viewMu.RUnlock()
+	return n.view
+}
+
+func (n *Node) GetFNodes() int {
+	return n.fNodes
 }

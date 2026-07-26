@@ -87,13 +87,13 @@ func (n *Node) HandleCheckpoint(checkpointMsg core.CheckpointMsg, signature []by
 	n.checkpointMu.Unlock()
 
 	if needStateTransfer {
-		n.log.Info("Requesting state transfer for seq %d digest %x due to checkpoint quorum", key.seq, key.digest)
-		n.RequestStateTransfer(key.seq, key.digest, false)
+		// n.log.Info("Requesting state transfer for seq %d digest %x due to checkpoint quorum", key.seq, key.digest)
+		// n.RequestStateTransfer(key.seq, key.digest, false)
 	}
 }
 
-func (n *Node) RequestStateTransfer(seq int64, digest [32]byte, fromVc bool) {
-	time.Sleep(1000 * time.Millisecond)
+func (n *Node) RequestStateTransfer(seq int64, digest [32]byte, fromVc bool) { // only from vc dont need it with every checkpoint
+	time.Sleep(200 * time.Millisecond)
 	// if !fromVc {
 	// 	return
 	// }

@@ -5,3 +5,4 @@ paramiko>=2.7.0
 grpcio>=1.82.1,<2
 grpcio-tools>=1.82.1,<2
 protobuf>=7.35.0,<8
+scikit-learn>=1.5,<2

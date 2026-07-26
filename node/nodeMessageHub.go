@@ -11,6 +11,7 @@ import (
 
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/crypto"
+	"github.com/michael112233/pbft/learningagentpb"
 	"github.com/michael112233/pbft/logger"
 	"github.com/michael112233/pbft/transportpb"
 	"google.golang.org/grpc"
@@ -72,6 +73,12 @@ func (hub *NodeMessageHub) Start(node *Node, wg *sync.WaitGroup) {
 		grpc.MaxSendMsgSize(maxGRPCMsgBytes),
 	)
 	transportpb.RegisterPBFTTransportServer(hub.grpcSrv, hub)
+	if node.learningAgent != nil {
+		learningagentpb.RegisterLearningAgentNodeServer(
+			hub.grpcSrv,
+			node.learningAgent,
+		)
+	}
 	hub.mu.Unlock()
 
 	hub.log.Info("start gRPC listening on %s", hub.node_ref.GetAddr())
@@ -435,6 +442,25 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		}
 		go hub.node_ref.HandleNewView(data, env.Signature)
 		return &transportpb.Ack{Ok: true}, nil
+
+	case core.MsgIntentToChangeViewMessage:
+		intent := env.GetIntentToChangeView()
+		if intent == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing intent to change view body"}, nil
+		}
+		if int(intent.From) != int(env.From) {
+			return &transportpb.Ack{Ok: false, Error: "intent to change view sender mismatch"}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, intent) {
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.IntentToChangeViewFromPB(intent)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		go hub.node_ref.HandleViewIntentMsg(data, env.Signature)
+		return &transportpb.Ack{Ok: true}, nil
+
 	case core.MsgCloseMessage:
 		_ = env.GetClose()
 		return &transportpb.Ack{Ok: true}, nil
@@ -631,6 +657,16 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}, signat
 		pbMsg := transportpb.NewViewToPB(newView)
 		env.Body = &transportpb.Envelope_NewView{NewView: pbMsg}
 		env.From = int32(hub.node_ref.GetNodeID())
+
+	case core.MsgIntentToChangeViewMessage:
+		intent, ok := msg.(core.IntentToChangeViewMsg)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		pbMsg := transportpb.IntentToChangeViewToPB(intent)
+		env.Body = &transportpb.Envelope_IntentToChangeView{IntentToChangeView: pbMsg}
+		env.From = int32(hub.node_ref.GetNodeID())
+
 	case core.MsgReplyMessage:
 		reply, ok := msg.(core.ReplyMessage)
 		if !ok {

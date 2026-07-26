@@ -7,6 +7,7 @@ import (
 	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/crypto"
+	"github.com/michael112233/pbft/logger"
 	"github.com/michael112233/pbft/transportpb"
 )
 
@@ -33,11 +34,13 @@ type MissingClientStateManager struct {
 	lock              sync.Mutex
 	stateTransferring bool
 	missingData       map[[32]byte]MissingClientDataDetail
+	log               *logger.Logger
 }
 
-func NewMissingClientStateManager() *MissingClientStateManager {
+func NewMissingClientStateManager(log *logger.Logger) *MissingClientStateManager {
 	return &MissingClientStateManager{
 		missingData: make(map[[32]byte]MissingClientDataDetail),
+		log:         log,
 	}
 }
 
@@ -69,6 +72,7 @@ func (m *MissingClientStateManager) getMissingClientData(missingClientMsgs [][32
 		}
 	}
 	if len(askFor) > 0 {
+		m.log.Info("Requesting %d missing client messages in n.view %d", len(askFor), viewRequested)
 		m.stateTransferring = true
 	}
 	return askFor
@@ -123,7 +127,6 @@ func (n *Node) HandleReqMissingClientMsg(req core.ReqMissingClientMsg, signature
 		n.log.Error("Failed to marshal ClientMsgSig for signing: %v", err)
 		return
 	}
-	n.log.Info("clientData size = %d bytes", len(payloadBytesSingleClientMsg))
 
 	toAddr := config.NodeAddr[req.From]
 	sendReply := func(msgs []core.MissingClientData) bool {
@@ -143,6 +146,7 @@ func (n *Node) HandleReqMissingClientMsg(req core.ReqMissingClientMsg, signature
 	}
 
 	if len(payloadBytesSingleClientMsg) >= missingClientLargeMsgThresholdBytes {
+		n.log.Info("Replying in chunks as size of single client message is %d bytes, threshold is %d bytes", len(payloadBytesSingleClientMsg), missingClientLargeMsgThresholdBytes)
 		for start := 0; start < len(clientData); start += missingClientReplyChunkSize {
 			end := start + missingClientReplyChunkSize
 			if end > len(clientData) {
@@ -175,6 +179,7 @@ func (m *MissingClientStateManager) addMissingClientData(msgs []core.MissingClie
 		}
 	}
 	if len(m.missingData) == 0 {
+		m.log.Info("All missing client data received, stopping state transfer")
 		m.stateTransferring = false
 	}
 	m.lock.Unlock()

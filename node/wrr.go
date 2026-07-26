@@ -121,6 +121,7 @@ func (n *Node) HandleViewChangeWRR(viewChange core.ViewChangeMsg, signature []by
 		if viewChange.ViewNumber == n.forView+1 && ((n.cfg.PerformanceTrigger && len(n.viewChangeMsgsLog[viewChange.ViewNumber]) == 1) || (!n.cfg.PerformanceTrigger && len(n.viewChangeMsgsLog[viewChange.ViewNumber]) == n.fNodes+1)) {
 			n.pbftTimerManager.forceStopPBFTTimer()
 			n.pbftTimerManager.stopNewViewTimer()
+			n.periodicTimerManager.stopTimer()
 			n.log.Info(" wrr Triggering dummy view-change due to receiving higher view change message for view %d and my for view %d", viewChange.ViewNumber, n.forView)
 			n.handleViewChangeTimeoutDummy()
 		}

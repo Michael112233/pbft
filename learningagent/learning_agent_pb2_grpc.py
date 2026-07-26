@@ -39,12 +39,23 @@ class LearningAgentStub:
                 request_serializer=learningagent_dot_learning__agent__pb2.NodeRequest.SerializeToString,
                 response_deserializer=learningagent_dot_learning__agent__pb2.NodeResponse.FromString,
                 _registered_method=True)
+        self.SendLearningData = channel.unary_unary(
+                '/pbft.learningagent.v1.LearningAgent/SendLearningData',
+                request_serializer=learningagent_dot_learning__agent__pb2.LearningDecision.SerializeToString,
+                response_deserializer=learningagent_dot_learning__agent__pb2.DecisionAck.FromString,
+                _registered_method=True)
 
 
 class LearningAgentServicer:
     """Missing associated documentation comment in .proto file."""
 
     def Exchange(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SendLearningData(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -57,6 +68,11 @@ def add_LearningAgentServicer_to_server(servicer, server):
                     servicer.Exchange,
                     request_deserializer=learningagent_dot_learning__agent__pb2.NodeRequest.FromString,
                     response_serializer=learningagent_dot_learning__agent__pb2.NodeResponse.SerializeToString,
+            ),
+            'SendLearningData': grpc.unary_unary_rpc_method_handler(
+                    servicer.SendLearningData,
+                    request_deserializer=learningagent_dot_learning__agent__pb2.LearningDecision.FromString,
+                    response_serializer=learningagent_dot_learning__agent__pb2.DecisionAck.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -86,6 +102,105 @@ class LearningAgent:
             '/pbft.learningagent.v1.LearningAgent/Exchange',
             learningagent_dot_learning__agent__pb2.NodeRequest.SerializeToString,
             learningagent_dot_learning__agent__pb2.NodeResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SendLearningData(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/pbft.learningagent.v1.LearningAgent/SendLearningData',
+            learningagent_dot_learning__agent__pb2.LearningDecision.SerializeToString,
+            learningagent_dot_learning__agent__pb2.DecisionAck.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+
+class LearningAgentNodeStub:
+    """Missing associated documentation comment in .proto file."""
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.SendDecision = channel.unary_unary(
+                '/pbft.learningagent.v1.LearningAgentNode/SendDecision',
+                request_serializer=learningagent_dot_learning__agent__pb2.LearningDecision.SerializeToString,
+                response_deserializer=learningagent_dot_learning__agent__pb2.DecisionAck.FromString,
+                _registered_method=True)
+
+
+class LearningAgentNodeServicer:
+    """Missing associated documentation comment in .proto file."""
+
+    def SendDecision(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
+def add_LearningAgentNodeServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+            'SendDecision': grpc.unary_unary_rpc_method_handler(
+                    servicer.SendDecision,
+                    request_deserializer=learningagent_dot_learning__agent__pb2.LearningDecision.FromString,
+                    response_serializer=learningagent_dot_learning__agent__pb2.DecisionAck.SerializeToString,
+            ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+            'pbft.learningagent.v1.LearningAgentNode', rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers('pbft.learningagent.v1.LearningAgentNode', rpc_method_handlers)
+
+
+ # This class is part of an EXPERIMENTAL API.
+class LearningAgentNode:
+    """Missing associated documentation comment in .proto file."""
+
+    @staticmethod
+    def SendDecision(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/pbft.learningagent.v1.LearningAgentNode/SendDecision',
+            learningagent_dot_learning__agent__pb2.LearningDecision.SerializeToString,
+            learningagent_dot_learning__agent__pb2.DecisionAck.FromString,
             options,
             channel_credentials,
             insecure,

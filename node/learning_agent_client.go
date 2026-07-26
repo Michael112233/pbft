@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/michael112233/pbft/learningagentpb"
@@ -18,37 +19,104 @@ var (
 	learningAgentRetryInterval  = 250 * time.Millisecond
 )
 
-type LearningAgentClient struct {
-	nodeID int
-	conn   *grpc.ClientConn
-	client learningagentpb.LearningAgentClient
+type LearningAgentHub struct {
+	learningagentpb.UnimplementedLearningAgentNodeServer
+
+	mu           sync.RWMutex
+	nodeID       int
+	agentAddress string
+	dialOptions  []grpc.DialOption
+	conn         *grpc.ClientConn
+	client       learningagentpb.LearningAgentClient
+	closed       bool
 }
 
-func NewLearningAgentClient(nodeID int, address string, opts ...grpc.DialOption) (*LearningAgentClient, error) {
-	if nodeID < 1 {
-		return nil, fmt.Errorf("learning-agent node ID must be at least 1")
+func (c *LearningAgentHub) SendDecision(
+	_ context.Context,
+	request *learningagentpb.LearningDecision,
+) (*learningagentpb.DecisionAck, error) {
+	if request == nil {
+		return &learningagentpb.DecisionAck{
+			NodeId:   int32(c.nodeID),
+			Accepted: false,
+			Error:    "learning decision is missing",
+		}, nil
+	}
+
+	ack := &learningagentpb.DecisionAck{
+		NodeId:     int32(c.nodeID),
+		SequenceId: request.GetSequenceId(),
+	}
+	if request.GetNodeId() != int32(c.nodeID) {
+		ack.Error = fmt.Sprintf(
+			"learning decision node ID = %d, want %d",
+			request.GetNodeId(),
+			c.nodeID,
+		)
+		return ack, nil
+	}
+	if request.GetNextProtocol() == "" {
+		ack.Error = "learning decision next protocol is empty"
+		return ack, nil
+	}
+
+	ack.Accepted = true
+	return ack, nil
+}
+
+func NewLearningAgent(node *Node, address string, opts ...grpc.DialOption) (*LearningAgentHub, error) {
+	if node == nil {
+		return nil, errors.New("node is nil")
+	}
+	if node.NodeID < 1 {
+		return nil, errors.New("learning-agent node ID must be at least 1")
 	}
 	if address == "" {
 		return nil, errors.New("learning-agent address is empty")
 	}
-
-	dialOptions := []grpc.DialOption{
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	}
-	dialOptions = append(dialOptions, opts...)
-	conn, err := grpc.NewClient(address, dialOptions...)
-	if err != nil {
-		return nil, fmt.Errorf("create learning-agent client for node %d: %w", nodeID, err)
-	}
-	return &LearningAgentClient{
-		nodeID: nodeID,
-		conn:   conn,
-		client: learningagentpb.NewLearningAgentClient(conn),
+	return &LearningAgentHub{
+		nodeID:       node.NodeID,
+		agentAddress: address,
+		dialOptions:  append([]grpc.DialOption(nil), opts...),
 	}, nil
 }
 
-func (c *LearningAgentClient) Exchange(ctx context.Context, payload []byte) ([]byte, error) {
-	response, err := c.client.Exchange(ctx, &learningagentpb.NodeRequest{
+func (c *LearningAgentHub) Start() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return errors.New("learning-agent hub is closed")
+	}
+	if c.client != nil {
+		return nil
+	}
+	dialOptions := []grpc.DialOption{
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	}
+	dialOptions = append(dialOptions, c.dialOptions...)
+	conn, err := grpc.NewClient(c.agentAddress, dialOptions...)
+	if err != nil {
+		return fmt.Errorf("create learning-agent client for node %d: %w", c.nodeID, err)
+	}
+	c.conn = conn
+	c.client = learningagentpb.NewLearningAgentClient(conn)
+	return nil
+}
+
+func (c *LearningAgentHub) Exchange(ctx context.Context, payload []byte) ([]byte, error) {
+	c.mu.RLock()
+	client := c.client
+	closed := c.closed
+	c.mu.RUnlock()
+	if closed {
+		return nil, errors.New("learning-agent hub is closed")
+	}
+	if client == nil {
+		return nil, errors.New("learning-agent hub is not started")
+	}
+
+	response, err := client.Exchange(ctx, &learningagentpb.NodeRequest{
 		NodeId:  int32(c.nodeID),
 		Payload: payload,
 	})
@@ -65,11 +133,26 @@ func (c *LearningAgentClient) Exchange(ctx context.Context, payload []byte) ([]b
 	return response.GetPayload(), nil
 }
 
-func (c *LearningAgentClient) Close() error {
-	if c == nil || c.conn == nil {
+func (c *LearningAgentHub) Close() error {
+	if c == nil {
 		return nil
 	}
-	return c.conn.Close()
+
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return nil
+	}
+	c.closed = true
+	conn := c.conn
+	c.conn = nil
+	c.client = nil
+	c.mu.Unlock()
+
+	if conn == nil {
+		return nil
+	}
+	return conn.Close()
 }
 
 func (n *Node) ExchangeWithLearningAgent(ctx context.Context, payload []byte) ([]byte, error) {

@@ -204,3 +204,13 @@ type ReplyMissingClientMsg struct {
 	MissingClientMsgs []MissingClientData
 	From              int
 }
+
+type IntentToChangeViewMsg struct {
+	ViewNumber int64
+	From       int
+}
+
+type IntentToChangeViewMsgSig struct {
+	IntentToChangeViewMsg IntentToChangeViewMsg
+	Signature             []byte
+}

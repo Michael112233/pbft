@@ -909,3 +909,20 @@ func NewViewMsgSigFromPB(msg *NewViewMsgSig) (core.NewViewMsgSig, error) {
 		Signature:  append([]byte(nil), msg.Signature...),
 	}, nil
 }
+
+func IntentToChangeViewToPB(msg core.IntentToChangeViewMsg) *IntentToChangeViewMsg {
+	return &IntentToChangeViewMsg{
+		ViewNumber: msg.ViewNumber,
+		From:       int32(msg.From),
+	}
+}
+
+func IntentToChangeViewFromPB(msg *IntentToChangeViewMsg) (core.IntentToChangeViewMsg, error) {
+	if msg == nil {
+		return core.IntentToChangeViewMsg{}, nil
+	}
+	return core.IntentToChangeViewMsg{
+		ViewNumber: msg.ViewNumber,
+		From:       int(msg.From),
+	}, nil
+}

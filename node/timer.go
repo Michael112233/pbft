@@ -205,6 +205,9 @@ func (tm *TimerManager) onRequestExecuted(n *Node) {
 }
 
 func (tm *TimerManager) startPBFTTimerLocked() {
+	if !tm.node_ref.fixed {
+		return
+	}
 	if tm.pbftTimer == nil {
 		return
 	}
@@ -219,6 +222,9 @@ func (tm *TimerManager) startPBFTTimerLocked() {
 }
 
 func (tm *TimerManager) resetPBFTTimerLocked() {
+	if !tm.node_ref.fixed {
+		return
+	}
 	if tm.pbftTimer == nil {
 		return
 	}

@@ -262,3 +262,18 @@ func TestVCRunningStatusRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestIntentToChangeViewRoundTrip(t *testing.T) {
+	in := core.IntentToChangeViewMsg{
+		ViewNumber: 12,
+		From:       3,
+	}
+
+	out, err := IntentToChangeViewFromPB(IntentToChangeViewToPB(in))
+	if err != nil {
+		t.Fatalf("IntentToChangeViewFromPB returned error: %v", err)
+	}
+	if !reflect.DeepEqual(out, in) {
+		t.Fatalf("round trip mismatch:\n got: %+v\nwant: %+v", out, in)
+	}
+}

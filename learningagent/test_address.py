@@ -1,6 +1,6 @@
 import unittest
 
-from learningagent.address import server_address
+from learningagent.address import node_address, server_address
 
 
 class ServerAddressTest(unittest.TestCase):
@@ -12,13 +12,24 @@ class ServerAddressTest(unittest.TestCase):
         self.assertEqual(server_address(1, "loopbackip"), "127.0.0.2:29000")
         self.assertEqual(server_address(4, "loopbackip"), "127.0.0.5:29000")
 
+    def test_local_node_addresses_match_go_configuration(self):
+        self.assertEqual(node_address(1, "local"), "127.0.0.1:28100")
+        self.assertEqual(node_address(4, "local"), "127.0.0.1:28400")
+
+    def test_loopback_node_addresses_match_go_configuration(self):
+        self.assertEqual(node_address(1, "loopbackip"), "127.0.0.2:28100")
+        self.assertEqual(node_address(4, "loopbackip"), "127.0.0.5:28400")
+
     def test_invalid_node_and_mode_are_rejected(self):
         with self.assertRaises(ValueError):
             server_address(0, "local")
         with self.assertRaises(ValueError):
             server_address(1, "remote")
+        with self.assertRaises(ValueError):
+            node_address(0, "local")
+        with self.assertRaises(ValueError):
+            node_address(1, "remote")
 
 
 if __name__ == "__main__":
     unittest.main()
-

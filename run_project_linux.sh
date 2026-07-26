@@ -60,8 +60,8 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
 fi
 
 # Start all Python servers under one launcher in the first tmux window.
-tmux new-session -d -s "$SESSION" -n "learning-agents" \
-    "cd \"$CURRENT_DIR\" && python3 -m learningagent.launcher --node-count $NODE_COUNT --mode loopbackip; status=\$?; echo; echo \"learning-agent launcher exited with status \$status\"; exec bash"
+# tmux new-session -d -s "$SESSION" -n "learning-agents" \
+#     "cd \"$CURRENT_DIR\" && python3 -m learningagent.launcher --node-count $NODE_COUNT --mode loopbackip; status=\$?; echo; echo \"learning-agent launcher exited with status \$status\"; exec bash"
 
 # Start every Go node in its own window.
 for i in $(seq 1 "$NODE_COUNT"); do

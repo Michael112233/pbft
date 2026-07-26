@@ -1,6 +1,9 @@
 package node
 
 import (
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"testing"
 	"time"
 
@@ -78,6 +81,136 @@ func TestBuildEnvelopeVCRunningStatus(t *testing.T) {
 	if len(data.Txs) != 1 {
 		t.Fatalf("len(Txs) = %d, want 1", len(data.Txs))
 	}
+}
+
+func TestBuildEnvelopeIntentToChangeView(t *testing.T) {
+	hub := &NodeMessageHub{
+		node_ref: &Node{NodeID: 2},
+	}
+	signature := []byte{1, 2, 3}
+	intent := core.IntentToChangeViewMsg{
+		ViewNumber: 9,
+		From:       2,
+	}
+
+	env, err := hub.buildEnvelope(core.MsgIntentToChangeViewMessage, intent, signature)
+	if err != nil {
+		t.Fatalf("buildEnvelope returned error: %v", err)
+	}
+	if env.From != 2 {
+		t.Fatalf("env.From = %d, want 2", env.From)
+	}
+	if string(env.Signature) != string(signature) {
+		t.Fatalf("env.Signature = %v, want %v", env.Signature, signature)
+	}
+
+	body, ok := env.Body.(*transportpb.Envelope_IntentToChangeView)
+	if !ok {
+		t.Fatalf("env.Body type = %T, want *transportpb.Envelope_IntentToChangeView", env.Body)
+	}
+	data, err := transportpb.IntentToChangeViewFromPB(body.IntentToChangeView)
+	if err != nil {
+		t.Fatalf("IntentToChangeViewFromPB returned error: %v", err)
+	}
+	if data != intent {
+		t.Fatalf("intent mismatch: got %+v want %+v", data, intent)
+	}
+}
+
+func TestDeliverIntentToChangeView(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey returned error: %v", err)
+	}
+
+	nodeLog := &logger.Logger{}
+	hub := &NodeMessageHub{
+		node_ref: &Node{
+			NodeID: 2,
+			log:    nodeLog,
+			encryptionKeyStore: &KeyStore{
+				publicKeys: map[int]ed25519.PublicKey{1: publicKey},
+			},
+		},
+		log: nodeLog,
+	}
+
+	deliver := func(t *testing.T, env *transportpb.Envelope) *transportpb.Ack {
+		t.Helper()
+		ack, err := hub.Deliver(context.Background(), env)
+		if err != nil {
+			t.Fatalf("Deliver returned error: %v", err)
+		}
+		if ack == nil {
+			t.Fatal("Deliver returned nil ack")
+		}
+		return ack
+	}
+
+	t.Run("missing body", func(t *testing.T) {
+		ack := deliver(t, &transportpb.Envelope{
+			MsgType: core.MsgIntentToChangeViewMessage,
+			From:    1,
+		})
+		if ack.Ok || ack.Error != "missing intent to change view body" {
+			t.Fatalf("ack = %+v, want missing-body rejection", ack)
+		}
+	})
+
+	t.Run("sender mismatch", func(t *testing.T) {
+		ack := deliver(t, &transportpb.Envelope{
+			MsgType: core.MsgIntentToChangeViewMessage,
+			From:    1,
+			Body: &transportpb.Envelope_IntentToChangeView{
+				IntentToChangeView: transportpb.IntentToChangeViewToPB(core.IntentToChangeViewMsg{
+					ViewNumber: 9,
+					From:       2,
+				}),
+			},
+		})
+		if ack.Ok || ack.Error != "intent to change view sender mismatch" {
+			t.Fatalf("ack = %+v, want sender-mismatch rejection", ack)
+		}
+	})
+
+	t.Run("invalid signature", func(t *testing.T) {
+		ack := deliver(t, &transportpb.Envelope{
+			MsgType:   core.MsgIntentToChangeViewMessage,
+			From:      1,
+			Signature: []byte("invalid"),
+			Body: &transportpb.Envelope_IntentToChangeView{
+				IntentToChangeView: transportpb.IntentToChangeViewToPB(core.IntentToChangeViewMsg{
+					ViewNumber: 9,
+					From:       1,
+				}),
+			},
+		})
+		if ack.Ok || ack.Error != "signature verification failed" {
+			t.Fatalf("ack = %+v, want signature rejection", ack)
+		}
+	})
+
+	t.Run("valid signature", func(t *testing.T) {
+		intent := transportpb.IntentToChangeViewToPB(core.IntentToChangeViewMsg{
+			ViewNumber: 9,
+			From:       1,
+		})
+		payload, err := marshalDeterministic(intent)
+		if err != nil {
+			t.Fatalf("marshalDeterministic returned error: %v", err)
+		}
+		ack := deliver(t, &transportpb.Envelope{
+			MsgType:   core.MsgIntentToChangeViewMessage,
+			From:      1,
+			Signature: ed25519.Sign(privateKey, payload),
+			Body: &transportpb.Envelope_IntentToChangeView{
+				IntentToChangeView: intent,
+			},
+		})
+		if !ack.Ok || ack.Error != "" {
+			t.Fatalf("ack = %+v, want successful delivery", ack)
+		}
+	})
 }
 
 func TestInjectArtificialLatencyForFarNodeSend(t *testing.T) {

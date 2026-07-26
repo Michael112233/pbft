@@ -24,4 +24,5 @@ const (
 	MsgGrantVoteMessage          string = "MsgGrantVoteMessage"
 	MsgReqMissingClientMessage   string = "MsgReqMissingClientMessage"
 	MsgReplyMissingClientMessage string = "MsgReplyMissingClientMessage"
+	MsgIntentToChangeViewMessage string = "MsgIntentToChangeViewMessage"
 )

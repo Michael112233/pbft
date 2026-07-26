@@ -1,8 +1,6 @@
 package node
 
 import (
-	"time"
-
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/crypto"
 	"github.com/michael112233/pbft/transportpb"
@@ -49,7 +47,7 @@ func (n *Node) roundRobinVCTimeout() {
 		},
 	}
 	// n.viewMu.Unlock()
-	timeStart := time.Now()
+	// timeStart := time.Now()
 	pbMsg := transportpb.ViewChangeToPB(vcPayload)
 	payloadBytes, err := marshalDeterministic(pbMsg)
 	if err != nil {
@@ -57,7 +55,7 @@ func (n *Node) roundRobinVCTimeout() {
 		// return
 	}
 	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
-	n.log.FeatureInfo("Time taken to marshal and sign round robin vc message is %d ms", time.Since(timeStart).Milliseconds())
+	// n.log.FeatureInfo("Time taken to marshal and sign round robin vc message is %d ms", time.Since(timeStart).Milliseconds())
 	// n.viewMu.Lock()
 
 	vcMsg := &core.ViewChangeMsgSig{
@@ -118,7 +116,7 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 		}
 		expectedLeader := n.primaryForView(n.forView, -1)
 		if len(n.viewChangeMsgsLog[viewChange.ViewNumber]) == 2*n.fNodes+1 && expectedLeader == n.GetNodeID() {
-			n.log.Info("Node %d is the round robin leader for view %d; starting new view immediately", expectedLeader, n.forView)
+			n.log.Info("Node %d is the round robin leader for view %d; starting new view immediately from handle view change", expectedLeader, n.forView)
 
 			n.newView()
 
@@ -139,7 +137,8 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 		if viewChange.ViewNumber == n.forView+1 && ((n.cfg.PerformanceTrigger && len(n.viewChangeMsgsLog[viewChange.ViewNumber]) == 1) || (!n.cfg.PerformanceTrigger && len(n.viewChangeMsgsLog[viewChange.ViewNumber]) == n.fNodes+1)) {
 			n.pbftTimerManager.forceStopPBFTTimer()
 			n.pbftTimerManager.stopNewViewTimer()
-			n.log.Info(" Round Robin Triggering dummy view-change due to receiving higher view change message for view %d and my for view %d", viewChange.ViewNumber, n.forView)
+			n.periodicTimerManager.stopTimer()
+			n.log.Info(" Round Robin Triggering view-change timout dummy due to receiving higher view change message for view %d and my for view %d", viewChange.ViewNumber, n.forView)
 			n.handleViewChangeTimeoutDummy()
 		}
 	} else {

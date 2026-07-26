@@ -80,7 +80,7 @@ func (n *Node) postActions(actions []executionPostAction) {
 }
 
 func (n *Node) periodicTrigger(periodicTrigger bool, periodInterval int64) {
-	if periodicTrigger && n.periodic {
+	if periodicTrigger && n.periodicReq {
 		go n.periodicVC(periodInterval)
 	}
 }
@@ -108,6 +108,7 @@ func (n *Node) commitSerializedRoutine() {
 	for {
 		select {
 		case <-n.clientMissingDataReceived:
+			n.log.Info("May execute req becuase of client req transfer")
 			n.newcollectReadyExecutions(
 				-1,
 				nil,
@@ -120,7 +121,7 @@ func (n *Node) commitSerializedRoutine() {
 		case cpState := <-n.cpStateTransfer:
 
 			if cpState.seq > n.lastExecuted {
-				n.log.Warn("Moving forward execution machine")
+				n.log.Warn("Moving forward execution machine may execute req because of cp transfer")
 				n.executionMachine.RestoreCheckpoint(cpState.balances)
 				n.lastExecuted = cpState.seq
 				n.newcollectReadyExecutions(
@@ -248,7 +249,7 @@ func (n *Node) newcollectReadyExecutions(seq int64, slot *consensusSlot, msg cor
 		n.lastExecuted = nextSeq
 		n.executionMu.Unlock()
 		if transferPath {
-			n.log.Info("From cp state transfer and did execution for seq %d ", nextSeq)
+			n.log.Info("From cp state transfer/ client req transfer and did execution for seq %d ", nextSeq)
 		}
 		if n.cfg.Performance {
 			performanceTriggert := n.observeExecutedSlotForThroughput(n.lastExecuted, time.Now(), view, leaderId)
@@ -256,10 +257,11 @@ func (n *Node) newcollectReadyExecutions(seq int64, slot *consensusSlot, msg cor
 				performanceTrigger += 1
 			}
 		}
-		// period := int64(9*CHECKPOINT_INTERVAL) / 2
+
 		if n.lastExecuted == periodInterval {
 			periodicTrigger = true
 		}
+		n.startPeriodicTimerForReqExe(n.lastExecuted)
 
 		if n.lastExecuted%CHECKPOINT_INTERVAL == 0 {
 			copyOfBalances := n.executionMachine.CheckpointSnapshot()

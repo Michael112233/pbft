@@ -125,6 +125,142 @@ func (x *NodeResponse) GetPayload() []byte {
 	return nil
 }
 
+type LearningDecision struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        int32                  `protobuf:"varint,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	SequenceId    uint64                 `protobuf:"varint,2,opt,name=sequence_id,json=sequenceId,proto3" json:"sequence_id,omitempty"`
+	NextProtocol  string                 `protobuf:"bytes,3,opt,name=next_protocol,json=nextProtocol,proto3" json:"next_protocol,omitempty"`
+	Data          map[string]float64     `protobuf:"bytes,4,rep,name=data,proto3" json:"data,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"fixed64,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LearningDecision) Reset() {
+	*x = LearningDecision{}
+	mi := &file_learningagent_learning_agent_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LearningDecision) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LearningDecision) ProtoMessage() {}
+
+func (x *LearningDecision) ProtoReflect() protoreflect.Message {
+	mi := &file_learningagent_learning_agent_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LearningDecision.ProtoReflect.Descriptor instead.
+func (*LearningDecision) Descriptor() ([]byte, []int) {
+	return file_learningagent_learning_agent_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *LearningDecision) GetNodeId() int32 {
+	if x != nil {
+		return x.NodeId
+	}
+	return 0
+}
+
+func (x *LearningDecision) GetSequenceId() uint64 {
+	if x != nil {
+		return x.SequenceId
+	}
+	return 0
+}
+
+func (x *LearningDecision) GetNextProtocol() string {
+	if x != nil {
+		return x.NextProtocol
+	}
+	return ""
+}
+
+func (x *LearningDecision) GetData() map[string]float64 {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type DecisionAck struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        int32                  `protobuf:"varint,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	SequenceId    uint64                 `protobuf:"varint,2,opt,name=sequence_id,json=sequenceId,proto3" json:"sequence_id,omitempty"`
+	Accepted      bool                   `protobuf:"varint,3,opt,name=accepted,proto3" json:"accepted,omitempty"`
+	Error         string                 `protobuf:"bytes,4,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DecisionAck) Reset() {
+	*x = DecisionAck{}
+	mi := &file_learningagent_learning_agent_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DecisionAck) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DecisionAck) ProtoMessage() {}
+
+func (x *DecisionAck) ProtoReflect() protoreflect.Message {
+	mi := &file_learningagent_learning_agent_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DecisionAck.ProtoReflect.Descriptor instead.
+func (*DecisionAck) Descriptor() ([]byte, []int) {
+	return file_learningagent_learning_agent_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *DecisionAck) GetNodeId() int32 {
+	if x != nil {
+		return x.NodeId
+	}
+	return 0
+}
+
+func (x *DecisionAck) GetSequenceId() uint64 {
+	if x != nil {
+		return x.SequenceId
+	}
+	return 0
+}
+
+func (x *DecisionAck) GetAccepted() bool {
+	if x != nil {
+		return x.Accepted
+	}
+	return false
+}
+
+func (x *DecisionAck) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
 var File_learningagent_learning_agent_proto protoreflect.FileDescriptor
 
 const file_learningagent_learning_agent_proto_rawDesc = "" +
@@ -135,9 +271,27 @@ const file_learningagent_learning_agent_proto_rawDesc = "" +
 	"\apayload\x18\x02 \x01(\fR\apayload\"A\n" +
 	"\fNodeResponse\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\x05R\x06nodeId\x12\x18\n" +
-	"\apayload\x18\x02 \x01(\fR\apayload2d\n" +
+	"\apayload\x18\x02 \x01(\fR\apayload\"\xf1\x01\n" +
+	"\x10LearningDecision\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\x05R\x06nodeId\x12\x1f\n" +
+	"\vsequence_id\x18\x02 \x01(\x04R\n" +
+	"sequenceId\x12#\n" +
+	"\rnext_protocol\x18\x03 \x01(\tR\fnextProtocol\x12E\n" +
+	"\x04data\x18\x04 \x03(\v21.pbft.learningagent.v1.LearningDecision.DataEntryR\x04data\x1a7\n" +
+	"\tDataEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x01R\x05value:\x028\x01\"y\n" +
+	"\vDecisionAck\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\x05R\x06nodeId\x12\x1f\n" +
+	"\vsequence_id\x18\x02 \x01(\x04R\n" +
+	"sequenceId\x12\x1a\n" +
+	"\baccepted\x18\x03 \x01(\bR\baccepted\x12\x14\n" +
+	"\x05error\x18\x04 \x01(\tR\x05error2\xc5\x01\n" +
 	"\rLearningAgent\x12S\n" +
-	"\bExchange\x12\".pbft.learningagent.v1.NodeRequest\x1a#.pbft.learningagent.v1.NodeResponseB?Z=github.com/michael112233/pbft/learningagentpb;learningagentpbb\x06proto3"
+	"\bExchange\x12\".pbft.learningagent.v1.NodeRequest\x1a#.pbft.learningagent.v1.NodeResponse\x12_\n" +
+	"\x10SendLearningData\x12'.pbft.learningagent.v1.LearningDecision\x1a\".pbft.learningagent.v1.DecisionAck2p\n" +
+	"\x11LearningAgentNode\x12[\n" +
+	"\fSendDecision\x12'.pbft.learningagent.v1.LearningDecision\x1a\".pbft.learningagent.v1.DecisionAckB?Z=github.com/michael112233/pbft/learningagentpb;learningagentpbb\x06proto3"
 
 var (
 	file_learningagent_learning_agent_proto_rawDescOnce sync.Once
@@ -151,19 +305,27 @@ func file_learningagent_learning_agent_proto_rawDescGZIP() []byte {
 	return file_learningagent_learning_agent_proto_rawDescData
 }
 
-var file_learningagent_learning_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_learningagent_learning_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_learningagent_learning_agent_proto_goTypes = []any{
-	(*NodeRequest)(nil),  // 0: pbft.learningagent.v1.NodeRequest
-	(*NodeResponse)(nil), // 1: pbft.learningagent.v1.NodeResponse
+	(*NodeRequest)(nil),      // 0: pbft.learningagent.v1.NodeRequest
+	(*NodeResponse)(nil),     // 1: pbft.learningagent.v1.NodeResponse
+	(*LearningDecision)(nil), // 2: pbft.learningagent.v1.LearningDecision
+	(*DecisionAck)(nil),      // 3: pbft.learningagent.v1.DecisionAck
+	nil,                      // 4: pbft.learningagent.v1.LearningDecision.DataEntry
 }
 var file_learningagent_learning_agent_proto_depIdxs = []int32{
-	0, // 0: pbft.learningagent.v1.LearningAgent.Exchange:input_type -> pbft.learningagent.v1.NodeRequest
-	1, // 1: pbft.learningagent.v1.LearningAgent.Exchange:output_type -> pbft.learningagent.v1.NodeResponse
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	4, // 0: pbft.learningagent.v1.LearningDecision.data:type_name -> pbft.learningagent.v1.LearningDecision.DataEntry
+	0, // 1: pbft.learningagent.v1.LearningAgent.Exchange:input_type -> pbft.learningagent.v1.NodeRequest
+	2, // 2: pbft.learningagent.v1.LearningAgent.SendLearningData:input_type -> pbft.learningagent.v1.LearningDecision
+	2, // 3: pbft.learningagent.v1.LearningAgentNode.SendDecision:input_type -> pbft.learningagent.v1.LearningDecision
+	1, // 4: pbft.learningagent.v1.LearningAgent.Exchange:output_type -> pbft.learningagent.v1.NodeResponse
+	3, // 5: pbft.learningagent.v1.LearningAgent.SendLearningData:output_type -> pbft.learningagent.v1.DecisionAck
+	3, // 6: pbft.learningagent.v1.LearningAgentNode.SendDecision:output_type -> pbft.learningagent.v1.DecisionAck
+	4, // [4:7] is the sub-list for method output_type
+	1, // [1:4] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_learningagent_learning_agent_proto_init() }
@@ -177,9 +339,9 @@ func file_learningagent_learning_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_learningagent_learning_agent_proto_rawDesc), len(file_learningagent_learning_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   5,
 			NumExtensions: 0,
-			NumServices:   1,
+			NumServices:   2,
 		},
 		GoTypes:           file_learningagent_learning_agent_proto_goTypes,
 		DependencyIndexes: file_learningagent_learning_agent_proto_depIdxs,

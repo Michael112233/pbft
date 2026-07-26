@@ -33,7 +33,7 @@ func (c *Client) HandleLeaderUpdate(data core.LeaderIdUpdate) {
 		leaderId: data.NewLeaderId,
 	}
 	c.newLeaderQuorum[leaderUpdate]++
-	if c.newLeaderQuorum[leaderUpdate] == c.fNodes+1 {
+	if c.newLeaderQuorum[leaderUpdate] == 2*c.fNodes {
 		c.leaderAddr = config.NodeAddr[data.NewLeaderId]
 		c.currentView = data.View
 		leaderAddr := c.leaderAddr
