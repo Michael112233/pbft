@@ -1584,6 +1584,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 		return
 	}
 	if newViewMsg.NewViewNumber < n.forView {
+		n.viewMu.RUnlock()
 		n.log.Error("Received new view message for view %d which is less than my for view %d, ignoring", newViewMsg.NewViewNumber, n.forView)
 		return
 	}
@@ -1668,7 +1669,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	missingStates := make([][32]byte, 0, len(newViewMsg.PreprepareLog))
 	newview := n.view
 	leaderId := n.leaderId
-	n.viewMu.Unlock()
+	// n.viewMu.Unlock()
 	n.log.FeatureInfo("Done with new view msg for view %d", n.view)
 	for _, preprepareMsg := range newViewMsg.PreprepareLog {
 		missing := n.HandlePrePrepareNewView(preprepareMsg.PreprepareMsgMini, preprepareMsg.Signature, preprepareMsg.ActualMsg, leaderId, newview)
@@ -1681,6 +1682,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 		// }
 
 	}
+	n.viewMu.Unlock()
 	if len(missingStates) > 0 {
 		go n.sendReqMissingClientMsg(missingStates, newview, leaderId)
 	}
