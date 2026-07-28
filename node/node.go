@@ -246,13 +246,15 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		periodInterval:                  cfg.Period,
 		scoreboard:                      NewScoreboard(cfg.NodeNum),
 		missingClientStateManager:       NewMissingClientStateManager(log),
-		epochManager:                    NewEpochManager(log),
-		gc:                              cfg.GC,
+		// epochManager:                    NewEpochManager(log),
+		gc: cfg.GC,
 	}
 	periodicTimerManager := NewPeriodicTimerManager(n, log)
+	epochManager := NewEpochManager(n, log)
 	viewIntent := NewViewIntent(n, log)
 	n.viewIntent = viewIntent
 	n.periodicTimerManager = periodicTimerManager
+	n.epochManager = epochManager
 	if address := config.LearningAgentAddr[nodeID]; address != "" {
 		learningAgent, err := NewLearningAgent(n, address)
 		if err != nil {

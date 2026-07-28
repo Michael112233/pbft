@@ -19,6 +19,10 @@ const (
 	WATERMARK_INTERVAL int64 = 60000 // sizes related to sliding window
 )
 
+type EpochNode interface {
+	GetNodeID() int
+}
+
 type ThroughputData struct {
 	TotalRequests int64
 	StartTime     time.Time
@@ -43,13 +47,15 @@ type EpochManager struct {
 	log          *logger.Logger
 	csvFile      *os.File
 	csvWriter    *csv.Writer
+	node         EpochNode
 }
 
-func NewEpochManager(log *logger.Logger) *EpochManager {
+func NewEpochManager(node EpochNode, log *logger.Logger) *EpochManager {
 	epochManager := &EpochManager{
 		currentEpoch: 1,
 		epochData:    make(map[int64]EpochData),
 		log:          log,
+		node:         node,
 	}
 	epochManager.epochData[epochManager.currentEpoch] = EpochData{}
 	epochManager.openEpochCSV()
@@ -61,8 +67,9 @@ func (em *EpochManager) openEpochCSV() {
 		em.log.Error("Failed to create logs directory for epoch CSV: %v", err)
 		return
 	}
+	nodeID := em.node.GetNodeID()
 
-	path := filepath.Join("logs", "epoch_metrics.csv")
+	path := filepath.Join("logs", fmt.Sprintf("epoch_data_node_%d.csv", nodeID))
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
 	if err != nil {
 		em.log.Error("Failed to open epoch CSV %s: %v", path, err)
