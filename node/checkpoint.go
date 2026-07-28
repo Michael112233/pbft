@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math/big"
 	"sort"
-	"time"
 
 	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
@@ -87,7 +86,7 @@ func (n *Node) HandleCheckpoint(checkpointMsg core.CheckpointMsg, signature []by
 	n.checkpointMu.Unlock()
 
 	if needStateTransfer {
-		n.log.Info("Requesting state transfer for seq %d digest %x due to checkpoint quorum", key.seq, key.digest)
+		// n.log.Info("Requesting state transfer for seq %d digest %x due to checkpoint quorum", key.seq, key.digest)
 		n.RequestStateTransfer(key.seq, key.digest, false)
 	}
 }
@@ -95,9 +94,10 @@ func (n *Node) HandleCheckpoint(checkpointMsg core.CheckpointMsg, signature []by
 func (n *Node) RequestStateTransfer(seq int64, digest [32]byte, fromVc bool) { // only from vc dont need it with every checkpoint
 	// time.Sleep(200 * time.Millisecond)
 	if !fromVc {
-		time.Sleep(600 * time.Millisecond)
+		// time.Sleep(600 * time.Millisecond)
+		return
 	} else {
-		time.Sleep(100 * time.Millisecond)
+		// time.Sleep(100 * time.Millisecond)
 	}
 	clientMissingStateTransferring := n.missingClientStateManager.isMissingClientStateTransferring()
 	if clientMissingStateTransferring && !fromVc { // can block forever if client one doesnt complete, fromvc one always go through
@@ -196,7 +196,7 @@ func (n *Node) HandleStateTransfer(stateTransferMsg core.StateTransferMsg, signa
 	n.checkpointMu.Lock()
 	stateUpdated := false
 	// can add small verfication against existing data
-	n.log.Warn("Received transfered state")
+	// n.log.Warn("Received transfered state")
 	key := checkpoint{
 		seq:    stateTransferMsg.SeqNum,
 		digest: stateTransferMsg.Digest,
@@ -230,7 +230,7 @@ func (n *Node) HandleStateTransfer(stateTransferMsg core.StateTransferMsg, signa
 		go n.gcCheckpoints(key)
 		stateUpdated = true
 	} else if stateTransferMsg.SeqNum <= n.lastStableCheckpoint.seq && checkpointData.balances != nil {
-		n.log.Warn("Received state transfer for already stable checkpoint seq=%d digest=%x, ignoring or updated locally", key.seq, key.digest)
+		// n.log.Warn("Received state transfer for already stable checkpoint seq=%d digest=%x, ignoring or updated locally", key.seq, key.digest)
 	}
 	n.checkpointMu.Unlock()
 	if stateUpdated {

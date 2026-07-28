@@ -26,7 +26,7 @@ const (
 	defaultPBFTRequestTimeout          = 5 * time.Second
 	defaultPBFTRequestTimeoutJitterMax = 500 * time.Millisecond
 	CHECKPOINT_INTERVAL                = 250
-	defaultTargetThroughput            = 0.90 * 2000
+	defaultTargetThroughput            = 0.90 * 1400
 	targetThroughputMaxFactor          = 0.90
 	ALPHA                              = 1 / float64(10) // for exponential moving average calculation of throughput
 	D                                  = 3
@@ -163,6 +163,7 @@ type Node struct {
 	scoreboard *Scoreboard
 
 	missingClientStateManager *MissingClientStateManager
+	epochManager              *EpochManager
 
 	dead               bool
 	split              bool
@@ -245,6 +246,7 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		periodInterval:                  cfg.Period,
 		scoreboard:                      NewScoreboard(cfg.NodeNum),
 		missingClientStateManager:       NewMissingClientStateManager(log),
+		epochManager:                    NewEpochManager(log),
 		gc:                              cfg.GC,
 	}
 	periodicTimerManager := NewPeriodicTimerManager(n, log)
@@ -580,7 +582,7 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 			time.Sleep(time.Duration(n.cfg.RetrySleep) * time.Millisecond)
 			n.viewMu.RLock()
 			retriedOnce = true
-			n.log.Error("will retry %d because seq %d reached max inflight seq %d", view, currentSeq, n.cfg.MaxInflightSeq)
+			n.log.Debug("will retry %d because seq %d reached max inflight seq %d", view, currentSeq, n.cfg.MaxInflightSeq)
 			continue
 		} else if inflight >= n.cfg.MaxInflightSeq && retriedOnce {
 			n.log.Error("PrePrepare skipped for view %d because seq %d reached max inflight seq %d", view, currentSeq, n.cfg.MaxInflightSeq)
@@ -657,6 +659,7 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 		// preprepareMsg.To = othersIp
 		go n.messageHub.Send(core.MsgPreprepareMessage, othersIp, preprepareMsg, signature) // cant do go in current state race
 	}
+	n.EpochProposalInterval(seqNum)
 	// }()
 
 }
@@ -785,6 +788,7 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 	}
 	n.pool.Add(digestClientMsg, preprepareMsg.ClientMsg)
 	n.pbftTimerManager.trackPreprepareRequest()
+	n.EpochProposalInterval(preprepareMsg.SeqNum)
 
 	// Buffered prepares may now form quorum with the PrePrepare
 	n.tryAdvancePrepare(slot, view, preprepareMsg.SeqNum, digestClientMsg)
@@ -913,6 +917,7 @@ func (n *Node) HandlePrePrepareNewView(preprepareMsg core.PreprepareMsgMini, sig
 	// 	n.pool.Add(clientMsg)
 	// 	// n.pbftTimerManager.trackPreprepareRequest()
 	// }
+	n.EpochProposalInterval(preprepareMsg.SeqNum)
 	return missingSlot
 
 }
@@ -2093,7 +2098,9 @@ func (n *Node) newView() {
 					n.log.Error("Primary missing slot but received txn from %s and to %s ", preprepareMsg.ActualMsg.Data.Txn.Sender, preprepareMsg.ActualMsg.Data.Txn.Receiver)
 				}
 				slot.missingData = true
-				missingStates = append(missingStates, preprepareMsg.PreprepareMsgMini.DigestClientMsg)
+				if !n.cfg.CarryState {
+					missingStates = append(missingStates, preprepareMsg.PreprepareMsgMini.DigestClientMsg)
+				}
 			} else if !exists && executed {
 				slot.missingData = false
 			}
@@ -2104,6 +2111,7 @@ func (n *Node) newView() {
 			}
 		}
 		slot.mu.Unlock()
+		n.EpochProposalInterval(preprepareMsg.PreprepareMsgMini.SeqNum)
 
 	}
 

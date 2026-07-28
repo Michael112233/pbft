@@ -14,7 +14,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const clientSendInterval = 33 * time.Millisecond
+const clientSendInterval = 67 * time.Millisecond
 
 func GenerateDummyTxs(count int) []*core.Transaction {
 	txs := make([]*core.Transaction, count)

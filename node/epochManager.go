@@ -2,6 +2,8 @@ package node
 
 import (
 	"encoding/csv"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -11,9 +13,10 @@ import (
 	"github.com/michael112233/pbft/logger"
 )
 
+// hot path file writes
 const (
-	EPOCH_INTERVAL     int64 = 5000
-	WATERMARK_INTERVAL int64 = 2500 // sizes related to sliding window
+	EPOCH_INTERVAL     int64 = 120000
+	WATERMARK_INTERVAL int64 = 60000 // sizes related to sliding window
 )
 
 type ThroughputData struct {
@@ -83,10 +86,10 @@ func (em *EpochManager) openEpochCSV() {
 	em.csvWriter = writer
 }
 
-func (em *EpochManager) writeEpochCSV(epochNumber int64, throughput float64, proposalRate float64) {
+func (em *EpochManager) writeEpochCSV(epochNumber int64, throughput float64, proposalRate float64) error {
 	if em.csvWriter == nil {
-		em.log.Error("Epoch CSV writer is not initialized")
-		return
+
+		return fmt.Errorf("epoch CSV writer is not initialized")
 	}
 
 	record := []string{
@@ -95,14 +98,82 @@ func (em *EpochManager) writeEpochCSV(epochNumber int64, throughput float64, pro
 		strconv.FormatFloat(proposalRate, 'f', 6, 64),
 	}
 	if err := em.csvWriter.Write(record); err != nil {
-		em.log.Error("Failed to write epoch CSV row: %v", err)
-		return
+
+		return fmt.Errorf("write epoch CSV row: %w", err)
 	}
 
 	em.csvWriter.Flush()
 	if err := em.csvWriter.Error(); err != nil {
-		em.log.Error("Failed to flush epoch CSV row: %v", err)
+		return fmt.Errorf("flush epoch CSV: %w", err)
 	}
+	return nil
+}
+
+func (em *EpochManager) updateEpochThroughputCSV(epochNumber int64, throughput float64) error {
+	if em.csvWriter == nil || em.csvFile == nil {
+		return fmt.Errorf("epoch CSV writer is not initialized")
+	}
+
+	em.csvWriter.Flush()
+	if err := em.csvWriter.Error(); err != nil {
+		return fmt.Errorf("flush epoch CSV before update: %w", err)
+	}
+
+	file, err := os.Open(em.csvFile.Name())
+	if err != nil {
+		return fmt.Errorf("open epoch CSV for reading: %w", err)
+	}
+	records, readErr := csv.NewReader(file).ReadAll()
+	closeErr := file.Close()
+	if readErr != nil {
+		return fmt.Errorf("read epoch CSV: %w", readErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close epoch CSV after reading: %w", closeErr)
+	}
+
+	if len(records) == 0 || len(records[0]) != 3 ||
+		records[0][0] != "epoch" ||
+		records[0][1] != "throughput" ||
+		records[0][2] != "proposal_rate" {
+		return fmt.Errorf("epoch CSV has an invalid header")
+	}
+
+	found := false
+	for rowIndex, record := range records[1:] {
+		if len(record) != 3 {
+			return fmt.Errorf("epoch CSV row %d has %d fields, want 3", rowIndex+2, len(record))
+		}
+
+		recordEpoch, err := strconv.ParseInt(record[0], 10, 64)
+		if err != nil {
+			return fmt.Errorf("parse epoch at CSV row %d: %w", rowIndex+2, err)
+		}
+		if recordEpoch == epochNumber {
+			record[1] = strconv.FormatFloat(throughput, 'f', 6, 64)
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("epoch %d not found in CSV", epochNumber)
+	}
+
+	if err := em.csvFile.Truncate(0); err != nil {
+		return fmt.Errorf("truncate epoch CSV: %w", err)
+	}
+	if _, err := em.csvFile.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("seek to start of epoch CSV: %w", err)
+	}
+
+	writer := csv.NewWriter(em.csvFile)
+	writer.WriteAll(records)
+	if err := writer.Error(); err != nil {
+		return fmt.Errorf("rewrite epoch CSV: %w", err)
+	}
+	em.csvWriter = writer
+
+	return nil
 }
 
 // state transfer jumps
@@ -166,6 +237,16 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) {
 			throughput := 0 // cant have throughput of last epoch as this is the first epoch
 			_ = throughput  // used when the epoch CSV write call is added
 			// at watermark we measure current epoch state and last epoch tput
+			writeTime := time.Now()
+			writeErr := em.writeEpochCSV(em.currentEpoch, float64(throughput), proposalRate)
+			writeDuration := time.Since(writeTime)
+			if writeDuration > 5*time.Millisecond {
+				em.log.Error("Writing epoch CSV at watermark for current epoch number %d took longer than 5ms: %v", em.currentEpoch, writeDuration)
+			}
+			if writeErr != nil {
+				em.log.Error("Failed to write epoch CSV at watermark for current epoch number %d: %v", em.currentEpoch, writeErr)
+				return
+			}
 		} else {
 			currentEpochData, ok := em.epochData[em.currentEpoch]
 			if !ok {
@@ -182,32 +263,43 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) {
 				em.log.Error("Proposal rate is zero at watermark for current epoch number %d", em.currentEpoch)
 				return
 			}
+			writeTime := time.Now()
+			writeErr := em.writeEpochCSV(em.currentEpoch, float64(0), proposalRate) // throughput will be updated later when epoch ends
+			if writeErr != nil {
+				em.log.Error("Failed to write epoch CSV at watermark for current epoch number %d: %v", em.currentEpoch, writeErr)
+				return
+			}
+			writeDuration := time.Since(writeTime)
+			if writeDuration > 5*time.Millisecond {
+				em.log.Error("Writing epoch CSV at watermark for current epoch number %d took longer than 5ms: %v", em.currentEpoch, writeDuration)
+			}
+
 			throughput := lastEpochData.ThroughputData.Throughput
 			// at watermark we measure current epoch state and last epoch tput
 			if throughput == 0 {
 				em.log.Error("Throughput is zero at watermark for last epoch number %d", em.currentEpoch-1)
 				return
 			}
+			updateTime := time.Now()
+			updateErr := em.updateEpochThroughputCSV(em.currentEpoch-1, throughput)
+			if updateErr != nil {
+				em.log.Error("Failed to update epoch CSV throughput at watermark for last epoch number %d: %v", em.currentEpoch-1, updateErr)
+				return
+			}
+			updateDuration := time.Since(updateTime)
+			if updateDuration > 5*time.Millisecond {
+				em.log.Error("Updating epoch CSV throughput at watermark for last epoch number %d took longer than 5ms: %v", em.currentEpoch-1, updateDuration)
+			}
 		}
 	}
 }
 
 // since we dont do one req at a time and window is big so preprepare can be out of order
-func (em *EpochManager) ActiononProposalInterval(seqNum int64) {
+func (em *EpochManager) ActiononProposalInterval(seqNum int64) { // might get same  seqnum multiple times if in old view its not committed
 	em.mu.Lock()
 	defer em.mu.Unlock()
-	// if seqNum == 1 {
-	// 	proposalStartTime := time.Now()
-	// 	epochData, ok := em.epochData[em.currentEpoch]
-	// 	if !ok {
-	// 		em.log.Error("Failed to retrieve epoch data")
-	// 		return
-	// 	}
-	// 	epochData.ProposalIntervalData.StartTime = proposalStartTime
-	// 	em.epochData[em.currentEpoch] = epochData
-	// 	return
-	// }
-	if seqNum == WATERMARK_INTERVAL*em.currentEpoch {
+
+	if seqNum == (em.currentEpoch-1)*EPOCH_INTERVAL+WATERMARK_INTERVAL {
 		epochData, ok := em.epochData[em.currentEpoch]
 		if !ok {
 			em.log.Error("Failed to retrieve epoch data") // out of order
@@ -223,6 +315,14 @@ func (em *EpochManager) ActiononProposalInterval(seqNum int64) {
 		em.epochData[em.currentEpoch] = epochData
 		return
 	}
+}
+
+func (n *Node) EpochReqExecuted(seq int64) {
+	n.epochManager.ActiononLastExeSeq(seq)
+}
+
+func (n *Node) EpochProposalInterval(seq int64) {
+	n.epochManager.ActiononProposalInterval(seq)
 }
 
 // access to preprepare seq number would be good, but need to fix its locking and handling
