@@ -21,6 +21,7 @@ const (
 
 type EpochNode interface {
 	GetNodeID() int
+	SendandEnterEpochData(epoch int64, throughput float64, proposalRate float64)
 }
 
 type ThroughputData struct {
@@ -41,21 +42,24 @@ type EpochData struct {
 	ProposalIntervalData ProposalIntervalData
 }
 type EpochManager struct {
-	mu           sync.RWMutex
-	currentEpoch int64
-	epochData    map[int64]EpochData
-	log          *logger.Logger
-	csvFile      *os.File
-	csvWriter    *csv.Writer
-	node         EpochNode
+	mu            sync.RWMutex
+	currentEpoch  int64
+	epochData     map[int64]EpochData
+	epochDecision map[int64]string // it is decision for watermark send in current epoch and applied in next epoch and its reward come with watermark of next to next epoch
+	log           *logger.Logger
+	csvFile       *os.File
+	csvWriter     *csv.Writer
+	node          EpochNode
 }
 
 func NewEpochManager(node EpochNode, log *logger.Logger) *EpochManager {
 	epochManager := &EpochManager{
-		currentEpoch: 1,
-		epochData:    make(map[int64]EpochData),
-		log:          log,
-		node:         node,
+		currentEpoch:  1,
+		epochDecision: make(map[int64]string),
+		epochData:     make(map[int64]EpochData),
+
+		log:  log,
+		node: node,
 	}
 	epochManager.epochData[epochManager.currentEpoch] = EpochData{}
 	epochManager.openEpochCSV()
@@ -214,7 +218,8 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) {
 		epochData.ThroughputData.TotalRequests = EPOCH_INTERVAL
 		epochData.ThroughputData.Throughput = float64(epochData.ThroughputData.TotalRequests) / epochData.ThroughputData.TotalTime.Seconds()
 		em.epochData[em.currentEpoch] = epochData
-
+		em.log.Info("Epoch %d completed", em.currentEpoch)
+		em.log.FeatureInfo("Epoch %d completed", em.currentEpoch)
 		em.currentEpoch++
 		throughputStartTime := time.Now()
 		proposalStartTime := time.Now() // a little delayed but its fine
@@ -226,6 +231,7 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) {
 				StartTime: proposalStartTime,
 			},
 		}
+
 		return
 	}
 
@@ -244,6 +250,9 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) {
 			throughput := 0 // cant have throughput of last epoch as this is the first epoch
 			_ = throughput  // used when the epoch CSV write call is added
 			// at watermark we measure current epoch state and last epoch tput
+			em.log.Info("Watermark reached for current epoch number %d", em.currentEpoch)
+			em.log.FeatureInfo("Watermark reached for current epoch number %d", em.currentEpoch)
+			go em.node.SendandEnterEpochData(em.currentEpoch, float64(throughput), proposalRate)
 			writeTime := time.Now()
 			writeErr := em.writeEpochCSV(em.currentEpoch, float64(throughput), proposalRate)
 			writeDuration := time.Since(writeTime)
@@ -287,6 +296,9 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) {
 				em.log.Error("Throughput is zero at watermark for last epoch number %d", em.currentEpoch-1)
 				return
 			}
+			em.log.Info("Watermark reached for current epoch number %d", em.currentEpoch)
+			em.log.FeatureInfo("Watermark reached for current epoch number %d", em.currentEpoch)
+			go em.node.SendandEnterEpochData(em.currentEpoch, throughput, proposalRate)
 			updateTime := time.Now()
 			updateErr := em.updateEpochThroughputCSV(em.currentEpoch-1, throughput)
 			if updateErr != nil {
@@ -323,6 +335,23 @@ func (em *EpochManager) ActiononProposalInterval(seqNum int64) { // might get sa
 		return
 	}
 }
+func (em *EpochManager) ReceiveEpochDecision(epoch int64, protocol string) {
+	em.mu.Lock()
+	defer em.mu.Unlock()
+	if epoch != em.currentEpoch {
+		em.log.Error("Received epoch decision for epoch %d, but current epoch is %d. Ignoring.", epoch, em.currentEpoch)
+		return
+	}
+	em.log.Info("Received epoch decision for epoch %d: protocol=%s", epoch, protocol)
+	em.log.FeatureInfo("Received epoch decision for epoch %d: protocol=%s", epoch, protocol)
+	em.epochDecision[epoch] = protocol
+}
+
+func (em *EpochManager) GetCurrentEpoch() int64 {
+	em.mu.RLock()
+	defer em.mu.RUnlock()
+	return em.currentEpoch
+}
 
 func (n *Node) EpochReqExecuted(seq int64) {
 	n.epochManager.ActiononLastExeSeq(seq)
@@ -330,6 +359,14 @@ func (n *Node) EpochReqExecuted(seq int64) {
 
 func (n *Node) EpochProposalInterval(seq int64) {
 	n.epochManager.ActiononProposalInterval(seq)
+}
+
+func (n *Node) SendandEnterEpochData(epoch int64, throughput float64, proposalRate float64) {
+	n.epochAggregator.SendandEnterEpochData(epoch, throughput, proposalRate)
+}
+
+func (n *Node) HandleDecisionFromLearningAgent(epoch int64, protocol string) {
+	n.epochManager.ReceiveEpochDecision(epoch, protocol)
 }
 
 // access to preprepare seq number would be good, but need to fix its locking and handling

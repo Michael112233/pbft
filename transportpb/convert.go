@@ -926,3 +926,24 @@ func IntentToChangeViewFromPB(msg *IntentToChangeViewMsg) (core.IntentToChangeVi
 		From:       int(msg.From),
 	}, nil
 }
+
+func EpochDataForAggregationToPB(msg core.EpochDataForAggregation) *EpochDataForAggregation {
+	return &EpochDataForAggregation{
+		EpochNumber:  msg.EpochNumber,
+		Throughput:   msg.Throughput,
+		ProposalRate: msg.ProposalRate,
+		From:         int32(msg.From),
+	}
+}
+
+func EpochDataForAggregationFromPB(msg *EpochDataForAggregation) (core.EpochDataForAggregation, error) {
+	if msg == nil {
+		return core.EpochDataForAggregation{}, nil
+	}
+	return core.EpochDataForAggregation{
+		EpochNumber:  msg.EpochNumber,
+		Throughput:   msg.Throughput,
+		ProposalRate: msg.ProposalRate,
+		From:         int(msg.From),
+	}, nil
+}

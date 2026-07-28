@@ -12,7 +12,7 @@ from numpy.typing import NDArray
 from typing import Protocol
 from enum import StrEnum
 from sklearn.ensemble import RandomForestRegressor
-
+from collections import deque
 import grpc
 
 from learningagent import learning_agent_pb2
@@ -25,7 +25,7 @@ GRACEFUL_STOP_SECONDS = 5
 NODE_RPC_TIMEOUT_SECONDS = 1.0
 MAX_REPLAY_LENGTH = 1000
 LEARNING_DATA_REWARD_KEY = "reward"
-LEARNING_DATA_STATE_KEYS = ("proposal_interval", "req_size")
+LEARNING_DATA_STATE_KEYS = ("proposal_interval",)
 
 
 class StopEvent(Protocol):
@@ -37,12 +37,8 @@ class StopEvent(Protocol):
 
 
 class ProtocolName(StrEnum):
-    PBFT = "pbft"
-    ZYZZYVA = "zyzzyva"
-    CHEAP_BFT = "cheapbft"
-    SBFT = "sbft"
-    HOTSTUFF = "hotstuff"
-    PRIME = "prime"
+    Periodic = "periodic"
+    Performance = "performance"
 
 PROTOCOLS = [p.value for p in ProtocolName]
 
@@ -151,7 +147,7 @@ def run_decision_worker(
     request_queue: DecisionQueue,
     cmab: MultiRF,
 ) -> None:
-    prev_state_action_reward: LearningData | None = None
+    history: deque[LearningData] = deque(maxlen=2)
     sequence_id = 0
     while True:
 
@@ -169,23 +165,46 @@ def run_decision_worker(
                         task.sequence_id,
                         sequence_id + 1,
                     )
-                if prev_state_action_reward is not None:
+                if len(history) == 2:
+                    prev_prev_state_action_reward = history.popleft()
                     completed_experience = LearningData(
-                        sequence_id=prev_state_action_reward.sequence_id,
-                        current_protocol=prev_state_action_reward.current_protocol,
+                        sequence_id=prev_prev_state_action_reward.sequence_id,
+                        current_protocol=prev_prev_state_action_reward.current_protocol,
                         reward=task.reward,
-                        state=prev_state_action_reward.state,
+                        state=prev_prev_state_action_reward.state,
                     )
-                    cmab.record_state_action_reward(completed_experience)
-                    cmab.train(completed_experience.current_protocol)
+                    # cmab.record_state_action_reward(completed_experience)
+                    # cmab.train(completed_experience.current_protocol)
                 sequence_id = task.sequence_id
-                next_protocol = cmab.predict(task.state)
-                prev_state_action_reward = LearningData(
-                    sequence_id=sequence_id,
-                    current_protocol=next_protocol,
-                    reward=0.0,
-                    state=task.state,
-                )
+                if sequence_id == 1 or sequence_id == 2:
+                    next_protocol = ProtocolName.Periodic
+                    state_action_reward = LearningData(
+                        sequence_id=sequence_id,
+                        current_protocol=next_protocol,
+                        reward=0.0,
+                        state=task.state,
+                    )
+                    history.append(state_action_reward)
+                                        
+                elif sequence_id > 2:
+                    # next_protocol = cmab.predict(task.state)
+                    next_protocol = ProtocolName.Periodic
+                    state_action_reward = LearningData(
+                        sequence_id=sequence_id,
+                        current_protocol=next_protocol,
+                        reward=0.0,
+                        state=task.state,
+                    )
+                    history.append(state_action_reward)
+                else:
+                    LOGGER.warning(
+                        "node %d decision sequence %d is invalid (expected > 0)",
+                        node_id,
+                        task.sequence_id,
+                    )
+                    continue
+
+                
 
 
 

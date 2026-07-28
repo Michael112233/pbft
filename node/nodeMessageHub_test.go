@@ -213,6 +213,161 @@ func TestDeliverIntentToChangeView(t *testing.T) {
 	})
 }
 
+func TestBuildEnvelopeEpochDataForAggregation(t *testing.T) {
+	hub := &NodeMessageHub{
+		node_ref: &Node{NodeID: 2},
+	}
+	signature := []byte{1, 2, 3}
+	epochData := core.EpochDataForAggregation{
+		EpochNumber:  9,
+		Throughput:   1234.5,
+		ProposalRate: 678.25,
+		From:         2,
+	}
+
+	env, err := hub.buildEnvelope(core.MsgEpochAggDataMessage, epochData, signature)
+	if err != nil {
+		t.Fatalf("buildEnvelope returned error: %v", err)
+	}
+	if env.From != 2 {
+		t.Fatalf("env.From = %d, want 2", env.From)
+	}
+	if string(env.Signature) != string(signature) {
+		t.Fatalf("env.Signature = %v, want %v", env.Signature, signature)
+	}
+
+	body, ok := env.Body.(*transportpb.Envelope_EpochDataForAggregation)
+	if !ok {
+		t.Fatalf("env.Body type = %T, want *transportpb.Envelope_EpochDataForAggregation", env.Body)
+	}
+	data, err := transportpb.EpochDataForAggregationFromPB(body.EpochDataForAggregation)
+	if err != nil {
+		t.Fatalf("EpochDataForAggregationFromPB returned error: %v", err)
+	}
+	if data != epochData {
+		t.Fatalf("epoch data mismatch: got %+v want %+v", data, epochData)
+	}
+}
+
+func TestDeliverEpochDataForAggregation(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey returned error: %v", err)
+	}
+
+	nodeLog := &logger.Logger{}
+	testNode := &Node{
+		NodeID: 2,
+		log:    nodeLog,
+		encryptionKeyStore: &KeyStore{
+			publicKeys: map[int]ed25519.PublicKey{1: publicKey},
+		},
+		epochManager: &EpochManager{currentEpoch: 9},
+	}
+	testNode.epochAggregator = &EpochAggregator{
+		node:        testNode,
+		log:         nodeLog,
+		epochAggLog: make(map[int64]map[int]EpochAggData),
+	}
+	hub := &NodeMessageHub{
+		node_ref: testNode,
+		log:      nodeLog,
+	}
+
+	deliver := func(t *testing.T, env *transportpb.Envelope) *transportpb.Ack {
+		t.Helper()
+		ack, err := hub.Deliver(context.Background(), env)
+		if err != nil {
+			t.Fatalf("Deliver returned error: %v", err)
+		}
+		if ack == nil {
+			t.Fatal("Deliver returned nil ack")
+		}
+		return ack
+	}
+
+	t.Run("missing body", func(t *testing.T) {
+		ack := deliver(t, &transportpb.Envelope{
+			MsgType: core.MsgEpochAggDataMessage,
+			From:    1,
+		})
+		if ack.Ok || ack.Error != "missing epoch data for aggregation body" {
+			t.Fatalf("ack = %+v, want missing-body rejection", ack)
+		}
+	})
+
+	t.Run("sender mismatch", func(t *testing.T) {
+		ack := deliver(t, &transportpb.Envelope{
+			MsgType: core.MsgEpochAggDataMessage,
+			From:    1,
+			Body: &transportpb.Envelope_EpochDataForAggregation{
+				EpochDataForAggregation: transportpb.EpochDataForAggregationToPB(core.EpochDataForAggregation{
+					EpochNumber: 9,
+					From:        2,
+				}),
+			},
+		})
+		if ack.Ok || ack.Error != "epoch data for aggregation sender mismatch" {
+			t.Fatalf("ack = %+v, want sender-mismatch rejection", ack)
+		}
+	})
+
+	t.Run("invalid signature", func(t *testing.T) {
+		ack := deliver(t, &transportpb.Envelope{
+			MsgType:   core.MsgEpochAggDataMessage,
+			From:      1,
+			Signature: []byte("invalid"),
+			Body: &transportpb.Envelope_EpochDataForAggregation{
+				EpochDataForAggregation: transportpb.EpochDataForAggregationToPB(core.EpochDataForAggregation{
+					EpochNumber: 9,
+					From:        1,
+				}),
+			},
+		})
+		if ack.Ok || ack.Error != "signature verification failed" {
+			t.Fatalf("ack = %+v, want signature rejection", ack)
+		}
+	})
+
+	t.Run("valid signature", func(t *testing.T) {
+		epochData := transportpb.EpochDataForAggregationToPB(core.EpochDataForAggregation{
+			EpochNumber:  9,
+			Throughput:   1234.5,
+			ProposalRate: 678.25,
+			From:         1,
+		})
+		payload, err := marshalDeterministic(epochData)
+		if err != nil {
+			t.Fatalf("marshalDeterministic returned error: %v", err)
+		}
+		ack := deliver(t, &transportpb.Envelope{
+			MsgType:   core.MsgEpochAggDataMessage,
+			From:      1,
+			Signature: ed25519.Sign(privateKey, payload),
+			Body: &transportpb.Envelope_EpochDataForAggregation{
+				EpochDataForAggregation: epochData,
+			},
+		})
+		if !ack.Ok || ack.Error != "" {
+			t.Fatalf("ack = %+v, want successful delivery", ack)
+		}
+
+		deadline := time.Now().Add(time.Second)
+		for {
+			testNode.epochAggregator.mu.Lock()
+			received := testNode.epochAggregator.epochAggLog[9][1]
+			testNode.epochAggregator.mu.Unlock()
+			if received.throughput == 1234.5 && received.proposalRate == 678.25 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("epoch data was not delivered: got %+v", received)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	})
+}
+
 func TestInjectArtificialLatencyForFarNodeSend(t *testing.T) {
 	oldNodeAddr := config.NodeAddr
 	oldClientAddr := config.ClientAddr

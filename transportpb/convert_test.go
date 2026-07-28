@@ -277,3 +277,20 @@ func TestIntentToChangeViewRoundTrip(t *testing.T) {
 		t.Fatalf("round trip mismatch:\n got: %+v\nwant: %+v", out, in)
 	}
 }
+
+func TestEpochDataForAggregationRoundTrip(t *testing.T) {
+	in := core.EpochDataForAggregation{
+		EpochNumber:  12,
+		Throughput:   1234.5,
+		ProposalRate: 678.25,
+		From:         3,
+	}
+
+	out, err := EpochDataForAggregationFromPB(EpochDataForAggregationToPB(in))
+	if err != nil {
+		t.Fatalf("EpochDataForAggregationFromPB returned error: %v", err)
+	}
+	if !reflect.DeepEqual(out, in) {
+		t.Fatalf("round trip mismatch:\n got: %+v\nwant: %+v", out, in)
+	}
+}

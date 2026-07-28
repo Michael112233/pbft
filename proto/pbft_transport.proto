@@ -203,6 +203,13 @@ message IntentToChangeViewMsg {
   int32 from = 2;
 }
 
+message EpochDataForAggregation {
+  int64 epoch_number = 1;
+  double throughput = 2;
+  double proposal_rate = 3;
+  int32 from = 4;
+}
+
 message ReplyMessage {
   string to = 1;
   string from = 2;
@@ -255,6 +262,7 @@ message Envelope {
     ReqMissingClientMsg req_missing_client_msg = 25;
     ReplyMissingClientMsg reply_missing_client_msg = 26;
     IntentToChangeViewMsg intent_to_change_view = 27;
+    EpochDataForAggregation epoch_data_for_aggregation = 28;
   }
 }
 

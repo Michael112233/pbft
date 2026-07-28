@@ -461,6 +461,24 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		go hub.node_ref.HandleViewIntentMsg(data, env.Signature)
 		return &transportpb.Ack{Ok: true}, nil
 
+	case core.MsgEpochAggDataMessage:
+		epochData := env.GetEpochDataForAggregation()
+		if epochData == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing epoch data for aggregation body"}, nil
+		}
+		if int(epochData.From) != int(env.From) {
+			return &transportpb.Ack{Ok: false, Error: "epoch data for aggregation sender mismatch"}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, epochData) {
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.EpochDataForAggregationFromPB(epochData)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		go hub.node_ref.HandleEpochAggData(data, env.Signature)
+		return &transportpb.Ack{Ok: true}, nil
+
 	case core.MsgCloseMessage:
 		_ = env.GetClose()
 		return &transportpb.Ack{Ok: true}, nil
@@ -665,6 +683,15 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}, signat
 		}
 		pbMsg := transportpb.IntentToChangeViewToPB(intent)
 		env.Body = &transportpb.Envelope_IntentToChangeView{IntentToChangeView: pbMsg}
+		env.From = int32(hub.node_ref.GetNodeID())
+
+	case core.MsgEpochAggDataMessage:
+		epochData, ok := msg.(core.EpochDataForAggregation)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		pbMsg := transportpb.EpochDataForAggregationToPB(epochData)
+		env.Body = &transportpb.Envelope_EpochDataForAggregation{EpochDataForAggregation: pbMsg}
 		env.From = int32(hub.node_ref.GetNodeID())
 
 	case core.MsgReplyMessage:

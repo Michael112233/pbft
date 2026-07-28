@@ -164,6 +164,7 @@ type Node struct {
 
 	missingClientStateManager *MissingClientStateManager
 	epochManager              *EpochManager
+	epochAggregator           *EpochAggregator
 
 	dead               bool
 	split              bool
@@ -252,9 +253,11 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 	periodicTimerManager := NewPeriodicTimerManager(n, log)
 	epochManager := NewEpochManager(n, log)
 	viewIntent := NewViewIntent(n, log)
+	epochAggregator := NewEpochAggregator(n, log)
 	n.viewIntent = viewIntent
 	n.periodicTimerManager = periodicTimerManager
 	n.epochManager = epochManager
+	n.epochAggregator = epochAggregator
 	if address := config.LearningAgentAddr[nodeID]; address != "" {
 		learningAgent, err := NewLearningAgent(n, address)
 		if err != nil {
@@ -274,11 +277,11 @@ type Share struct {
 func (n *Node) Start() error {
 
 	if n.learningAgent != nil {
-		// err := n.learningAgent.Start()
-		// if err != nil {
-		// 	n.log.Error("failed to start learning-agent client: %v", err)
-		// 	return err
-		// }
+		err := n.learningAgent.Start()
+		if err != nil {
+			n.log.Error("failed to start learning-agent client: %v", err)
+			return err
+		}
 		// ctx, cancel := context.WithTimeout(context.Background(), learningAgentStartupTimeout)
 		// err = n.learningAgentHandshake(ctx, learningAgentRPCTimeout, learningAgentRetryInterval)
 		// cancel()
@@ -2258,4 +2261,8 @@ func (n *Node) GetView() int64 {
 
 func (n *Node) GetFNodes() int {
 	return n.fNodes
+}
+
+func (n *Node) GetNumberOfNodes() int {
+	return 3*n.fNodes + 1
 }

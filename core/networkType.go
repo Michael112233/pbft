@@ -25,4 +25,5 @@ const (
 	MsgReqMissingClientMessage   string = "MsgReqMissingClientMessage"
 	MsgReplyMissingClientMessage string = "MsgReplyMissingClientMessage"
 	MsgIntentToChangeViewMessage string = "MsgIntentToChangeViewMessage"
+	MsgEpochAggDataMessage       string = "MsgEpochAggDataMessage"
 )

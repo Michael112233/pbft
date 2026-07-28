@@ -19,6 +19,11 @@ var (
 	learningAgentRetryInterval  = 250 * time.Millisecond
 )
 
+type NodeLearningAgent interface {
+	GetNodeID() int
+	HandleDecisionFromLearningAgent(epoch int64, protocol string)
+}
+
 type LearningAgentHub struct {
 	learningagentpb.UnimplementedLearningAgentNodeServer
 
@@ -29,6 +34,7 @@ type LearningAgentHub struct {
 	conn         *grpc.ClientConn
 	client       learningagentpb.LearningAgentClient
 	closed       bool
+	node         NodeLearningAgent
 }
 
 func (c *LearningAgentHub) SendDecision(
@@ -47,6 +53,7 @@ func (c *LearningAgentHub) SendDecision(
 		NodeId:     int32(c.nodeID),
 		SequenceId: request.GetSequenceId(),
 	}
+
 	if request.GetNodeId() != int32(c.nodeID) {
 		ack.Error = fmt.Sprintf(
 			"learning decision node ID = %d, want %d",
@@ -61,23 +68,25 @@ func (c *LearningAgentHub) SendDecision(
 	}
 
 	ack.Accepted = true
+	go c.node.HandleDecisionFromLearningAgent(int64(request.GetSequenceId()), request.GetNextProtocol())
 	return ack, nil
 }
 
-func NewLearningAgent(node *Node, address string, opts ...grpc.DialOption) (*LearningAgentHub, error) {
+func NewLearningAgent(node NodeLearningAgent, address string, opts ...grpc.DialOption) (*LearningAgentHub, error) {
 	if node == nil {
 		return nil, errors.New("node is nil")
 	}
-	if node.NodeID < 1 {
+	if node.GetNodeID() < 1 {
 		return nil, errors.New("learning-agent node ID must be at least 1")
 	}
 	if address == "" {
 		return nil, errors.New("learning-agent address is empty")
 	}
 	return &LearningAgentHub{
-		nodeID:       node.NodeID,
+		nodeID:       node.GetNodeID(),
 		agentAddress: address,
 		dialOptions:  append([]grpc.DialOption(nil), opts...),
+		node:         node,
 	}, nil
 }
 
@@ -101,6 +110,47 @@ func (c *LearningAgentHub) Start() error {
 	}
 	c.conn = conn
 	c.client = learningagentpb.NewLearningAgentClient(conn)
+	return nil
+}
+
+func (c *LearningAgentHub) SendLearningData(ctx context.Context, epoch int64, throughput float64, proposalRate float64) error {
+	if epoch < 0 {
+		return fmt.Errorf("learning-data epoch must be nonnegative: %d", epoch)
+	}
+	c.mu.RLock()
+	client := c.client
+	closed := c.closed
+	c.mu.RUnlock()
+	if closed {
+		return errors.New("learning-agent hub is closed")
+	}
+	if client == nil {
+		return errors.New("learning-agent hub is not started")
+	}
+
+	request := &learningagentpb.LearningDecision{
+		NodeId:       int32(c.nodeID),
+		SequenceId:   uint64(epoch),
+		NextProtocol: "", // This field can be set based on your requirements
+		Data: map[string]float64{
+			"reward":            throughput,
+			"proposal_interval": proposalRate,
+		},
+	}
+	response, err := client.SendLearningData(ctx, request)
+	if err != nil {
+		return err
+	}
+	if response.GetNodeId() != int32(c.nodeID) {
+		return fmt.Errorf(
+			"learning-agent response node ID = %d, want %d",
+			response.GetNodeId(),
+			c.nodeID,
+		)
+	}
+	if !response.GetAccepted() {
+		return fmt.Errorf("learning-agent decision not accepted: %s", response.GetError())
+	}
 	return nil
 }
 
@@ -161,7 +211,18 @@ func (n *Node) ExchangeWithLearningAgent(ctx context.Context, payload []byte) ([
 	}
 	return n.learningAgent.Exchange(ctx, payload)
 }
-
+func (n *Node) SendLearningDataToAgent(epoch int64, throughput float64, proposalRate float64) {
+	if n.learningAgent == nil {
+		n.log.Error("learning agent is not configured for this node")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), learningAgentRPCTimeout)
+	defer cancel()
+	err := n.learningAgent.SendLearningData(ctx, epoch, throughput, proposalRate)
+	if err != nil {
+		n.log.Error("Failed to send learning data to agent: %v", err)
+	}
+}
 func (n *Node) learningAgentHandshake(ctx context.Context, rpcTimeout, retryInterval time.Duration) error {
 	payload := []byte(fmt.Sprintf("pbft-node-%d-startup", n.NodeID))
 	var lastErr error

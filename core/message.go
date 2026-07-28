@@ -214,3 +214,15 @@ type IntentToChangeViewMsgSig struct {
 	IntentToChangeViewMsg IntentToChangeViewMsg
 	Signature             []byte
 }
+
+type EpochDataForAggregation struct {
+	EpochNumber  int64
+	Throughput   float64
+	ProposalRate float64
+	From         int
+}
+
+type EpochDataForAggregationSig struct {
+	EpochDataForAggregation EpochDataForAggregation
+	Signature               []byte
+}
