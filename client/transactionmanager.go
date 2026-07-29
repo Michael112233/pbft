@@ -75,7 +75,7 @@ func NewTransactionManager() *TransactionManager {
 		transactionTimer:       transactionTimer,
 		transactionTimerStopCh: make(chan struct{}),
 		tpsSeries:              make([]TPSPoint, 0),
-		tpsSampleInterval:      200 * time.Millisecond,
+		tpsSampleInterval:      500 * time.Millisecond,
 		tpsSamplerStopCh:       make(chan struct{}),
 	}
 	for i := range tm.shards {

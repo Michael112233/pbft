@@ -79,7 +79,7 @@ func (n *Node) roundRobinVCTimeout() {
 }
 
 func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signature []byte) {
-	n.log.FeatureInfo("Received vc msg from node %d for view %d", viewChange.From, viewChange.ViewNumber)
+	// n.log.FeatureInfo("Received vc msg from node %d for view %d", viewChange.From, viewChange.ViewNumber)
 	n.viewMu.RLock()
 
 	if viewChange.ViewNumber <= n.view {
@@ -145,7 +145,7 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 
 		n.log.Error("Received view change for view %d which is lower than my for view %d, just adding to log", viewChange.ViewNumber, n.forView)
 	}
-	n.log.FeatureInfo("Done with vc msg from node %d for view %d", viewChange.From, viewChange.ViewNumber)
+	// n.log.FeatureInfo("Done with vc msg from node %d for view %d", viewChange.From, viewChange.ViewNumber)
 
 	// if > than for then and f+1 then start newview
 	// if < than do nothing just add

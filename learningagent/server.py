@@ -10,7 +10,10 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 from typing import Protocol
-from enum import StrEnum
+try:
+    from enum import StrEnum          # Python 3.11+
+except ImportError:
+    from strenum import StrEnum       # Python 3.10
 from sklearn.ensemble import RandomForestRegressor
 from collections import deque
 import grpc
@@ -141,10 +144,104 @@ class MultiRF:
         return best_protocols[selected_index]
 
 
+class EpsilonGreedyBandit:
+    """Context-free epsilon-greedy bandit for protocol selection."""
+
+    def __init__(
+        self,
+        epsilon: float = 0.1, # smaller then less randomisation
+        alpha: float = 0.1, #bigger alpha more reactive to recent
+        seed: int | None = None,
+    ) -> None:
+        epsilon = float(epsilon)
+        alpha = float(alpha)
+
+        if not np.isfinite(epsilon) or not 0.0 <= epsilon <= 1.0:
+            raise ValueError("epsilon must be finite and between 0 and 1")
+        if not np.isfinite(alpha) or not 0.0 < alpha <= 1.0:
+            raise ValueError("alpha must be finite and greater than 0 and at most 1")
+
+        self.epsilon = epsilon
+        self.alpha = alpha
+        self.rng = np.random.default_rng(seed)
+        self.values = {protocol: 0.0 for protocol in ProtocolName}
+        self.reward_counts = {protocol: 0 for protocol in ProtocolName}
+        self.selection_counts = {protocol: 0 for protocol in ProtocolName}
+
+    def train(self, protocol: ProtocolName | str, reward: float) -> None:
+        try:
+            protocol = ProtocolName(protocol)
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"unknown protocol: {protocol!r}") from error
+
+        reward = float(reward)
+        if not np.isfinite(reward):
+            raise ValueError("reward must be finite")
+
+        current_value = self.values[protocol]
+        if self.reward_counts[protocol] == 0:
+            self.values[protocol] = reward #initialize faster
+        else:
+            self.values[protocol] += self.alpha * (
+                reward - current_value
+            )
+        # self.values[protocol] = current_value + self.alpha * (
+        #     reward - current_value
+        # )
+        self.reward_counts[protocol] += 1
+
+    def predict(self) -> ProtocolName:
+        unselected_protocols = [
+            protocol
+            for protocol, count in self.selection_counts.items()
+            if count == 0
+        ]
+
+        if unselected_protocols:
+            # selected_protocol = self._random_protocol(unselected_protocols)
+            if len(unselected_protocols) == 2:
+                selected_protocol = ProtocolName.Periodic
+            else:
+                selected_protocol = ProtocolName.Performance
+        elif self.rng.random() < self.epsilon:
+            
+            selected_protocol = self._random_protocol(list(ProtocolName))
+            LOGGER.info(
+                "random exploration triggered: selected protocol %s",
+                selected_protocol,
+            )
+        else:
+            max_value = max(self.values.values())
+            best_protocols = [
+                protocol
+                for protocol, value in self.values.items()
+                if value == max_value
+            ]
+            selected_protocol = self._random_protocol(best_protocols)
+            LOGGER.info(
+                "exploitation triggered: selected protocol %s with value %.4f and both the values are periodic: %.4f and performance: %.4f",
+                selected_protocol,
+                self.values[selected_protocol],
+                self.values[ProtocolName.Periodic],
+                self.values[ProtocolName.Performance]
+            )
+
+        self.selection_counts[selected_protocol] += 1
+        return selected_protocol
+
+    def _random_protocol(
+        self,
+        protocols: list[ProtocolName],
+    ) -> ProtocolName:
+        selected_index = int(self.rng.integers(0, len(protocols)))
+        return protocols[selected_index]
+
+
 def run_decision_worker(
     node_id: int,
     node_stub: learning_agent_pb2_grpc.LearningAgentNodeStub,
     request_queue: DecisionQueue,
+    bandit: EpsilonGreedyBandit,
     cmab: MultiRF,
 ) -> None:
     history: deque[LearningData] = deque(maxlen=2)
@@ -173,11 +270,28 @@ def run_decision_worker(
                         reward=task.reward,
                         state=prev_prev_state_action_reward.state,
                     )
+                    if prev_prev_state_action_reward.sequence_id == 1 and prev_prev_state_action_reward.current_protocol != ProtocolName.Periodic:
+                        logging.warning(
+                            "node %d decision sequence %d protocol %s is invalid (expected %s)",
+                            node_id,
+                            prev_prev_state_action_reward.sequence_id,
+                            prev_prev_state_action_reward.current_protocol,
+                            ProtocolName.Periodic,
+                        )
+                    if prev_prev_state_action_reward.sequence_id == 2 and prev_prev_state_action_reward.current_protocol != ProtocolName.Performance:
+                        logging.warning(
+                            "node %d decision sequence %d protocol %s is invalid (expected %s)",
+                            node_id,
+                            prev_prev_state_action_reward.sequence_id,
+                            prev_prev_state_action_reward.current_protocol,
+                            ProtocolName.Performance,
+                        )
+                    bandit.train(prev_prev_state_action_reward.current_protocol, task.reward)
                     # cmab.record_state_action_reward(completed_experience)
                     # cmab.train(completed_experience.current_protocol)
                 sequence_id = task.sequence_id
                 if sequence_id == 1 or sequence_id == 2:
-                    next_protocol = ProtocolName.Periodic
+                    next_protocol = bandit.predict()
                     state_action_reward = LearningData(
                         sequence_id=sequence_id,
                         current_protocol=next_protocol,
@@ -188,7 +302,8 @@ def run_decision_worker(
                                         
                 elif sequence_id > 2:
                     # next_protocol = cmab.predict(task.state)
-                    next_protocol = ProtocolName.Periodic
+                    # next_protocol = ProtocolName.Periodic
+                    next_protocol = bandit.predict()
                     state_action_reward = LearningData(
                         sequence_id=sequence_id,
                         current_protocol=next_protocol,
@@ -362,6 +477,7 @@ def run_server(node_id: int, mode: str, stop_event: StopEvent) -> None:
     node_channel = grpc.insecure_channel(callback_address)
     decision_queue: DecisionQueue = queue.Queue()
     cmab = MultiRF(5)
+    bandit = EpsilonGreedyBandit(epsilon=0.1, alpha=0.1, seed=5)
     server = None
     worker = None
     worker_started = False
@@ -371,7 +487,7 @@ def run_server(node_id: int, mode: str, stop_event: StopEvent) -> None:
         server.start()
         worker = threading.Thread(
             target=run_decision_worker,
-            args=(node_id, node_stub, decision_queue, cmab),
+            args=(node_id, node_stub, decision_queue, bandit, cmab),
             name=f"learning-agent-node-callback-{node_id}",
             daemon=False,
         )

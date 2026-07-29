@@ -80,12 +80,12 @@ func (n *Node) postActions(actions []executionPostAction) {
 }
 
 func (n *Node) periodicTrigger(periodicTrigger bool, periodInterval int64) {
-	if periodicTrigger && n.periodicReq {
+	if periodicTrigger && n.ReadPeriodicTrigger() {
 		go n.periodicVC(periodInterval)
 	}
 }
 func (n *Node) perfTrigger(perfTrigger bool) {
-	if perfTrigger && n.performanceTrigger {
+	if perfTrigger && n.ReadPerfTrigger() {
 		go n.perfVC()
 	}
 }
@@ -248,7 +248,7 @@ func (n *Node) newcollectReadyExecutions(seq int64, slot *consensusSlot, msg cor
 		n.executionMu.Lock()
 		n.lastExecuted = nextSeq
 		n.executionMu.Unlock()
-		n.EpochReqExecuted(nextSeq)
+
 		if transferPath {
 			n.log.Info("From cp state transfer/ client req transfer and did execution for seq %d ", nextSeq)
 		}
@@ -259,8 +259,13 @@ func (n *Node) newcollectReadyExecutions(seq int64, slot *consensusSlot, msg cor
 			}
 		}
 
-		if n.lastExecuted == periodInterval {
+		if n.lastExecuted >= periodInterval {
 			periodicTrigger = true
+		}
+		switchedTriggers := n.EpochReqExecuted(nextSeq)
+		if switchedTriggers {
+			periodicTrigger = false
+			performanceTrigger = 0
 		}
 		n.startPeriodicTimerForReqExe(n.lastExecuted)
 

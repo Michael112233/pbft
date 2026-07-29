@@ -170,6 +170,7 @@ type Node struct {
 	split              bool
 	periodic           bool
 	fixed              bool
+	changemu           sync.RWMutex
 	periodicReq        bool
 	performanceTrigger bool
 	peakTpsTest        bool
@@ -297,11 +298,11 @@ func (n *Node) Start() error {
 	if n.cfg.Logging {
 		if n.memoryLoggerStarted.CompareAndSwap(false, true) {
 			component := "node_" + strconv.Itoa(n.NodeID)
-			go utils.StartMemoryLogger("logs/"+component+"_mem.log", component, 10*time.Second, n.memoryLoggerStop, n.memoryLoggerDone)
+			go utils.StartMemoryLogger("logs/"+component+"_mem.log", component, 30*time.Second, n.memoryLoggerStop, n.memoryLoggerDone)
 		}
-		if n.clientReceiveRateStarted.CompareAndSwap(false, true) {
-			go n.clientReceiveRateLogger()
-		}
+		// if n.clientReceiveRateStarted.CompareAndSwap(false, true) {
+		// 	go n.clientReceiveRateLogger()
+		// }
 		// if n.leaderPreprepareRateStarted.CompareAndSwap(false, true) {
 		// 	go n.leaderPreprepareRateLogger()
 		// }
@@ -575,7 +576,7 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 		}
 
 		view = n.view
-		periodInterval := n.periodInterval
+		// periodInterval := n.periodInterval
 		n.executionMu.RLock()
 		lastexeSeq := n.lastExecuted
 		n.executionMu.RUnlock()
@@ -595,12 +596,12 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 			return
 		}
 
-		if n.periodicReq && currentSeq >= periodInterval {
-			n.log.Info("PrePrepare skipped for view %d because seq %d reached period interval %d", view, currentSeq, periodInterval)
+		// if n.ReadPeriodicTrigger() && currentSeq >= periodInterval {
+		// 	n.log.Info("PrePrepare skipped for view %d because seq %d reached period interval %d", view, currentSeq, periodInterval)
 
-			n.viewMu.RUnlock()
-			return
-		}
+		// 	n.viewMu.RUnlock()
+		// 	return
+		// }
 
 		if n.preprepareSeqNumber.CompareAndSwap(currentSeq, currentSeq+1) {
 			seqNum = currentSeq + 1
@@ -1585,7 +1586,7 @@ func verifyOSet(Ocreated map[int64]core.PreprepareMsgSig, Oreceived []core.Prepr
 }
 
 func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
-	n.log.FeatureInfo("Received new view message for view %d from leader %d and my current view is %d and my for view is %d", newViewMsg.NewViewNumber, newViewMsg.From, n.view, n.forView)
+	// n.log.FeatureInfo("Received new view message for view %d from leader %d and my current view is %d and my for view is %d", newViewMsg.NewViewNumber, newViewMsg.From, n.view, n.forView)
 	n.viewMu.RLock()
 	n.log.Info("Received new view message for view %d from leader %d and my current view is %d and my for view is %d", newViewMsg.NewViewNumber, newViewMsg.From, n.view, n.forView)
 
@@ -1680,7 +1681,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	newview := n.view
 	leaderId := n.leaderId
 	// n.viewMu.Unlock()
-	n.log.FeatureInfo("Done with new view msg for view %d", n.view)
+	// n.log.FeatureInfo("Done with new view msg for view %d", n.view)
 	for _, preprepareMsg := range newViewMsg.PreprepareLog {
 		missing := n.HandlePrePrepareNewView(preprepareMsg.PreprepareMsgMini, preprepareMsg.Signature, preprepareMsg.ActualMsg, leaderId, newview)
 		if missing {
@@ -2265,4 +2266,30 @@ func (n *Node) GetFNodes() int {
 
 func (n *Node) GetNumberOfNodes() int {
 	return 3*n.fNodes + 1
+}
+
+func (n *Node) ReadPerfTrigger() bool {
+	n.changemu.RLock()
+	defer n.changemu.RUnlock()
+	return n.performanceTrigger
+}
+
+func (n *Node) ReadPeriodicTrigger() bool {
+	n.changemu.RLock()
+	defer n.changemu.RUnlock()
+	return n.periodicReq
+}
+
+func (n *Node) SwitchTrigger(protocol string) {
+	n.changemu.Lock()
+	defer n.changemu.Unlock()
+	if protocol == "performance" {
+		n.performanceTrigger = true
+		n.periodicReq = false
+	} else if protocol == "periodic" {
+		n.performanceTrigger = false
+		n.periodicReq = true
+	} else {
+		n.log.Error("Invalid protocol trigger: %s", protocol)
+	}
 }

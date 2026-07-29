@@ -41,6 +41,7 @@ logs/
 # md files
 *.md
 !docs/protobuf-generation.md
+!learningagent/epsilon-greedy-bandit.md
 
 # json
 *.json

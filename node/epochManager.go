@@ -22,6 +22,7 @@ const (
 type EpochNode interface {
 	GetNodeID() int
 	SendandEnterEpochData(epoch int64, throughput float64, proposalRate float64)
+	SwitchTrigger(protocol string)
 }
 
 type ThroughputData struct {
@@ -191,9 +192,9 @@ func (em *EpochManager) updateEpochThroughputCSV(epochNumber int64, throughput f
 // node functions
 // outer node fun inner em function
 // lock even necessary
-func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) {
+func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) bool {
 	em.mu.Lock()
-	defer em.mu.Unlock()
+
 	if lastExeSeq == 1 {
 		throughputStartTime := time.Now()
 		proposalStartTime := time.Now() // a little delayed but its fine
@@ -205,14 +206,16 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) {
 				StartTime: proposalStartTime,
 			},
 		}
-		return
+		em.mu.Unlock()
+		return false
 	}
 	if lastExeSeq == EPOCH_INTERVAL*em.currentEpoch {
 
 		epochData, ok := em.epochData[em.currentEpoch]
 		if !ok {
 			em.log.Error("Failed to retrieve epoch data at end of epoch number %d", em.currentEpoch)
-			return
+			em.mu.Unlock()
+			return false
 		}
 		epochData.ThroughputData.TotalTime = time.Since(epochData.ThroughputData.StartTime)
 		epochData.ThroughputData.TotalRequests = EPOCH_INTERVAL
@@ -220,6 +223,11 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) {
 		em.epochData[em.currentEpoch] = epochData
 		em.log.Info("Epoch %d completed", em.currentEpoch)
 		em.log.FeatureInfo("Epoch %d completed", em.currentEpoch)
+		decisionforNextEpoch, decisionExists := em.epochDecision[em.currentEpoch]
+		if !decisionExists {
+			em.log.Error("No epoch decision found for epoch %d", em.currentEpoch)
+
+		}
 		em.currentEpoch++
 		throughputStartTime := time.Now()
 		proposalStartTime := time.Now() // a little delayed but its fine
@@ -231,8 +239,10 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) {
 				StartTime: proposalStartTime,
 			},
 		}
+		em.mu.Unlock()
+		em.node.SwitchTrigger(decisionforNextEpoch)
 
-		return
+		return true
 	}
 
 	if lastExeSeq == (em.currentEpoch-1)*EPOCH_INTERVAL+WATERMARK_INTERVAL {
@@ -240,12 +250,14 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) {
 			epochData, ok := em.epochData[em.currentEpoch]
 			if !ok {
 				em.log.Error("Failed to retrieve epoch data at watermark for current epoch number %d and its the first epoch", em.currentEpoch)
-				return
+				em.mu.Unlock()
+				return false
 			}
 			proposalRate := epochData.ProposalIntervalData.ProposalRate
 			if proposalRate == 0 {
 				em.log.Error("Proposal rate is zero at watermark for current epoch number %d and its the first epoch", em.currentEpoch)
-				return
+				em.mu.Unlock()
+				return false
 			}
 			throughput := 0 // cant have throughput of last epoch as this is the first epoch
 			_ = throughput  // used when the epoch CSV write call is added
@@ -261,29 +273,34 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) {
 			}
 			if writeErr != nil {
 				em.log.Error("Failed to write epoch CSV at watermark for current epoch number %d: %v", em.currentEpoch, writeErr)
-				return
+				em.mu.Unlock()
+				return false
 			}
 		} else {
 			currentEpochData, ok := em.epochData[em.currentEpoch]
 			if !ok {
 				em.log.Error("Failed to retrieve current epoch data at watermark for current epoch number %d", em.currentEpoch)
-				return
+				em.mu.Unlock()
+				return false
 			}
 			lastEpochData, ok := em.epochData[em.currentEpoch-1]
 			if !ok {
 				em.log.Error("Failed to retrieve last epoch data at watermark for current epoch number %d", em.currentEpoch)
-				return
+				em.mu.Unlock()
+				return false
 			}
 			proposalRate := currentEpochData.ProposalIntervalData.ProposalRate
 			if proposalRate == 0 {
 				em.log.Error("Proposal rate is zero at watermark for current epoch number %d", em.currentEpoch)
-				return
+				em.mu.Unlock()
+				return false
 			}
 			writeTime := time.Now()
 			writeErr := em.writeEpochCSV(em.currentEpoch, float64(0), proposalRate) // throughput will be updated later when epoch ends
 			if writeErr != nil {
 				em.log.Error("Failed to write epoch CSV at watermark for current epoch number %d: %v", em.currentEpoch, writeErr)
-				return
+				em.mu.Unlock()
+				return false
 			}
 			writeDuration := time.Since(writeTime)
 			if writeDuration > 5*time.Millisecond {
@@ -294,7 +311,8 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) {
 			// at watermark we measure current epoch state and last epoch tput
 			if throughput == 0 {
 				em.log.Error("Throughput is zero at watermark for last epoch number %d", em.currentEpoch-1)
-				return
+				em.mu.Unlock()
+				return false
 			}
 			em.log.Info("Watermark reached for current epoch number %d", em.currentEpoch)
 			em.log.FeatureInfo("Watermark reached for current epoch number %d", em.currentEpoch)
@@ -303,7 +321,8 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) {
 			updateErr := em.updateEpochThroughputCSV(em.currentEpoch-1, throughput)
 			if updateErr != nil {
 				em.log.Error("Failed to update epoch CSV throughput at watermark for last epoch number %d: %v", em.currentEpoch-1, updateErr)
-				return
+				em.mu.Unlock()
+				return false
 			}
 			updateDuration := time.Since(updateTime)
 			if updateDuration > 5*time.Millisecond {
@@ -311,6 +330,8 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) {
 			}
 		}
 	}
+	em.mu.Unlock()
+	return false
 }
 
 // since we dont do one req at a time and window is big so preprepare can be out of order
@@ -337,14 +358,17 @@ func (em *EpochManager) ActiononProposalInterval(seqNum int64) { // might get sa
 }
 func (em *EpochManager) ReceiveEpochDecision(epoch int64, protocol string) {
 	em.mu.Lock()
-	defer em.mu.Unlock()
+
 	if epoch != em.currentEpoch {
 		em.log.Error("Received epoch decision for epoch %d, but current epoch is %d. Ignoring.", epoch, em.currentEpoch)
+		em.mu.Unlock()
 		return
 	}
 	em.log.Info("Received epoch decision for epoch %d: protocol=%s", epoch, protocol)
 	em.log.FeatureInfo("Received epoch decision for epoch %d: protocol=%s", epoch, protocol)
 	em.epochDecision[epoch] = protocol
+	em.mu.Unlock()
+
 }
 
 func (em *EpochManager) GetCurrentEpoch() int64 {
@@ -353,8 +377,8 @@ func (em *EpochManager) GetCurrentEpoch() int64 {
 	return em.currentEpoch
 }
 
-func (n *Node) EpochReqExecuted(seq int64) {
-	n.epochManager.ActiononLastExeSeq(seq)
+func (n *Node) EpochReqExecuted(seq int64) bool {
+	return n.epochManager.ActiononLastExeSeq(seq)
 }
 
 func (n *Node) EpochProposalInterval(seq int64) {
