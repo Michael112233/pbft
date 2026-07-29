@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import logging
 import multiprocessing
+from pathlib import Path
 import signal
 import sys
 import time
@@ -13,6 +14,34 @@ from learningagent.server import run_server
 
 LOGGER = logging.getLogger(__name__)
 CHILD_JOIN_SECONDS = 6
+LOG_FORMAT = "%(asctime)s %(processName)s %(levelname)s %(message)s"
+
+
+def _configure_logging(log_file: Path | None = None) -> None:
+    if log_file is not None:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format=LOG_FORMAT,
+        filename=str(log_file) if log_file is not None else None,
+        filemode="a",
+        force=True,
+    )
+
+
+def _run_server_process(
+    node_id: int,
+    mode: str,
+    stop_event,
+    log_dir: Path | None,
+) -> None:
+    log_file = (
+        log_dir / f"learning-agent-node-{node_id}.log"
+        if log_dir is not None
+        else None
+    )
+    _configure_logging(log_file)
+    run_server(node_id, mode, stop_event)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -21,6 +50,11 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--node-count", type=int, required=True)
     parser.add_argument("--mode", choices=SUPPORTED_MODES, required=True)
+    parser.add_argument(
+        "--log-dir",
+        type=Path,
+        help="write launcher and per-node INFO logs to this directory",
+    )
     args = parser.parse_args()
     if args.node_count < 1:
         parser.error("--node-count must be at least 1")
@@ -29,10 +63,12 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = _parse_args()
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(processName)s %(levelname)s %(message)s",
+    launcher_log = (
+        args.log_dir / "learning-agent-launcher.log"
+        if args.log_dir is not None
+        else None
     )
+    _configure_logging(launcher_log)
 
     context = multiprocessing.get_context("spawn")
     stop_event = context.Event()
@@ -47,8 +83,8 @@ def main() -> int:
     for node_id in range(1, args.node_count + 1):
         address = server_address(node_id, args.mode)
         process = context.Process(
-            target=run_server,
-            args=(node_id, args.mode, stop_event),
+            target=_run_server_process,
+            args=(node_id, args.mode, stop_event, args.log_dir),
             name=f"learning-agent-{node_id}",
         )
         process.start()
@@ -89,4 +125,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

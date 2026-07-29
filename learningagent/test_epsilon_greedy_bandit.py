@@ -14,9 +14,17 @@ class EpsilonGreedyBanditTest(unittest.TestCase):
     def test_first_two_predictions_cover_both_protocols(self):
         bandit = EpsilonGreedyBandit(seed=5)
 
-        selected = {bandit.predict(), bandit.predict()}
+        with self.assertLogs("learningagent.server", level="INFO") as captured:
+            selected = {bandit.predict(), bandit.predict()}
 
         self.assertEqual(selected, set(ProtocolName))
+        self.assertEqual(
+            sum(
+                "initial protocol coverage triggered" in message
+                for message in captured.output
+            ),
+            2,
+        )
         self.assertEqual(
             bandit.selection_counts,
             {
@@ -64,6 +72,32 @@ class EpsilonGreedyBanditTest(unittest.TestCase):
 
         self.assertEqual(first_selections, second_selections)
         self.assertEqual(set(first_selections), set(ProtocolName))
+
+    def test_exploration_logs_selected_protocol(self):
+        bandit = EpsilonGreedyBandit(epsilon=1.0, seed=7)
+        bandit.predict()
+        bandit.predict()
+
+        with self.assertLogs("learningagent.server", level="INFO") as captured:
+            selected = bandit.predict()
+
+        self.assertIn(
+            f"random exploration triggered: selected protocol {selected}",
+            captured.output[0],
+        )
+
+    def test_exploitation_logs_selected_protocol(self):
+        bandit = EpsilonGreedyBandit(epsilon=0.0, seed=7)
+        bandit.predict()
+        bandit.predict()
+
+        with self.assertLogs("learningagent.server", level="INFO") as captured:
+            selected = bandit.predict()
+
+        self.assertIn(
+            f"exploitation triggered: selected protocol {selected}",
+            captured.output[0],
+        )
 
     def test_seeded_tie_breaking_is_reproducible(self):
         first = EpsilonGreedyBandit(epsilon=0.0, seed=11)

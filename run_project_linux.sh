@@ -21,6 +21,7 @@ fi
 
 pkill -f pbft_main || true
 echo "Cleaning up log files..."
+mkdir -p logs
 rm -f logs/*.log
 rm -f logs/*.csv
 rm -f logs/*.txt
@@ -62,7 +63,11 @@ fi
 
 # Start all Python servers under one launcher in the first tmux window.
 tmux new-session -d -s "$SESSION" -n "learning-agents" \
-    "cd \"$CURRENT_DIR\" && python3 -m learningagent.launcher --node-count $NODE_COUNT --mode loopbackip; status=\$?; echo; echo \"learning-agent launcher exited with status \$status\"; exec bash"
+    "cd \"$CURRENT_DIR\" && python3 -m learningagent.launcher --node-count $NODE_COUNT --mode loopbackip --log-dir \"$CURRENT_DIR/logs\"; status=\$?; echo; echo \"learning-agent launcher exited with status \$status\"; exec bash"
+
+echo "Learning-agent launcher log: $CURRENT_DIR/logs/learning-agent-launcher.log"
+echo "Learning-agent node logs: $CURRENT_DIR/logs/learning-agent-node-<id>.log"
+echo "Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log"
 
 # tmux new-session -d -s "$SESSION" -n "node1" \
 #     "cd \"$CURRENT_DIR\" && ./pbft_main -r node -m loopbackip -n 1; status=\$?; echo; echo \"node1 exited with status \$status\"; exec bash"

@@ -203,6 +203,10 @@ class EpsilonGreedyBandit:
                 selected_protocol = ProtocolName.Periodic
             else:
                 selected_protocol = ProtocolName.Performance
+            LOGGER.info(
+                "initial protocol coverage triggered: selected protocol %s",
+                selected_protocol,
+            )
         elif self.rng.random() < self.epsilon:
             
             selected_protocol = self._random_protocol(list(ProtocolName))
