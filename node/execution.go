@@ -120,10 +120,12 @@ func (n *Node) commitSerializedRoutine() {
 			)
 		case cpState := <-n.cpStateTransfer:
 
-			if cpState.seq > n.lastExecuted {
+			if cpState.seq > n.readLastExecuted() {
 				n.log.Warn("Moving forward execution machine may execute req because of cp transfer")
 				n.executionMachine.RestoreCheckpoint(cpState.balances)
+				n.executionMu.Lock()
 				n.lastExecuted = cpState.seq
+				n.executionMu.Unlock()
 				n.newcollectReadyExecutions(
 					-1,
 					nil,
@@ -474,7 +476,7 @@ func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view i
 	}
 
 	belowTarget := false
-	if elapsedSeconds > 1 && seq%(CHECKPOINT_INTERVAL*6) == 0 {
+	if elapsedSeconds > 1 && seq%(CHECKPOINT_INTERVAL*12) == 0 {
 		belowTarget = throughput <= n.targetThroughput-1
 		if belowTarget {
 			n.log.Info("Elapsed secs greater than 1 and Throughput %.2f is below target %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, n.targetThroughput, view, seq, elapsedSeconds, executedSlots)
@@ -581,4 +583,10 @@ func (n *Node) ThroughputListFromVC(vcMsgs []*core.ViewChangeMsgSig) []float64 {
 	}
 	n.log.Info("Extracted throughputs from view change messages: %v", throughputs)
 	return throughputs
+}
+
+func (n *Node) readLastExecuted() int64 {
+	n.executionMu.RLock()
+	defer n.executionMu.RUnlock()
+	return n.lastExecuted
 }

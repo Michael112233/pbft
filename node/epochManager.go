@@ -193,6 +193,7 @@ func (em *EpochManager) updateEpochThroughputCSV(epochNumber int64, throughput f
 // outer node fun inner em function
 // lock even necessary
 func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) bool {
+	return false
 	em.mu.Lock()
 
 	if lastExeSeq == 1 {
@@ -357,6 +358,7 @@ func (em *EpochManager) ActiononProposalInterval(seqNum int64) { // might get sa
 	}
 }
 func (em *EpochManager) ReceiveEpochDecision(epoch int64, protocol string) {
+	return
 	em.mu.Lock()
 
 	if epoch != em.currentEpoch {

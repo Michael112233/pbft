@@ -13,44 +13,12 @@ import (
 	"github.com/michael112233/pbft/transportpb"
 )
 
-// need to add sig
-// func (n *Node) checkpointVC(seq int64, digest [32]byte) {
-// 	msg := core.CheckpointMsg{
-// 		SeqNum: seq,
-// 		Digest: digest,
-// 		From:   n.GetNodeID(),
-// 	}
-
-// 	pbMsg := transportpb.CheckpointToPB(msg)
-// 	payloadBytes, err := marshalDeterministic(pbMsg)
-// 	if err != nil {
-// 		n.log.Error("Failed to marshal Checkpoint message for signing: %v", err)
-// 		return
-// 	}
-// 	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
-// 	n.log.Test("Broadcasting checkpoint message for seq %d with digest %x", seq, digest)
-// 	for _, otherIP := range config.NodeAddr {
-// 		if otherIP == n.GetAddr() {
-// 			continue
-// 		}
-// 		go n.messageHub.Send(core.MsgCheckpointMessage, otherIP, msg, signature)
-// 	}
-// }
-
 func (n *Node) HandleCheckpoint(checkpointMsg core.CheckpointMsg, signature []byte) {
 	if checkpointMsg.SeqNum == 0 || checkpointMsg.SeqNum%CHECKPOINT_INTERVAL != 0 {
 		return
 	}
 	n.log.Test("Received checkpoint message from node %d for seq %d with digest %x", checkpointMsg.From, checkpointMsg.SeqNum, checkpointMsg.Digest)
 
-	// n.executionMu.Lock()
-	// localExecuted := checkpointMsg.SeqNum <= n.lastExecuted // in future replace by catching up with cp
-	// n.executionMu.Unlock()
-
-	// n.checkpointUpdateCondition(checkpointMsg, localExecuted)
-	// n.executionMu.Lock()
-	// lastExecuted := n.lastExecuted
-	// n.executionMu.Unlock()
 	needStateTransfer := false
 	n.checkpointMu.Lock()
 	key := checkpoint{
@@ -238,19 +206,6 @@ func (n *Node) HandleStateTransfer(stateTransferMsg core.StateTransferMsg, signa
 			seq:      stateTransferMsg.SeqNum,
 			balances: restoredBalances,
 		}
-		// n.executionMu.Lock()
-
-		// if stateTransferMsg.SeqNum > n.lastExecuted {
-		// 	n.log.Warn("Moving forward execution machine")
-		// 	n.executionMachine.RestoreCheckpoint(restoredBalances)
-		// 	n.lastExecuted = stateTransferMsg.SeqNum
-		// } else {
-		// 	n.log.Error("cant move forward execution machine as last executed is ahead of state transfer checkpoint")
-		// }
-		// run exe loop
-		// reduce chpoint limit
-		// first do easy change of time and gc
-		// n.executionMu.Unlock()
 
 	}
 
@@ -337,18 +292,55 @@ func (n *Node) checkpointUpdateConditionLocal(msg core.CheckpointMsg, copyOfBala
 			n.log.Info("Stable checkpoint advanced locally seq=%d digest=%x votes=%d", key.seq, key.digest, len(checkpointData.votes))
 		}
 	}
-	// fast path checkpoint for expriments
-	// 	checkpointData.votes[msg.From] =
 
-	// 	if !allowStabilize || len(votes) < 2*n.fNodes+1 {
-	// 		return false
-	// 	}
-	// 	if key.seq <= n.lastStableCheckpoint.seq {
-	// 		return false
-	// 	}
+}
 
-	//		n.lastStableCheckpoint = key
-	//		n.log.Info("Stable checkpoint advanced seq=%d digest=%x votes=%d", key.seq, key.digest, len(votes))
-	//		return true
-	//	}
+func (n *Node) fastPathStablizeCheckpointviaVC(latestStableCheckpoint checkpoint, checkpointProof []core.CheckpointMsgSig, path string) {
+	n.checkpointMu.Lock()
+	myStableCheckpoint := n.lastStableCheckpoint
+	if latestStableCheckpoint.seq > myStableCheckpoint.seq {
+		n.log.Debug("missing the latest stable checkpoint at o %s", path)
+		checkpointData, exists := n.checkpoints[latestStableCheckpoint]
+		if !exists {
+			checkpointData = CheckpointData{
+				votes:    make(map[int]core.CheckpointMsgSig),
+				balances: nil,
+			}
+			n.checkpoints[latestStableCheckpoint] = checkpointData
+		}
+		for _, checkpointMsgSig := range checkpointProof { // some time some vote already exist so rewrite them
+			checkpointData.votes[checkpointMsgSig.CheckpointMsg.From] = checkpointMsgSig
+		}
+		if len(checkpointData.votes) < 2*n.fNodes+1 {
+			n.log.Error("checkpoint from vc does not have enough votes, should not happen at o %s", path)
+		}
+		n.checkpoints[latestStableCheckpoint] = checkpointData // len votes should always be 2f+1 since checkpoint from vc verified
+		if checkpointData.balances == nil {
+			n.log.Info("requesting state transfer from creat 0 at %s", path)
+			go n.RequestStateTransfer(latestStableCheckpoint.seq, latestStableCheckpoint.digest, true)
+		} else { // had balances but not enough votes
+			n.lastStableCheckpoint = latestStableCheckpoint // unsafe checkpoint forwarding
+			go n.gcConsensusState(latestStableCheckpoint.seq)
+			go n.gcCheckpoints(latestStableCheckpoint)
+		}
+
+		// } else if exists && len(checkpointData.votes) < 2*n.fNodes+1 { // this path is mainly when i have executed and have balances but need more votes to stabalize
+		// 	for _, checkpointMsgSig := range checkpointProof {
+		// 		n.checkpoints[latestStableCheckpoint].votes[checkpointMsgSig.CheckpointMsg.From] = checkpointMsgSig
+		// 	} // if not exists then copy proof, if exists may replace some with incoming we will verify checkpoint before when receive vc
+		// 	if checkpointData.balances == nil { // most likely this case not run
+		// 		n.log.Info("requesting state transfer from creat 0 primary")
+		// 		go n.RequestStateTransfer(latestStableCheckpoint.seq, latestStableCheckpoint.digest, true)
+		// 	} else {
+		// 		n.lastStableCheckpoint = latestStableCheckpoint // unsafe checkpoint forwarding
+		// 		go n.gcConsensusState(latestStableCheckpoint.seq)
+		// 		go n.gcCheckpoints(latestStableCheckpoint)
+		// 	}
+		// } else {
+		// 	// if votess >= then from cehckpoint receive path should have called state transfer
+		// 	n.log.Error("should not come here for checkpoint in create O at primary")
+		// }
+
+	}
+	n.checkpointMu.Unlock()
 }

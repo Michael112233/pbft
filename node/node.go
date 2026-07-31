@@ -1709,15 +1709,15 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView int64) ([]core.PreprepareMsgSig, int64) {
 	O := make([]core.PreprepareMsgSig, 0)
 	preprepareLog := make(map[int64]core.PreprepareMsgSig)
-	n.checkpointMu.Lock()
+	// n.checkpointMu.Lock()
 	// minS := n.lastStableCheckpoint.seq + 1
 	minS := vcMsgSigs[0].ViewChangeMsg.CheckpointSeqNumber + 1
-	myStableCheckpoint := n.lastStableCheckpoint
+	// myStableCheckpoint := n.lastStableCheckpoint
 	latestStableCheckpoint := checkpoint{
 		seq:    vcMsgSigs[0].ViewChangeMsg.CheckpointSeqNumber,
 		digest: vcMsgSigs[0].ViewChangeMsg.CheckpointDigest,
 	}
-	checkpointProof := []core.CheckpointMsgSig{}
+	checkpointProof := vcMsgSigs[0].ViewChangeMsg.CheckpointProof
 	// checkpointNeedsSync := false
 	for _, vcMsgSig := range vcMsgSigs {
 		if vcMsgSig.ViewChangeMsg.CheckpointSeqNumber > latestStableCheckpoint.seq {
@@ -1734,36 +1734,9 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView i
 
 		}
 	}
+	n.fastPathStablizeCheckpointviaVC(latestStableCheckpoint, checkpointProof, "primary")
 
-	if latestStableCheckpoint.seq > myStableCheckpoint.seq {
-		n.log.Debug("missing the latest stable checkpoint at o primary")
-		checkpointData, exists := n.checkpoints[latestStableCheckpoint]
-		if !exists {
-			checkpointData = CheckpointData{
-				votes:    make(map[int]core.CheckpointMsgSig),
-				balances: nil,
-			}
-			n.checkpoints[latestStableCheckpoint] = checkpointData
-
-		} else if exists && len(checkpointData.votes) < 2*n.fNodes+1 { // this path is mainly when i have executed and have balances but need more votes to stabalize
-			for _, checkpointMsgSig := range checkpointProof {
-				n.checkpoints[latestStableCheckpoint].votes[checkpointMsgSig.CheckpointMsg.From] = checkpointMsgSig
-			} // if not exists then copy proof, if exists may replace some with incoming we will verify checkpoint before when receive vc
-			if checkpointData.balances == nil { // most likely this case not run
-				n.log.Info("requesting state transfer from creat 0 primary")
-				go n.RequestStateTransfer(latestStableCheckpoint.seq, latestStableCheckpoint.digest, true)
-			} else {
-				n.lastStableCheckpoint = latestStableCheckpoint // unsafe checkpoint forwarding
-				go n.gcConsensusState(latestStableCheckpoint.seq)
-				go n.gcCheckpoints(latestStableCheckpoint)
-			}
-		} else {
-			// if votess >= then from cehckpoint receive path should have called state transfer
-			n.log.Error("should not come here for checkpoint in create O at primary")
-		}
-
-	}
-	n.checkpointMu.Unlock()
+	// n.checkpointMu.Unlock()
 	n.executionMu.RLock()
 	if latestStableCheckpoint.seq > n.lastExecuted {
 		// n.lastExecuted = latestStableCheckpoint.seq // unsafe checkpoint forwarding
@@ -1861,15 +1834,15 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView i
 func (n *Node) createOReplica(vcMsgSigs []*core.ViewChangeMsgSig, view int64) (map[int64]core.PreprepareMsgSig, int64) {
 
 	preprepareLog := make(map[int64]core.PreprepareMsgSig)
-	n.checkpointMu.Lock()
+	// n.checkpointMu.Lock()
 	// minS := n.lastStableCheckpoint.seq + 1
 	minS := vcMsgSigs[0].ViewChangeMsg.CheckpointSeqNumber + 1
-	myStableCheckpoint := n.lastStableCheckpoint
+	// myStableCheckpoint := n.lastStableCheckpoint
 	latestStableCheckpoint := checkpoint{
 		seq:    vcMsgSigs[0].ViewChangeMsg.CheckpointSeqNumber,
 		digest: vcMsgSigs[0].ViewChangeMsg.CheckpointDigest,
 	}
-	checkpointProof := []core.CheckpointMsgSig{}
+	checkpointProof := vcMsgSigs[0].ViewChangeMsg.CheckpointProof
 	// checkpointNeedsSync := false
 	for _, vcMsgSig := range vcMsgSigs {
 		if vcMsgSig.ViewChangeMsg.CheckpointSeqNumber > latestStableCheckpoint.seq {
@@ -1887,35 +1860,7 @@ func (n *Node) createOReplica(vcMsgSigs []*core.ViewChangeMsgSig, view int64) (m
 		}
 	}
 
-	if latestStableCheckpoint.seq > myStableCheckpoint.seq {
-		n.log.Debug("missing the latest stable checkpoint at o replica")
-		checkpointData, exists := n.checkpoints[latestStableCheckpoint]
-		if !exists {
-			checkpointData = CheckpointData{
-				votes:    make(map[int]core.CheckpointMsgSig),
-				balances: nil,
-			}
-			n.checkpoints[latestStableCheckpoint] = checkpointData
-
-		} else if exists && len(checkpointData.votes) < 2*n.fNodes+1 { // this path is mainly when i have executed and have balances but need more votes to stabalize
-			for _, checkpointMsgSig := range checkpointProof {
-				n.checkpoints[latestStableCheckpoint].votes[checkpointMsgSig.CheckpointMsg.From] = checkpointMsgSig
-			} // if not exists then copy proof, if exists may replace some with incoming we will verify checkpoint before when receive vc
-			if checkpointData.balances == nil { // most likely this case not run
-				n.log.Info("requesting state transfer from creat 0 replica")
-				go n.RequestStateTransfer(latestStableCheckpoint.seq, latestStableCheckpoint.digest, true)
-			} else {
-				n.lastStableCheckpoint = latestStableCheckpoint // unsafe checkpoint forwarding
-				go n.gcConsensusState(latestStableCheckpoint.seq)
-				go n.gcCheckpoints(latestStableCheckpoint)
-			}
-		} else {
-			// if votess >= then from cehckpoint receive path should have called state transfer
-			n.log.Error("should not come here for checkpoint in create O at replica")
-		}
-
-	}
-	n.checkpointMu.Unlock()
+	n.fastPathStablizeCheckpointviaVC(latestStableCheckpoint, checkpointProof, "replica")
 
 	n.executionMu.RLock()
 	if latestStableCheckpoint.seq > n.lastExecuted {
