@@ -200,9 +200,9 @@ class EpsilonGreedyBandit:
         if unselected_protocols:
             # selected_protocol = self._random_protocol(unselected_protocols)
             if len(unselected_protocols) == 2:
-                selected_protocol = ProtocolName.Periodic
-            else:
                 selected_protocol = ProtocolName.Performance
+            else:
+                selected_protocol = ProtocolName.Periodic
             LOGGER.info(
                 "initial protocol coverage triggered: selected protocol %s",
                 selected_protocol,
@@ -274,21 +274,21 @@ def run_decision_worker(
                         reward=task.reward,
                         state=prev_prev_state_action_reward.state,
                     )
-                    if prev_prev_state_action_reward.sequence_id == 1 and prev_prev_state_action_reward.current_protocol != ProtocolName.Periodic:
-                        logging.warning(
-                            "node %d decision sequence %d protocol %s is invalid (expected %s)",
-                            node_id,
-                            prev_prev_state_action_reward.sequence_id,
-                            prev_prev_state_action_reward.current_protocol,
-                            ProtocolName.Periodic,
-                        )
-                    if prev_prev_state_action_reward.sequence_id == 2 and prev_prev_state_action_reward.current_protocol != ProtocolName.Performance:
+                    if prev_prev_state_action_reward.sequence_id == 1 and prev_prev_state_action_reward.current_protocol != ProtocolName.Performance:
                         logging.warning(
                             "node %d decision sequence %d protocol %s is invalid (expected %s)",
                             node_id,
                             prev_prev_state_action_reward.sequence_id,
                             prev_prev_state_action_reward.current_protocol,
                             ProtocolName.Performance,
+                        )
+                    if prev_prev_state_action_reward.sequence_id == 2 and prev_prev_state_action_reward.current_protocol != ProtocolName.Periodic:
+                        logging.warning(
+                            "node %d decision sequence %d protocol %s is invalid (expected %s)",
+                            node_id,
+                            prev_prev_state_action_reward.sequence_id,
+                            prev_prev_state_action_reward.current_protocol,
+                            ProtocolName.Periodic,
                         )
                     bandit.train(prev_prev_state_action_reward.current_protocol, task.reward)
                     # cmab.record_state_action_reward(completed_experience)
