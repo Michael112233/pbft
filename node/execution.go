@@ -74,6 +74,7 @@ func (n *Node) postActions(actions []executionPostAction) {
 		if !action.noOp {
 			// go n.sendReply(action.msg, action.result, action.seq)
 			n.pool.Delete(action.digest, action.seq)
+			n.duplicationMap.Delete(action.digest, action.seq)
 			n.pbftTimerManager.onRequestExecuted(n) // resets timer and periodic vc stop timer
 		}
 	}

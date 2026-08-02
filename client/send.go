@@ -117,12 +117,16 @@ func collectSignedBatch(signedTxs <-chan core.ClientMsgSignature, batchSize int)
 	return batch, true
 }
 
+func (c *Client) TotalTxnsToInject() int64 {
+	return c.config.Period * int64(c.config.NumberOfPeriods)
+}
+
 func (c *Client) InjectTxs() {
 	c.WaitGroup.Add(1)
 	go func() {
 		defer c.WaitGroup.Done()
 
-		totaltxns := c.config.Period * 15
+		totaltxns := c.TotalTxnsToInject()
 		if totaltxns <= 0 {
 			c.log.Info("No transactions to inject")
 			return
@@ -200,5 +204,34 @@ func (c *Client) InjectTxs() {
 				c.log.Info("Waited %s for signed transaction batch; signer pipeline may be bottlenecked", wait)
 			}
 		}
+		if c.config.CompleteSuite {
+			c.TransactionManager.StartRetryTimer(false)
+		}
 	}()
+}
+
+func (c *Client) sendTransactions(txs []core.ClientMsgSignature) {
+	for start := 0; start < len(txs); start += 100 {
+		end := start + 100
+		if end > len(txs) {
+			end = len(txs)
+		}
+
+		batch := txs[start:end]
+
+		c.leaderMu.RLock()
+		leader := c.leaderAddr
+		c.leaderMu.RUnlock()
+		timestart := time.Now()
+		c.messageHub.Send(
+			core.MsgRequestMessage,
+			c.addr,
+			leader,
+			core.RequestMessage{Txs: batch},
+			nil,
+		)
+		if remaining := clientSendInterval - time.Since(timestart); remaining > 0 {
+			time.Sleep(remaining)
+		}
+	}
 }

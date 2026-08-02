@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/michael112233/pbft/core"
+	"github.com/michael112233/pbft/logger"
 )
 
 const (
@@ -25,6 +26,9 @@ type transactionDetails struct {
 	latency         int64
 	done            bool
 	committed       bool
+	clientMsgSig    core.ClientMsgSignature
+	nextRetryTime   time.Time
+	retryCount      int
 }
 
 type shard struct {
@@ -41,42 +45,51 @@ type TPSPoint struct {
 }
 
 type TransactionManager struct {
-	shards      [numShards]shard
-	txnCommited atomic.Int64
-	startTime   int64
-
-	tpsMu                   sync.RWMutex
-	averageTps              float64
-	elapsedTime             float64
-	transactionTimer        *time.Timer
-	transactionTimerStopCh  chan struct{}
-	transactionTimerRunning atomic.Bool
-	tpsSeries               []TPSPoint
-	lastSampleTime          int64
-	lastSampleCommitted     int64
-	tpsSampleInterval       time.Duration
-	tpsSamplerStopCh        chan struct{}
-	tpsSamplerRunning       atomic.Bool
-	tpsSamplerStopOnce      sync.Once
+	shards              [numShards]shard
+	txnCommited         atomic.Int64
+	startTime           int64
+	log                 *logger.Logger
+	tpsMu               sync.RWMutex
+	averageTps          float64
+	elapsedTime         float64
+	txnRetryManager     *TransactionRetryManager
+	tpsSeries           []TPSPoint
+	lastSampleTime      int64
+	lastSampleCommitted int64
+	tpsSampleInterval   time.Duration
+	tpsSamplerStopCh    chan struct{}
+	tpsSamplerRunning   atomic.Bool
+	tpsSamplerStopOnce  sync.Once
+	client              ClientTxnManager
 
 	latencyMu      sync.Mutex // later will have better fix and concurrent
 	latencySamples []int64
 }
 
-func NewTransactionManager() *TransactionManager {
-	transactionTimer := time.NewTimer(5 * time.Second)
-	if !transactionTimer.Stop() {
-		select {
-		case <-transactionTimer.C:
-		default:
-		}
-	}
+type ClientTxnManager interface {
+	sendTransactions([]core.ClientMsgSignature)
+	TotalTxnsToInject() int64
+}
+
+type TransactionRetryManager struct {
+	timer         *time.Timer
+	timerStopCh   chan struct{}
+	timerDoneCh   chan struct{}
+	timerStarted  atomic.Bool
+	timerStopOnce sync.Once
+}
+
+func NewTransactionManager(client ClientTxnManager, log *logger.Logger) *TransactionManager {
+	transactionRetryTimer := time.NewTimer(5 * time.Second)
+	transactionRetryTimer.Stop()
+
 	tm := &TransactionManager{
-		transactionTimer:       transactionTimer,
-		transactionTimerStopCh: make(chan struct{}),
-		tpsSeries:              make([]TPSPoint, 0),
-		tpsSampleInterval:      500 * time.Millisecond,
-		tpsSamplerStopCh:       make(chan struct{}),
+		txnRetryManager:   &TransactionRetryManager{timer: transactionRetryTimer, timerStopCh: make(chan struct{}), timerDoneCh: make(chan struct{})},
+		tpsSeries:         make([]TPSPoint, 0),
+		tpsSampleInterval: 500 * time.Millisecond,
+		tpsSamplerStopCh:  make(chan struct{}),
+		client:            client,
+		log:               log,
 	}
 	for i := range tm.shards {
 		tm.shards[i].txns = make(map[int64]*transactionDetails)
@@ -84,53 +97,47 @@ func NewTransactionManager() *TransactionManager {
 	return tm
 }
 
-func (tm *TransactionManager) TransactionTimerWorker(_ *Client) {
-
+func (tm *TransactionManager) retryTimerWorker(normalStart bool) {
+	if normalStart {
+		tm.txnRetryManager.timer.Reset(7 * time.Second)
+	} else {
+		tm.txnRetryManager.timer.Reset(10 * time.Millisecond)
+	}
+	defer close(tm.txnRetryManager.timerDoneCh)
 	for {
 		select {
-		case <-tm.transactionTimer.C:
-			// Retry is intentionally disabled for high-volume padded benchmarks:
-			// transactionDetails stores lightweight metadata only, not the full payload.
-			tm.transactionTimer.Reset(10 * time.Second)
-		case <-tm.transactionTimerStopCh:
+		case <-tm.txnRetryManager.timer.C:
+			tm.sendTxsForRetry()
+			tm.txnRetryManager.timer.Reset(5 * time.Second)
+		case <-tm.txnRetryManager.timerStopCh:
 			return
 		}
 	}
 }
 
-func (tm *TransactionManager) StartTimer() {
-	tm.transactionTimerRunning.Store(true)
-	tm.transactionTimer.Reset(5 * time.Second)
-}
-func (tm *TransactionManager) ResetTimer() {
-	if !tm.transactionTimer.Stop() {
-		select {
-		case <-tm.transactionTimer.C:
-		default:
-		}
-	}
-	tm.transactionTimer.Reset(5 * time.Second)
-}
-func (tm *TransactionManager) TemporaryStopTimer() {
-	tm.transactionTimerRunning.Store(false)
-	if !tm.transactionTimer.Stop() {
-		select {
-		case <-tm.transactionTimer.C:
-		default:
-		}
+func (tm *TransactionManager) StartRetryTimer(normalStart bool) {
+	if tm.txnRetryManager.timerStarted.CompareAndSwap(false, true) {
+		go tm.retryTimerWorker(normalStart)
 	}
 }
 
-func (tm *TransactionManager) StopTimer() {
-	tm.transactionTimerRunning.Store(false)
-	if !tm.transactionTimer.Stop() {
-		select {
-		case <-tm.transactionTimer.C:
-		default:
-		}
+// func (tm *TransactionManager) TemporaryStopTimer() {
+// 	tm.transactionTimerRunning.Store(false)
+// 	if !tm.transactionTimer.Stop() {
+// 		select {
+// 		case <-tm.transactionTimer.C:
+// 		default:
+// 		}
+// 	}
+// }
+
+func (tm *TransactionManager) StopRetryTimer() {
+	tm.txnRetryManager.timerStopOnce.Do(func() {
+		close(tm.txnRetryManager.timerStopCh)
+	})
+	if tm.txnRetryManager.timerStarted.Load() {
+		<-tm.txnRetryManager.timerDoneCh
 	}
-	close(tm.transactionTimerStopCh)
-	tm.stopTPSSampler()
 }
 
 func (tm *TransactionManager) Start() {
@@ -163,11 +170,49 @@ func (tm *TransactionManager) AddTransaction(batch []core.ClientMsgSignature) {
 	for _, msgSig := range batch {
 		s := tm.getShard(msgSig.Data.Id)
 		s.mu.Lock()
+		timeNow := time.Now()
 		s.txns[msgSig.Data.Id] = &transactionDetails{
-			startTimestamp: time.Now().UnixNano(),
+			startTimestamp: timeNow.UnixNano(),
 			done:           false,
+			clientMsgSig:   msgSig,
+			retryCount:     0,
+			nextRetryTime:  timeNow.Add(5 * time.Second),
 		}
 		s.mu.Unlock()
+	}
+}
+
+func (tm *TransactionManager) sendTxsForRetry() {
+	now := time.Now()
+	candidates := make([]core.ClientMsgSignature, 0)
+	txnsIterated := 0
+	candidatesWithMultipleRetries := 0
+	for i := range tm.shards {
+		s := &tm.shards[i]
+		s.mu.RLock()
+		for _, txn := range s.txns {
+			txnsIterated++
+			txn.mu.Lock()
+			if !txn.committed && now.After(txn.nextRetryTime) {
+				candidates = append(candidates, txn.clientMsgSig)
+				txn.retryCount++
+				if txn.retryCount > 1 {
+					candidatesWithMultipleRetries++
+				}
+				delay := retryDelay(txn.retryCount)
+				txn.nextRetryTime = now.Add(delay)
+			}
+			txn.mu.Unlock()
+		}
+		s.mu.RUnlock()
+	}
+	if len(candidates) > 0 {
+		tm.log.Info("Iterated through %d txns, found %d candidates for retry, %d of which have been retried multiple times\n", txnsIterated, len(candidates), candidatesWithMultipleRetries)
+
+		timestart := time.Now()
+		tm.client.sendTransactions(candidates)
+		timeduration := time.Since(timestart)
+		tm.log.Info("Time taken to send %d transactions for retry: %s\n", len(candidates), timeduration)
 	}
 }
 
@@ -210,6 +255,7 @@ func (tm *TransactionManager) CommitTps(reply core.CommitTps) {
 	}
 
 	// Per-txn lock for longer operations - doesn't block other txns in shard
+	// even if delete from map but someone else has a pointer to the txn, it can still access it. go gc will not delete it until all references are gone
 	txn.mu.Lock()
 	if txn.committed {
 		txn.mu.Unlock()
@@ -219,15 +265,27 @@ func (tm *TransactionManager) CommitTps(reply core.CommitTps) {
 	txn.finishTimestamp = time.Now().UnixNano()
 	txn.latency = txn.finishTimestamp - txn.startTimestamp
 	txn.committed = true
-	tm.txnCommited.Add(1)
-	tm.latencyMu.Lock()
-	tm.latencySamples = append(tm.latencySamples, txn.latency)
-	tm.latencyMu.Unlock()
+	latency := txn.latency
+	retried := txn.retryCount
 	txn.mu.Unlock()
-
-	if reply.ClientMsg.Id > txnGCRetentionWindow && reply.ClientMsg.Id%30000 == 0 {
-		go tm.GCTxns(reply.ClientMsg.Id - txnGCRetentionWindow)
+	s.mu.Lock()
+	if current, exists := s.txns[reply.ClientMsg.Id]; exists && current == txn {
+		delete(s.txns, reply.ClientMsg.Id)
 	}
+	s.mu.Unlock()
+	numberOfCommittedTxns := tm.txnCommited.Add(1)
+	if numberOfCommittedTxns == tm.client.TotalTxnsToInject() {
+		tm.log.Info("All transactions committed")
+	}
+	if retried == 0 {
+		tm.latencyMu.Lock()
+		tm.latencySamples = append(tm.latencySamples, latency)
+		tm.latencyMu.Unlock()
+	}
+
+	// if reply.ClientMsg.Id > txnGCRetentionWindow && reply.ClientMsg.Id%30000 == 0 {
+	// 	go tm.GCTxns(reply.ClientMsg.Id - txnGCRetentionWindow)
+	// }
 }
 
 func (tm *TransactionManager) GCTxns(cutoff int64) {

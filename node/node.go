@@ -101,7 +101,8 @@ type Node struct {
 	viewChangeMsgsLog map[int64][]*core.ViewChangeMsgSig
 	voteLog           map[int64][]int
 
-	pool *Pool
+	pool           *Pool
+	duplicationMap *DuplicationMap
 
 	executionMachine  execution.StateMachine
 	executionMu       sync.RWMutex
@@ -206,6 +207,7 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		viewChangeMsgsLog:              make(map[int64][]*core.ViewChangeMsgSig),
 		voteLog:                        make(map[int64][]int),
 		pool:                           NewPool(),
+		duplicationMap:                 NewDuplicationMap(),
 		executionMachine:               execution.NewAccountStateMachine(),
 		pendingExecutions:              make(map[int64]pendingExecution),
 		checkpoints:                    make(map[checkpoint]CheckpointData),
@@ -561,6 +563,13 @@ func (n *Node) broadcastCommit(view, seq int64, digest [32]byte) {
 }
 func (n *Node) preprepare(batch core.ClientMsgSignature) {
 
+	digestClientMsg, err := ComputeBatchDigest(batch.Data)
+	if err != nil {
+		n.log.Error("Failed to compute batch digest: %v", err)
+
+		return
+	}
+
 	n.viewMu.RLock()
 
 	// n.viewMu.RUnlock()
@@ -603,19 +612,27 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 		// 	return
 		// }
 
+		// one assumption that client wont retry executed req such reordering of client receiving exe req and sending retry req wont happen
+		added := n.duplicationMap.Add(digestClientMsg, view, currentSeq+1)
+		if !added {
+			n.log.Error("PrePrepare skipped for view %d seq %d because batch already proposed in same view", view, currentSeq+1)
+			n.viewMu.RUnlock()
+			return
+		}
+		_, executed := n.pool.Add(digestClientMsg, batch)
+		if executed {
+			n.log.Error("PrePrepare skipped for view %d seq %d because batch already executed", view, currentSeq+1)
+			n.viewMu.RUnlock()
+			return
+		}
 		if n.preprepareSeqNumber.CompareAndSwap(currentSeq, currentSeq+1) {
 			seqNum = currentSeq + 1
 			break
+		} else {
+			n.log.Error("Preprepare seq number assignment shouldnt fail as under protection of viewMu")
 		}
 	}
 	n.viewMu.RUnlock()
-
-	digestClientMsg, err := ComputeBatchDigest(batch.Data)
-	if err != nil {
-		n.log.Error("Failed to compute batch digest: %v", err)
-
-		return
-	}
 
 	preprepareMsg := core.PreprepareMsg{
 		View:            view,
@@ -649,7 +666,7 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 	// }
 	// n.viewMu.RUnlock()
 
-	n.pool.Add(digestClientMsg, batch)
+	// n.pool.Add(digestClientMsg, batch)
 	n.pbftTimerManager.trackPreprepareRequest()
 	n.log.Test("PrePrepare sent for view %d seq %d with batch size %d", view, seqNum, 1)
 	// go func() {
@@ -1702,7 +1719,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	n.pbftTimerManager.forceResetPBFTTimer()
 	n.startPeriodicTimerForNewView(newview)
 	n.replayBufferedMessagesForView(newview)
-	go n.gcViewChangeMsgs(newview)
+	go n.gcViewChangeMsgs(newview, true)
 
 }
 
@@ -2038,6 +2055,7 @@ func (n *Node) newView() {
 		// slot.prePrepare.DigestClientMsg = preprepareMsg.PreprepareMsgMini.DigestClientMsg
 		if preprepareMsg.PreprepareMsgMini.DigestClientMsg != [32]byte{} {
 			clientMsg, exists, executed := n.pool.Get(preprepareMsg.PreprepareMsgMini.DigestClientMsg)
+			n.duplicationMap.AddNewView(preprepareMsg.PreprepareMsgMini.DigestClientMsg, preprepareMsg.PreprepareMsgMini.View, preprepareMsg.PreprepareMsgMini.SeqNum)
 			if exists {
 				slot.prePrepare.ClientMsg = clientMsg
 				slot.missingData = false
@@ -2098,7 +2116,7 @@ func (n *Node) newView() {
 	n.log.Info("Entering replay from primary might not need at primary")
 	n.startPeriodicTimerForNewView(n.view)
 	go n.replayBufferedMessagesForView(n.view)
-	go n.gcViewChangeMsgs(n.view)
+	go n.gcViewChangeMsgs(n.view, false)
 
 }
 

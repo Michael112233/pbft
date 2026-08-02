@@ -58,7 +58,8 @@ func NewClient(addr string, name string, config *config.Config, leaderAddr strin
 		panic("Error reading client private key: " + err.Error())
 	}
 	// leaderid := config.NodeAddr[1]
-	return &Client{
+	log := logger.NewLogger(0, "client")
+	c := &Client{
 		addr:            addr,
 		name:            name,
 		currentView:     1,
@@ -70,10 +71,9 @@ func NewClient(addr string, name string, config *config.Config, leaderAddr strin
 		leaderAddr: leaderAddr,
 
 		// leaderElection:     leader_election.NewLeaderElection(config),
-		log:                logger.NewLogger(0, "client"),
-		messageHub:         NewClientMessageHub(),
-		privateKey:         privKey,
-		TransactionManager: NewTransactionManager(),
+		log:        log,
+		messageHub: NewClientMessageHub(),
+		privateKey: privKey,
 
 		vcrunChan:           make(chan core.VCRunningStatus, 1),
 		memoryLoggerStop:    make(chan struct{}),
@@ -81,6 +81,9 @@ func NewClient(addr string, name string, config *config.Config, leaderAddr strin
 		requestSendRateStop: make(chan struct{}),
 		requestSendRateDone: make(chan struct{}),
 	}
+	txnManager := NewTransactionManager(c, log)
+	c.TransactionManager = txnManager
+	return c
 }
 
 func (c *Client) Start() {
@@ -91,7 +94,8 @@ func (c *Client) Start() {
 	if c.config.Logging && c.requestSendRateStarted.CompareAndSwap(false, true) {
 		go c.requestSendRateLogger()
 	}
-	go c.TransactionManager.TransactionTimerWorker(c)
+	// keep it on for normal retry
+	// c.TransactionManager.StartRetryTimer(true)
 	c.injectSpeed = c.config.InjectSpeed
 	time.Sleep(100 * time.Millisecond) // msg hub to start
 	c.InjectTxs()
@@ -100,7 +104,7 @@ func (c *Client) Start() {
 func (c *Client) Stop() {
 	c.WaitGroup.Wait()
 	c.messageHub.Close()
-	c.TransactionManager.StopTimer()
+	c.TransactionManager.StopRetryTimer()
 	c.memoryLoggerStopOnce.Do(func() {
 		close(c.memoryLoggerStop)
 	})

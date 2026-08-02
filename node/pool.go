@@ -26,16 +26,42 @@ func NewPool() *Pool {
 	}
 }
 
-func (p *Pool) Add(digest [32]byte, msg core.ClientMsgSignature) bool {
+// func (p *Pool) AddforLeader(digest [32]byte, msg core.ClientMsgSignature, view int64) bool {
+// 	p.lock.Lock()
+// 	defer p.lock.Unlock()
+// 	if data, exists := p.existsMap[digest]; !exists {
+// 		if _, deleted := p.delMap[digest]; !deleted {
+// 			p.existsMap[digest] = PoolData{
+// 				msg:          msg,
+// 				proposalView: view,
+// 			}
+// 			return true
+// 		}
+// 	} else {
+// 		if view > data.proposalView {
+// 			data.proposalView = view
+// 			p.existsMap[digest] = data
+// 			return true
+// 		} else {
+// 			return false
+// 		}
+// 	}
+// 	return false
+// }
+
+// second boolean is for executed
+func (p *Pool) Add(digest [32]byte, msg core.ClientMsgSignature) (bool, bool) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 	if _, exists := p.existsMap[digest]; !exists {
 		if _, deleted := p.delMap[digest]; !deleted {
 			p.existsMap[digest] = msg
-			return true
+			return true, false
+		} else {
+			return false, true
 		}
 	}
-	return false
+	return false, false
 }
 
 func (p *Pool) Delete(digest [32]byte, seq int64) {
@@ -60,6 +86,21 @@ func (p *Pool) Get(digest [32]byte) (core.ClientMsgSignature, bool, bool) {
 	_, executed := p.delMap[digest]
 	return msg, exists, executed
 }
+
+// func (p *Pool) GetforLeader(digest [32]byte, view int64) (core.ClientMsgSignature, bool, bool) {
+// 	p.lock.Lock()
+// 	defer p.lock.Unlock()
+// 	msg, exists := p.existsMap[digest]
+// 	if exists {
+// 		if view > msg.proposalView {
+// 			msg.proposalView = view
+// 			p.existsMap[digest] = msg
+// 		}
+// 	}
+
+//		_, executed := p.delMap[digest]
+//		return msg.msg, exists, executed
+//	}
 func (p *Pool) GetMultiple(digests [][32]byte) []core.MissingClientData {
 	p.lock.RLock()
 	defer p.lock.RUnlock()

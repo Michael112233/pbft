@@ -37,7 +37,7 @@ func (n *Node) gcCheckpoints(key checkpoint) {
 	// n.log.Info("Garbage collected %d checkpoints below seq %d for stable checkpoint seq %d and digest %x", removedCheckpoints, keepFromSeq, key.seq, key.digest)
 }
 
-func (n *Node) gcViewChangeMsgs(view int64) {
+func (n *Node) gcViewChangeMsgs(view int64, notLeader bool) {
 	if n.gc == false {
 		return
 	}
@@ -50,5 +50,8 @@ func (n *Node) gcViewChangeMsgs(view int64) {
 		}
 	}
 	n.viewMu.Unlock()
+	if notLeader {
+		n.duplicationMap.oldGC(view - 20) // backup dont need duplicate map so can do gc for them without locking preprepare
+	}
 	// n.log.Info("Garbage collected %d view change messages up to view %d", removedVCMsgs, view-3)
 }

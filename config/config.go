@@ -18,6 +18,7 @@ type Config struct {
 	NodesDead          map[int]bool `json:"nodes_dead"`
 	Periodic           bool         `json:"periodic"`
 	Period             int64        `json:"period"`
+	NumberOfPeriods    int          `json:"number_of_periods"`
 	PeakTpsTest        bool         `json:"peak_tps_test"`
 	LeaderType         string       `json:"leader_type"`
 	FarNodeID          int          `json:"far_node_id"`
@@ -36,6 +37,7 @@ type Config struct {
 	MaxInflightSeq     int64 `json:"max_inflight_seq"`
 	Fixed              bool  `json:"fixed"`
 	PeriodicReq        bool  `json:"periodic_req"`
+	CompleteSuite      bool  `json:"complete_suite"`
 }
 
 func ReadCfg(filename string) *Config {

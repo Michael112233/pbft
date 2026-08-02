@@ -337,6 +337,7 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) bool {
 
 // since we dont do one req at a time and window is big so preprepare can be out of order
 func (em *EpochManager) ActiononProposalInterval(seqNum int64) { // might get same  seqnum multiple times if in old view its not committed
+	return
 	em.mu.Lock()
 	defer em.mu.Unlock()
 
