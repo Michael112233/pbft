@@ -340,6 +340,7 @@ func (x *ClientMsgSignature) GetSignature() []byte {
 type RequestMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Txs           []*ClientMsgSignature  `protobuf:"bytes,1,rep,name=txs,proto3" json:"txs,omitempty"`
+	MsgType       string                 `protobuf:"bytes,2,opt,name=msg_type,json=msgType,proto3" json:"msg_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -379,6 +380,13 @@ func (x *RequestMessage) GetTxs() []*ClientMsgSignature {
 		return x.Txs
 	}
 	return nil
+}
+
+func (x *RequestMessage) GetMsgType() string {
+	if x != nil {
+		return x.MsgType
+	}
+	return ""
 }
 
 type VCRunningStatus struct {
@@ -2750,9 +2758,10 @@ const file_pbft_transport_proto_rawDesc = "" +
 	"clientName\"d\n" +
 	"\x12ClientMsgSignature\x120\n" +
 	"\x04data\x18\x01 \x01(\v2\x1c.pbft.transport.v1.ClientMsgR\x04data\x12\x1c\n" +
-	"\tsignature\x18\x02 \x01(\fR\tsignature\"I\n" +
+	"\tsignature\x18\x02 \x01(\fR\tsignature\"d\n" +
 	"\x0eRequestMessage\x127\n" +
-	"\x03txs\x18\x01 \x03(\v2%.pbft.transport.v1.ClientMsgSignatureR\x03txs\"i\n" +
+	"\x03txs\x18\x01 \x03(\v2%.pbft.transport.v1.ClientMsgSignatureR\x03txs\x12\x19\n" +
+	"\bmsg_type\x18\x02 \x01(\tR\amsgType\"i\n" +
 	"\x0fVCRunningStatus\x127\n" +
 	"\x03txs\x18\x01 \x03(\v2%.pbft.transport.v1.ClientMsgSignatureR\x03txs\x12\x1d\n" +
 	"\n" +

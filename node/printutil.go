@@ -2,15 +2,29 @@ package node
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"math"
+	"math/big"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/michael112233/pbft/core"
 )
+
+type latencySummaryResult struct {
+	Count            int       `json:"count"`
+	MedianMs         float64   `json:"median_ms"`
+	P95Ms            float64   `json:"p95_ms"`
+	P99Ms            float64   `json:"p99_ms"`
+	P95MedianRatio   float64   `json:"p95_median_ratio"`
+	P99MedianRatio   float64   `json:"p99_median_ratio"`
+	LatencySamplesMs []float64 `json:"latency_samples_ms"`
+}
 
 func (n *Node) PrintDetails() {
 	type checkpointSnapshot struct {
@@ -200,6 +214,29 @@ func (n *Node) PrintAccountBalances() {
 		return
 	}
 
+	jsonBalances := make(map[string]*big.Int, len(balances))
+	for account, balance := range balances {
+		if balance == nil {
+			jsonBalances[account] = new(big.Int)
+			continue
+		}
+		jsonBalances[account] = new(big.Int).Set(balance)
+	}
+
+	if err := os.MkdirAll("logs", 0755); err != nil {
+		fmt.Printf("Failed to create logs directory for account balances: %v\n", err)
+	} else {
+		path := filepath.Join("logs", "node_"+strconv.Itoa(n.NodeID)+"_acctbalances.json")
+		data, marshalErr := json.MarshalIndent(jsonBalances, "", "  ")
+		if marshalErr != nil {
+			fmt.Printf("Failed to marshal account balances: %v\n", marshalErr)
+		} else if writeErr := os.WriteFile(path, append(data, '\n'), 0644); writeErr != nil {
+			fmt.Printf("Failed to write account balances file %s: %v\n", path, writeErr)
+		} else {
+			fmt.Printf("Account balances written to %s\n", path)
+		}
+	}
+
 	accounts := make([]string, 0, len(balances))
 	for account := range balances {
 		accounts = append(accounts, account)
@@ -219,6 +256,90 @@ func (n *Node) PrintAccountBalances() {
 		}
 		fmt.Printf("%s=%s\n", account, balance.String())
 	}
+}
+
+func (n *Node) PrintLatencySummary() {
+	samples := n.StopLatencyMonitoring()
+	result := summarizeLatencies(samples)
+
+	if err := os.MkdirAll("logs", 0755); err != nil {
+		fmt.Printf("Failed to create logs directory for latency summary: %v\n", err)
+		return
+	}
+
+	path := filepath.Join("logs", "node_"+strconv.Itoa(n.NodeID)+"_latencylog.json")
+	data, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		fmt.Printf("Failed to marshal latency summary: %v\n", err)
+		return
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0644); err != nil {
+		fmt.Printf("Failed to write latency summary file %s: %v\n", path, err)
+		return
+	}
+
+	fmt.Printf("Latency summary written to %s\n", path)
+}
+
+func summarizeLatencies(samples []time.Duration) latencySummaryResult {
+	sampleCount := len(samples)
+	if sampleCount > 10 {
+		sampleCount = 10
+	}
+
+	latencySamplesMs := make([]float64, sampleCount)
+	for i := 0; i < sampleCount; i++ {
+		latencySamplesMs[i] = durationToMilliseconds(samples[i])
+	}
+
+	result := latencySummaryResult{
+		Count:            len(samples),
+		LatencySamplesMs: latencySamplesMs,
+	}
+	if len(samples) == 0 {
+		return result
+	}
+
+	sort.Slice(samples, func(i, j int) bool {
+		return samples[i] < samples[j]
+	})
+
+	middle := len(samples) / 2
+	medianNanoseconds := float64(samples[middle])
+	if len(samples)%2 == 0 {
+		medianNanoseconds = (float64(samples[middle-1]) + float64(samples[middle])) / 2
+	}
+
+	p95 := nearestRankLatency(samples, 0.95)
+	p99 := nearestRankLatency(samples, 0.99)
+	result.MedianMs = medianNanoseconds / float64(time.Millisecond)
+	result.P95Ms = durationToMilliseconds(p95)
+	result.P99Ms = durationToMilliseconds(p99)
+	if medianNanoseconds != 0 {
+		result.P95MedianRatio = float64(p95) / medianNanoseconds
+		result.P99MedianRatio = float64(p99) / medianNanoseconds
+	}
+
+	return result
+}
+
+func nearestRankLatency(sortedSamples []time.Duration, percentile float64) time.Duration {
+	if len(sortedSamples) == 0 {
+		return 0
+	}
+
+	index := int(math.Ceil(percentile*float64(len(sortedSamples)))) - 1
+	if index < 0 {
+		index = 0
+	}
+	if index >= len(sortedSamples) {
+		index = len(sortedSamples) - 1
+	}
+	return sortedSamples[index]
+}
+
+func durationToMilliseconds(duration time.Duration) float64 {
+	return float64(duration) / float64(time.Millisecond)
 }
 
 func (n *Node) TimesLeader() {

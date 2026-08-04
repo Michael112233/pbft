@@ -43,21 +43,23 @@ type EpochData struct {
 	ProposalIntervalData ProposalIntervalData
 }
 type EpochManager struct {
-	mu            sync.RWMutex
-	currentEpoch  int64
-	epochData     map[int64]EpochData
-	epochDecision map[int64]string // it is decision for watermark send in current epoch and applied in next epoch and its reward come with watermark of next to next epoch
-	log           *logger.Logger
-	csvFile       *os.File
-	csvWriter     *csv.Writer
-	node          EpochNode
+	mu             sync.RWMutex
+	currentEpoch   int64
+	epochData      map[int64]EpochData
+	epochDecision  map[int64]string // it is decision for watermark send in current epoch and applied in next epoch and its reward come with watermark of next to next epoch
+	log            *logger.Logger
+	csvFile        *os.File
+	csvWriter      *csv.Writer
+	node           EpochNode
+	latencyMonitor *LatencyMonitor
 }
 
 func NewEpochManager(node EpochNode, log *logger.Logger) *EpochManager {
 	epochManager := &EpochManager{
-		currentEpoch:  1,
-		epochDecision: make(map[int64]string),
-		epochData:     make(map[int64]EpochData),
+		currentEpoch:   1,
+		epochDecision:  make(map[int64]string),
+		epochData:      make(map[int64]EpochData),
+		latencyMonitor: NewLatencyMonitor(),
 
 		log:  log,
 		node: node,
@@ -207,6 +209,7 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) bool {
 				StartTime: proposalStartTime,
 			},
 		}
+
 		em.mu.Unlock()
 		return false
 	}
@@ -380,6 +383,35 @@ func (em *EpochManager) GetCurrentEpoch() int64 {
 	return em.currentEpoch
 }
 
+func (em *EpochManager) StartLatencyMonitoring() {
+	em.latencyMonitor.StartMonitoring()
+}
+
+func (em *EpochManager) StopLatencyMonitoring() []time.Duration {
+	return em.latencyMonitor.StopMonitoring()
+}
+func (em *EpochManager) RecordStartTime(digest [32]byte, startTime time.Time) {
+	em.latencyMonitor.RecordStartTime(digest, startTime)
+}
+
+func (em *EpochManager) RecordEndTime(digest [32]byte, endTime time.Time) {
+	em.latencyMonitor.RecordEndTime(digest, endTime)
+}
+
+func (n *Node) StartLatencyMonitoring() { //right now called open ended but merge with epoch
+	n.epochManager.StartLatencyMonitoring()
+}
+
+func (n *Node) StopLatencyMonitoring() []time.Duration {
+	return n.epochManager.StopLatencyMonitoring()
+}
+func (n *Node) RecordStartTime(digest [32]byte, startTime time.Time) { // see its call site in preprepare and new view
+	n.epochManager.RecordStartTime(digest, startTime)
+}
+
+func (n *Node) RecordEndTime(digest [32]byte, endTime time.Time) {
+	n.epochManager.RecordEndTime(digest, endTime)
+}
 func (n *Node) EpochReqExecuted(seq int64) bool {
 	return n.epochManager.ActiononLastExeSeq(seq)
 }

@@ -33,6 +33,7 @@ message ClientMsgSignature {
 
 message RequestMessage {
   repeated ClientMsgSignature txs = 1;
+  string msg_type = 2;
 }
 
 message VCRunningStatus {

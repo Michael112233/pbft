@@ -169,8 +169,8 @@ func (c *Client) InjectTxs() {
 			c.TransactionManager.AddTransaction(batch)
 
 			msg := core.RequestMessage{
-
-				Txs: batch,
+				MsgType: "RequestMessage",
+				Txs:     batch,
 			}
 
 			for {
@@ -227,7 +227,7 @@ func (c *Client) sendTransactions(txs []core.ClientMsgSignature) {
 			core.MsgRequestMessage,
 			c.addr,
 			leader,
-			core.RequestMessage{Txs: batch},
+			core.RequestMessage{Txs: batch, MsgType: "RetryRequestMessage"},
 			nil,
 		)
 		if remaining := clientSendInterval - time.Since(timestart); remaining > 0 {

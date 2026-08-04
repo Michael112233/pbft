@@ -67,6 +67,8 @@ func runNode(nodeID int64, cfg *config.Config) {
 		} else if input[0] == 'a' {
 			Node.PrintAccountBalances()
 
+		} else if input[0] == 'x' {
+			Node.PrintLatencySummary()
 		}
 
 	}

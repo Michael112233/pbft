@@ -118,7 +118,8 @@ func ClientMsgSigFromPB(msg *ClientMsgSignature) (core.ClientMsgSignature, error
 
 func RequestToPB(msg core.RequestMessage) *RequestMessage {
 	out := &RequestMessage{
-		Txs: make([]*ClientMsgSignature, 0, len(msg.Txs)),
+		Txs:     make([]*ClientMsgSignature, 0, len(msg.Txs)),
+		MsgType: msg.MsgType,
 	}
 	for _, tx := range msg.Txs {
 		out.Txs = append(out.Txs, ClientMsgSigToPB(tx))
@@ -131,7 +132,8 @@ func RequestFromPB(msg *RequestMessage) (core.RequestMessage, error) {
 		return core.RequestMessage{}, nil
 	}
 	out := core.RequestMessage{
-		Txs: make([]core.ClientMsgSignature, 0, len(msg.Txs)),
+		Txs:     make([]core.ClientMsgSignature, 0, len(msg.Txs)),
+		MsgType: msg.MsgType,
 	}
 	for _, tx := range msg.Txs {
 		coreTx, err := ClientMsgSigFromPB(tx)

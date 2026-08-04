@@ -10,7 +10,8 @@ type Message struct {
 }
 
 type RequestMessage struct {
-	Txs []ClientMsgSignature
+	MsgType string
+	Txs     []ClientMsgSignature
 }
 type VCRunningStatus struct {
 	Txs       []ClientMsgSignature

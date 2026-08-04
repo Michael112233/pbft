@@ -8,10 +8,23 @@ import (
 	"time"
 
 	"github.com/michael112233/pbft/core"
+	"github.com/michael112233/pbft/logger"
 )
 
+type transactionManagerTestClient struct{}
+
+func (*transactionManagerTestClient) sendTransactions([]core.ClientMsgSignature) {}
+
+func (*transactionManagerTestClient) TotalTxnsToInject() int64 {
+	return 100
+}
+
+func newTestTransactionManager() *TransactionManager {
+	return NewTransactionManager(&transactionManagerTestClient{}, &logger.Logger{})
+}
+
 func TestTransactionManagerExportTPSSeries(t *testing.T) {
-	tm := NewTransactionManager()
+	tm := newTestTransactionManager()
 	tm.Start()
 	defer tm.stopTPSSampler()
 
@@ -53,7 +66,7 @@ func TestTransactionManagerExportTPSSeries(t *testing.T) {
 }
 
 func TestTransactionManagerGCTxnsDeletesEntriesBelowCutoff(t *testing.T) {
-	tm := NewTransactionManager()
+	tm := newTestTransactionManager()
 	addTestTransactions(tm, 1, 63, 64, 19999, 20000, 20001)
 
 	tm.GCTxns(20000)
@@ -70,20 +83,20 @@ func TestTransactionManagerGCTxnsDeletesEntriesBelowCutoff(t *testing.T) {
 	}
 }
 
-func TestTransactionManagerCommitTpsTriggersShardGC(t *testing.T) {
-	tm := NewTransactionManager()
+func TestTransactionManagerCommitTpsDeletesCommittedEntry(t *testing.T) {
+	tm := newTestTransactionManager()
 	addTestTransactions(tm, 9999, 10000, 10001, 30000)
 
 	tm.CommitTps(core.CommitTps{
 		ClientMsg: core.ClientMsgReply{Id: 30000},
 	})
 
-	if transactionExists(tm, 9999) {
-		t.Fatal("transaction 9999 still exists after CommitTps GC cutoff 10000")
+	if transactionExists(tm, 30000) {
+		t.Fatal("committed transaction 30000 still exists")
 	}
-	for _, id := range []int64{10000, 10001, 30000} {
+	for _, id := range []int64{9999, 10000, 10001} {
 		if !transactionExists(tm, id) {
-			t.Fatalf("transaction %d was deleted by CommitTps GC", id)
+			t.Fatalf("uncommitted transaction %d was deleted by CommitTps", id)
 		}
 	}
 	if committed := tm.txnCommited.Load(); committed != 1 {
@@ -92,7 +105,7 @@ func TestTransactionManagerCommitTpsTriggersShardGC(t *testing.T) {
 }
 
 func TestTransactionManagerAddTransactionStoresMetadata(t *testing.T) {
-	tm := NewTransactionManager()
+	tm := newTestTransactionManager()
 	addTestTransactions(tm, 42)
 
 	s := tm.getShard(42)

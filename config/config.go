@@ -38,6 +38,7 @@ type Config struct {
 	Fixed              bool  `json:"fixed"`
 	PeriodicReq        bool  `json:"periodic_req"`
 	CompleteSuite      bool  `json:"complete_suite"`
+	LatencyLog         bool  `json:"node_latency_logger"`
 }
 
 func ReadCfg(filename string) *Config {

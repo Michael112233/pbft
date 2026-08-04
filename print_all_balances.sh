@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SESSION="${1:-pbft}"
+
+if (( $# > 1 )); then
+    echo "Usage: $0 [tmux-session]" >&2
+    exit 2
+fi
+
+if ! command -v tmux >/dev/null 2>&1; then
+    echo "Error: tmux is required to trigger account-balance exports." >&2
+    exit 1
+fi
+
+if ! tmux has-session -t "$SESSION" 2>/dev/null; then
+    echo "Error: tmux session '$SESSION' does not exist." >&2
+    exit 1
+fi
+
+triggered=0
+
+while IFS='|' read -r window_name pane_id pane_command; do
+    if [[ ! "$window_name" =~ ^node[0-9]+$ ]]; then
+        continue
+    fi
+
+    if [[ "$pane_command" != "pbft_main" ]]; then
+        echo "Skipping $window_name: pane $pane_id is running '$pane_command', not pbft_main." >&2
+        continue
+    fi
+
+    if tmux send-keys -t "$pane_id" -l "a" && tmux send-keys -t "$pane_id" Enter; then
+        echo "Triggered account-balance export on $window_name (pane $pane_id)."
+        ((triggered += 1))
+    else
+        echo "Failed to send the balance command to $window_name (pane $pane_id)." >&2
+    fi
+done < <(tmux list-panes -s -t "$SESSION" -F '#{window_name}|#{pane_id}|#{pane_current_command}')
+
+if (( triggered == 0 )); then
+    echo "Error: no running pbft_main panes were found in node windows in session '$SESSION'." >&2
+    exit 1
+fi
+
+echo "Requested account-balance exports from $triggered node(s)."
+echo "Balance files are written to logs/node_<id>_acctbalances.json."

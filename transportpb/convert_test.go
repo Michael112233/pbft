@@ -8,6 +8,36 @@ import (
 	"github.com/michael112233/pbft/core"
 )
 
+func TestRequestMessageRoundTripIncludesMsgType(t *testing.T) {
+	in := core.RequestMessage{
+		MsgType: "RetryRequestMessage",
+		Txs: []core.ClientMsgSignature{
+			{
+				Data: core.ClientMsg{
+					Id:         42,
+					Timestamp:  123456789,
+					ClientName: "client-a",
+					Txn: &core.Transaction{
+						Sender:    "alice",
+						Receiver:  "bob",
+						Amount:    big.NewInt(99),
+						Timestamp: 123456789,
+					},
+				},
+				Signature: []byte{1, 2, 3},
+			},
+		},
+	}
+
+	out, err := RequestFromPB(RequestToPB(in))
+	if err != nil {
+		t.Fatalf("RequestFromPB returned error: %v", err)
+	}
+	if !reflect.DeepEqual(out, in) {
+		t.Fatalf("round trip mismatch:\n got: %+v\nwant: %+v", out, in)
+	}
+}
+
 func TestCommitTpsRoundTrip(t *testing.T) {
 	in := core.CommitTps{
 		To:   "client-1",

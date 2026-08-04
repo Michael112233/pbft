@@ -177,6 +177,7 @@ type Node struct {
 	peakTpsTest        bool
 	proposalDelay      bool
 	gc                 bool
+	latencyLog         bool
 }
 
 func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
@@ -251,7 +252,8 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		scoreboard:                      NewScoreboard(cfg.NodeNum),
 		missingClientStateManager:       NewMissingClientStateManager(log),
 		// epochManager:                    NewEpochManager(log),
-		gc: cfg.GC,
+		latencyLog: cfg.LatencyLog,
+		gc:         cfg.GC,
 	}
 	periodicTimerManager := NewPeriodicTimerManager(n, log)
 	epochManager := NewEpochManager(n, log)
@@ -683,6 +685,15 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 		go n.messageHub.Send(core.MsgPreprepareMessage, othersIp, preprepareMsg, signature) // cant do go in current state race
 	}
 	n.EpochProposalInterval(seqNum)
+	if n.latencyLog { // right now doing outside epoch eventually merge in epoch
+		if seqNum == 1 {
+			n.StartLatencyMonitoring()
+			n.RecordStartTime(digestClientMsg, time.Now())
+		} else {
+			n.RecordStartTime(digestClientMsg, time.Now())
+		}
+	}
+
 	// }()
 
 }
@@ -812,6 +823,14 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 	n.pool.Add(digestClientMsg, preprepareMsg.ClientMsg)
 	n.pbftTimerManager.trackPreprepareRequest()
 	n.EpochProposalInterval(preprepareMsg.SeqNum)
+	if n.latencyLog { // right now doing outside epoch eventually merge in epoch
+		if preprepareMsg.SeqNum == 1 {
+			n.StartLatencyMonitoring()
+			n.RecordStartTime(digestClientMsg, time.Now())
+		} else {
+			n.RecordStartTime(digestClientMsg, time.Now())
+		}
+	}
 
 	// Buffered prepares may now form quorum with the PrePrepare
 	n.tryAdvancePrepare(slot, view, preprepareMsg.SeqNum, digestClientMsg)
@@ -941,6 +960,9 @@ func (n *Node) HandlePrePrepareNewView(preprepareMsg core.PreprepareMsgMini, sig
 	// 	// n.pbftTimerManager.trackPreprepareRequest()
 	// }
 	n.EpochProposalInterval(preprepareMsg.SeqNum)
+	if n.latencyLog { // right now doing outside epoch eventually merge in epoch
+		n.RecordStartTime(preprepareMsg.DigestClientMsg, time.Now())
+	}
 	return missingSlot
 
 }
@@ -2081,6 +2103,10 @@ func (n *Node) newView() {
 		}
 		slot.mu.Unlock()
 		n.EpochProposalInterval(preprepareMsg.PreprepareMsgMini.SeqNum)
+		if n.latencyLog { // right now doing outside epoch eventually merge in epoch
+			n.RecordStartTime(preprepareMsg.PreprepareMsgMini.DigestClientMsg, time.Now())
+
+		}
 
 	}
 

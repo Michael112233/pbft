@@ -8,6 +8,9 @@ import (
 
 // handle request message
 func (n *Node) HandleRequestMessage(data core.RequestMessage) {
+	if data.MsgType == "RetryRequestMessage" {
+		n.log.Info("Received retry request message from client %s, id %d, length of batch is %d", data.Txs[0].Data.ClientName, data.Txs[0].Data.Id, len(data.Txs))
+	}
 	n.viewMu.RLock()
 
 	if n.viewChangeRunning || n.leaderId != n.GetNodeID() {

@@ -10,6 +10,35 @@ import (
 	"github.com/michael112233/pbft/transportpb"
 )
 
+func TestBuildRequestEnvelopePreservesRequestMsgType(t *testing.T) {
+	hub := &ClientMessageHub{}
+	in := core.RequestMessage{
+		MsgType: "RetryRequestMessage",
+		Txs: []core.ClientMsgSignature{
+			{Data: core.ClientMsg{Id: 7, ClientName: "client-a"}, Signature: []byte{1, 2, 3}},
+		},
+	}
+
+	env, err := hub.buildEnvelope(core.MsgRequestMessage, in)
+	if err != nil {
+		t.Fatalf("buildEnvelope returned error: %v", err)
+	}
+	if env.MsgType != core.MsgRequestMessage {
+		t.Fatalf("envelope MsgType = %q, want %q", env.MsgType, core.MsgRequestMessage)
+	}
+
+	out, err := transportpb.RequestFromPB(env.GetRequest())
+	if err != nil {
+		t.Fatalf("RequestFromPB returned error: %v", err)
+	}
+	if out.MsgType != in.MsgType {
+		t.Fatalf("request MsgType = %q, want %q", out.MsgType, in.MsgType)
+	}
+	if len(out.Txs) != 1 || out.Txs[0].Data.Id != 7 {
+		t.Fatalf("request transactions = %+v, want one transaction with ID 7", out.Txs)
+	}
+}
+
 func TestHandleIncomingEnvelopeDispatchesLeaderUpdate(t *testing.T) {
 	oldNodeAddr := config.NodeAddr
 	config.NodeAddr = map[int]string{
