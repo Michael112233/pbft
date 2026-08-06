@@ -41,6 +41,7 @@ logs/
 # md files
 *.md
 !docs/protobuf-generation.md
+!docs/node-congestion-metrics.md
 !learningagent/epsilon-greedy-bandit.md
 
 # json

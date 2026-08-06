@@ -14,7 +14,65 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const clientSendInterval = 67 * time.Millisecond
+const clientSendInterval = 50 * time.Millisecond
+
+const (
+	normalRequestMessageType = "RequestMessage"
+	retryRequestMessageType  = "RetryRequestMessage"
+)
+
+// requestPacer owns the single send timeline shared by normal and retry
+// transactions. Keeping the send callback under the mutex prevents concurrent
+// producers from reserving stale slots and bursting after a slow send.
+type requestPacer struct {
+	mu         sync.Mutex
+	nextSendAt time.Time
+	now        func() time.Time
+	sleep      func(time.Duration)
+}
+
+func requestSendSpacing(txCount, injectSpeed int, interval time.Duration) time.Duration {
+	if txCount <= 0 || injectSpeed <= 0 || interval <= 0 {
+		return 0
+	}
+
+	spacing := interval * time.Duration(txCount) / time.Duration(injectSpeed)
+	if spacing < time.Nanosecond {
+		return time.Nanosecond
+	}
+	return spacing
+}
+
+func (p *requestPacer) pace(txCount, injectSpeed int, interval time.Duration, send func()) {
+	spacing := requestSendSpacing(txCount, injectSpeed, interval)
+	if spacing == 0 || send == nil {
+		return
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	now := time.Now
+	if p.now != nil {
+		now = p.now
+	}
+	sleep := time.Sleep
+	if p.sleep != nil {
+		sleep = p.sleep
+	}
+
+	currentTime := now()
+	if p.nextSendAt.After(currentTime) {
+		sleep(p.nextSendAt.Sub(currentTime))
+	}
+
+	sendStarted := now()
+	send()
+	// Base the next slot on this attempt rather than the old schedule. Slow or
+	// failed sends therefore lower the observed rate instead of causing catch-up
+	// sends when the callback returns.
+	p.nextSendAt = sendStarted.Add(spacing)
+}
 
 func GenerateDummyTxs(count int) []*core.Transaction {
 	txs := make([]*core.Transaction, count)
@@ -158,45 +216,13 @@ func (c *Client) InjectTxs() {
 		c.TransactionManager.Start()
 		injected := int64(0)
 		for ok {
-			timestart := time.Now()
-
 			injected += int64(len(batch))
 			if injected == int64(len(batch)) || injected%10000 == 0 || injected == totaltxns {
 				c.log.Info("upto %d transactions injected", injected)
 			}
 
-			// c.TransactionManager.StartTimer()
 			c.TransactionManager.AddTransaction(batch)
-
-			msg := core.RequestMessage{
-				MsgType: "RequestMessage",
-				Txs:     batch,
-			}
-
-			for {
-				c.leaderMu.RLock()
-				leader := c.leaderAddr
-				c.leaderMu.RUnlock()
-
-				// c.log.Info(fmt.Sprintf("Send request message to %s with batch %d and %d transactions", leader, int64(i), len(injectTxs)))
-				c.messageHub.Send(core.MsgRequestMessage, c.addr, leader, msg, nil) // couuld be go as stream locked
-
-				// vcStatus := <-c.vcrunChan
-				if true {
-					// c.log.Info("Received view change not running status, moving to next batch")
-					if remaining := clientSendInterval - time.Since(timestart); remaining > 0 {
-						time.Sleep(remaining)
-					}
-					break
-				}
-
-			}
-			timetaken := time.Since(timestart)
-			if timetaken > clientSendInterval {
-				// c.log.Info("Injected %d transactions in %s; signer/send path missed %s interval", len(batch), timetaken, clientSendInterval)
-			} else {
-				// c.log.Info("Injected %d transactions in %s", len(batch), timetaken)
-			}
+			c.sendRequestTransactions(batch, normalRequestMessageType)
 
 			collectStart := time.Now()
 			batch, ok = collectSignedBatch(signedTxs, batchSize)
@@ -211,27 +237,48 @@ func (c *Client) InjectTxs() {
 }
 
 func (c *Client) sendTransactions(txs []core.ClientMsgSignature) {
-	for start := 0; start < len(txs); start += 100 {
-		end := start + 100
+	c.sendRequestTransactions(txs, retryRequestMessageType)
+}
+
+func forEachTransactionBatch(txs []core.ClientMsgSignature, batchSize int, visit func([]core.ClientMsgSignature)) {
+	if batchSize <= 0 || visit == nil {
+		return
+	}
+
+	for start := 0; start < len(txs); start += batchSize {
+		end := start + batchSize
 		if end > len(txs) {
 			end = len(txs)
 		}
-
-		batch := txs[start:end]
-
-		c.leaderMu.RLock()
-		leader := c.leaderAddr
-		c.leaderMu.RUnlock()
-		timestart := time.Now()
-		c.messageHub.Send(
-			core.MsgRequestMessage,
-			c.addr,
-			leader,
-			core.RequestMessage{Txs: batch, MsgType: "RetryRequestMessage"},
-			nil,
-		)
-		if remaining := clientSendInterval - time.Since(timestart); remaining > 0 {
-			time.Sleep(remaining)
-		}
+		visit(txs[start:end])
 	}
+}
+
+func (c *Client) sendRequestTransactions(txs []core.ClientMsgSignature, requestMessageType string) {
+	if len(txs) == 0 {
+		return
+	}
+	if c.config == nil || c.config.InjectSpeed <= 0 {
+		if c.log != nil {
+			c.log.Error("invalid inject_speed; must be > 0")
+		}
+		return
+	}
+
+	batchSize := int(c.config.InjectSpeed)
+	forEachTransactionBatch(txs, batchSize, func(batch []core.ClientMsgSignature) {
+		c.requestPacer.pace(len(batch), batchSize, clientSendInterval, func() {
+			c.leaderMu.RLock()
+			leader := c.leaderAddr
+			c.leaderMu.RUnlock()
+
+			c.messageHub.Send(
+				core.MsgRequestMessage,
+				c.addr,
+				leader,
+				core.RequestMessage{Txs: batch, MsgType: requestMessageType},
+				nil,
+			)
+		})
+	})
 }

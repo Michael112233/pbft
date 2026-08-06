@@ -47,7 +47,7 @@ func (lm *LatencyMonitor) RecordStartTime(digest [32]byte, startTime time.Time) 
 	}
 	if _, exists := lm.msgs[digest]; !exists {
 		lm.msgs[digest] = LatencyData{
-			startTime: startTime,
+			startTime: time.Now(),
 		}
 	}
 }
@@ -59,8 +59,8 @@ func (lm *LatencyMonitor) RecordEndTime(digest [32]byte, endTime time.Time) {
 		return
 	}
 	if data, exists := lm.msgs[digest]; exists {
-		data.endTime = endTime
-		duration := data.endTime.Sub(data.startTime)
+		data.endTime = time.Now()
+		duration := time.Since(data.startTime)
 		lm.msgs[digest] = data
 		lm.latencySamples = append(lm.latencySamples, duration)
 		delete(lm.msgs, digest)

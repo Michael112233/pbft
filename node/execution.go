@@ -271,6 +271,9 @@ func (n *Node) newcollectReadyExecutions(seq int64, slot *consensusSlot, msg cor
 			performanceTrigger = 0
 		}
 		n.startPeriodicTimerForReqExe(n.lastExecuted)
+		if n.latencyLog && !pending.noOp {
+    		n.RecordEndTime(pending.digestClientMsg, time.Now())
+		}
 
 		if n.lastExecuted%CHECKPOINT_INTERVAL == 0 {
 			copyOfBalances := n.executionMachine.CheckpointSnapshot()

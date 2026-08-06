@@ -1,9 +1,14 @@
 package node
 
+import (
+	"time"
+)
+
 func (n *Node) gcConsensusState(stableSeq int64) {
 	if n.gc == false {
 		return
 	}
+	timeStart := time.Now()
 	n.consensusLog.slotsMu.Lock()
 	removedSlots := 0
 	lenOfConsensusLog := len(n.consensusLog.slots)
@@ -15,8 +20,17 @@ func (n *Node) gcConsensusState(stableSeq int64) {
 		}
 	}
 	n.consensusLog.slotsMu.Unlock()
+	duration := time.Since(timeStart)
+	if duration > 10*time.Millisecond {
+		n.log.Debug("Waited %s for garbage collection of consensus log; log may be bottlenecked", duration)
+	}
 	// n.log.Info("Garbage collected %d consensus slots up to  stable seq %d and len of log was %d", removedSlots, stableSeq-100, lenOfConsensusLog)
+	startTime := time.Now()
 	n.pool.GCDelMap(stableSeq - 15000)
+	duration = time.Since(startTime)
+	if duration > 10*time.Millisecond {
+		n.log.Debug("Waited %s for garbage collection of request pool; pool may be bottlenecked", duration)
+	}
 
 }
 

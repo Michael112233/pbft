@@ -35,6 +35,7 @@ type Client struct {
 	messageHub         *ClientMessageHub
 	privateKey         ed25519.PrivateKey
 	TransactionManager *TransactionManager
+	requestPacer       requestPacer
 	leaderMu           sync.RWMutex
 	leaderAddr         string
 
@@ -95,7 +96,7 @@ func (c *Client) Start() {
 		go c.requestSendRateLogger()
 	}
 	// keep it on for normal retry
-	// c.TransactionManager.StartRetryTimer(true)
+	c.TransactionManager.StartRetryTimer(true)
 	c.injectSpeed = c.config.InjectSpeed
 	time.Sleep(100 * time.Millisecond) // msg hub to start
 	c.InjectTxs()
@@ -103,8 +104,8 @@ func (c *Client) Start() {
 
 func (c *Client) Stop() {
 	c.WaitGroup.Wait()
-	c.messageHub.Close()
 	c.TransactionManager.StopRetryTimer()
+	c.messageHub.Close()
 	c.memoryLoggerStopOnce.Do(func() {
 		close(c.memoryLoggerStop)
 	})

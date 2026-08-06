@@ -6,8 +6,8 @@ import (
 )
 
 const (
-	initialRetryDelay = 5 * time.Second
-	maximumRetryDelay = 30 * time.Second
+	initialRetryDelay = 1 * time.Second
+	maximumRetryDelay = 10 * time.Second
 )
 
 func retryDelay(retryCount int) time.Duration {

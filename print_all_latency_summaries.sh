@@ -20,23 +20,26 @@ fi
 
 triggered=0
 
-while IFS='|' read -r window_name pane_id pane_command; do
+while IFS='|' read -r window_name pane_id pane_pid pane_command; do
     if [[ ! "$window_name" =~ ^node[0-9]+$ ]]; then
         continue
     fi
 
-    if [[ "$pane_command" != "pbft_main" ]]; then
-        echo "Skipping $window_name: pane $pane_id is running '$pane_command', not pbft_main." >&2
+    if [[ "$pane_command" != "pbft_main" ]] &&
+       ! pgrep -P "$pane_pid" -x pbft_main >/dev/null; then
+        echo "Skipping $window_name: no running pbft_main process found." >&2
         continue
     fi
 
-    if tmux send-keys -t "$pane_id" -l "x" && tmux send-keys -t "$pane_id" Enter; then
+    if tmux send-keys -t "$pane_id" -l "x" &&
+       tmux send-keys -t "$pane_id" Enter; then
         echo "Triggered latency-summary export on $window_name (pane $pane_id)."
         ((triggered += 1))
-    else
-        echo "Failed to send the latency-summary command to $window_name (pane $pane_id)." >&2
     fi
-done < <(tmux list-panes -s -t "$SESSION" -F '#{window_name}|#{pane_id}|#{pane_current_command}')
+done < <(
+    tmux list-panes -s -t "$SESSION" \
+        -F '#{window_name}|#{pane_id}|#{pane_pid}|#{pane_current_command}'
+)
 
 if (( triggered == 0 )); then
     echo "Error: no running pbft_main panes were found in node windows in session '$SESSION'." >&2

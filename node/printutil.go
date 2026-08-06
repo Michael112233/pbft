@@ -21,8 +21,12 @@ type latencySummaryResult struct {
 	MedianMs         float64   `json:"median_ms"`
 	P95Ms            float64   `json:"p95_ms"`
 	P99Ms            float64   `json:"p99_ms"`
+	P995Ms           float64   `json:"p99_5_ms"`
+	P999Ms           float64   `json:"p99_9_ms"`
 	P95MedianRatio   float64   `json:"p95_median_ratio"`
 	P99MedianRatio   float64   `json:"p99_median_ratio"`
+	P995MedianRatio  float64   `json:"p99_5_median_ratio"`
+	P999MedianRatio  float64   `json:"p99_9_median_ratio"`
 	LatencySamplesMs []float64 `json:"latency_samples_ms"`
 }
 
@@ -312,12 +316,18 @@ func summarizeLatencies(samples []time.Duration) latencySummaryResult {
 
 	p95 := nearestRankLatency(samples, 0.95)
 	p99 := nearestRankLatency(samples, 0.99)
+	p995 := nearestRankLatency(samples, 0.995)
+	p999 := nearestRankLatency(samples, 0.999)
 	result.MedianMs = medianNanoseconds / float64(time.Millisecond)
 	result.P95Ms = durationToMilliseconds(p95)
 	result.P99Ms = durationToMilliseconds(p99)
+	result.P995Ms = durationToMilliseconds(p995)
+	result.P999Ms = durationToMilliseconds(p999)
 	if medianNanoseconds != 0 {
 		result.P95MedianRatio = float64(p95) / medianNanoseconds
 		result.P99MedianRatio = float64(p99) / medianNanoseconds
+		result.P995MedianRatio = float64(p995) / medianNanoseconds
+		result.P999MedianRatio = float64(p999) / medianNanoseconds
 	}
 
 	return result

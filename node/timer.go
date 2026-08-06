@@ -20,9 +20,11 @@ type TimerManager struct {
 	pbftTimerStopCh      chan struct{}
 	pbftTimerStopOnce    sync.Once
 	pbftTimerStarted     atomic.Bool
-	newViewTimeout       time.Duration
+	// newViewTimeout       time.Duration
 	newViewTimerOn       atomic.Bool
 	newViewTimerEpoch    atomic.Int64
+	newViewTimeoutLock sync.Mutex // protects
+	newViewTimeout time.Duration
 
 	viewChangeTimeoutDummyCount atomic.Int64
 
@@ -47,8 +49,9 @@ func NewTimerManager(log *logger.Logger) *TimerManager {
 		pbftTimer:               pbftTimer,
 		pbftTimerInitiated:      false,
 		pbftTimeout:             defaultPBFTRequestTimeout,
+		newViewTimeout:          500 * time.Millisecond,
 		pbftTimeoutJitterMax:    defaultPBFTRequestTimeoutJitterMax,
-		newViewTimeout:          defaultPBFTRequestTimeout,
+		// newViewTimeout:          defaultPBFTRequestTimeout,
 		periodicElectionTimeout: defaultPBFTRequestTimeout,
 		pbftTimerStopCh:         make(chan struct{}),
 		log:                     log,
@@ -62,9 +65,13 @@ func (tm *TimerManager) startNewViewTimer(n *Node) {
 	}
 
 	epoch := tm.newViewTimerEpoch.Add(1)
-	tm.log.Time("new-view timer started")
+	tm.log.Time("new-view timer started with duration %v", 2*tm.newViewTimeout)
 	go func(localEpoch int64) {
-		timer := time.NewTimer(tm.NextPBFTTimeoutLocked())
+		tm.newViewTimeoutLock.Lock()
+		tm.newViewTimeout = 2 * tm.newViewTimeout
+		
+		timer := time.NewTimer(tm.newViewTimeout)
+		tm.newViewTimeoutLock.Unlock()
 		defer timer.Stop()
 
 		select {
@@ -135,6 +142,9 @@ func (tm *TimerManager) startPeriodicElectionTimer(n *Node) {
 }
 
 func (tm *TimerManager) stopNewViewTimer() {
+	tm.newViewTimeoutLock.Lock()
+	tm.newViewTimeout = 500 * time.Millisecond
+	tm.newViewTimeoutLock.Unlock()
 	tm.log.Time("new-view timer stopped")
 	tm.newViewTimerEpoch.Add(1)
 	tm.newViewTimerOn.Store(false)
@@ -217,7 +227,7 @@ func (tm *TimerManager) startPBFTTimerLocked() {
 		default:
 		}
 	}
-	tm.pbftTimer.Reset(tm.NextPBFTTimeoutLocked())
+	tm.pbftTimer.Reset(500 * time.Millisecond)
 	tm.pbftTimerInitiated = true
 }
 
@@ -234,7 +244,7 @@ func (tm *TimerManager) resetPBFTTimerLocked() {
 		default:
 		}
 	}
-	tm.pbftTimer.Reset(tm.NextPBFTTimeoutLocked())
+	tm.pbftTimer.Reset(500 * time.Millisecond)
 	tm.pbftTimerInitiated = true
 }
 
