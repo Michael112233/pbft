@@ -21,59 +21,6 @@ const (
 	retryRequestMessageType  = "RetryRequestMessage"
 )
 
-// requestPacer owns the single send timeline shared by normal and retry
-// transactions. Keeping the send callback under the mutex prevents concurrent
-// producers from reserving stale slots and bursting after a slow send.
-type requestPacer struct {
-	mu         sync.Mutex
-	nextSendAt time.Time
-	now        func() time.Time
-	sleep      func(time.Duration)
-}
-
-func requestSendSpacing(txCount, injectSpeed int, interval time.Duration) time.Duration {
-	if txCount <= 0 || injectSpeed <= 0 || interval <= 0 {
-		return 0
-	}
-
-	spacing := interval * time.Duration(txCount) / time.Duration(injectSpeed)
-	if spacing < time.Nanosecond {
-		return time.Nanosecond
-	}
-	return spacing
-}
-
-func (p *requestPacer) pace(txCount, injectSpeed int, interval time.Duration, send func()) {
-	spacing := requestSendSpacing(txCount, injectSpeed, interval)
-	if spacing == 0 || send == nil {
-		return
-	}
-
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	now := time.Now
-	if p.now != nil {
-		now = p.now
-	}
-	sleep := time.Sleep
-	if p.sleep != nil {
-		sleep = p.sleep
-	}
-
-	currentTime := now()
-	if p.nextSendAt.After(currentTime) {
-		sleep(p.nextSendAt.Sub(currentTime))
-	}
-
-	sendStarted := now()
-	send()
-	// Base the next slot on this attempt rather than the old schedule. Slow or
-	// failed sends therefore lower the observed rate instead of causing catch-up
-	// sends when the callback returns.
-	p.nextSendAt = sendStarted.Add(spacing)
-}
-
 func GenerateDummyTxs(count int) []*core.Transaction {
 	txs := make([]*core.Transaction, count)
 	for i := 0; i < count; i++ {
@@ -255,9 +202,11 @@ func forEachTransactionBatch(txs []core.ClientMsgSignature, batchSize int, visit
 }
 
 func (c *Client) sendRequestTransactions(txs []core.ClientMsgSignature, requestMessageType string) {
+	//retry path never send less than zero
 	if len(txs) == 0 {
 		return
 	}
+	// never happen
 	if c.config == nil || c.config.InjectSpeed <= 0 {
 		if c.log != nil {
 			c.log.Error("invalid inject_speed; must be > 0")
@@ -266,6 +215,7 @@ func (c *Client) sendRequestTransactions(txs []core.ClientMsgSignature, requestM
 	}
 
 	batchSize := int(c.config.InjectSpeed)
+	// creates batches of batch size if txns len greater which usually happen when coming from retry path
 	forEachTransactionBatch(txs, batchSize, func(batch []core.ClientMsgSignature) {
 		c.requestPacer.pace(len(batch), batchSize, clientSendInterval, func() {
 			c.leaderMu.RLock()
