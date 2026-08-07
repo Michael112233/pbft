@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,6 +13,8 @@ import (
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/logger"
 	"github.com/michael112233/pbft/transportpb"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/test/bufconn"
 )
 
 func TestBuildEnvelopeLeaderIdUpdate(t *testing.T) {
@@ -393,5 +397,136 @@ func TestInjectArtificialLatencyForFarNodeSend(t *testing.T) {
 	hub.injectArtificialLatency(core.MsgPrepareMessage, "localhost:28400")
 	if elapsed := time.Since(start); elapsed < 15*time.Millisecond {
 		t.Fatalf("injectArtificialLatency() elapsed = %s, want at least %s", elapsed, 15*time.Millisecond)
+	}
+}
+
+func TestNodeMessagesReusePersistentPeerStream(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey returned error: %v", err)
+	}
+
+	nodeLog := &logger.Logger{}
+	receiver := &Node{
+		NodeID:       2,
+		fNodes:       1,
+		log:          nodeLog,
+		cfg:          &config.Config{NodeNum: 4},
+		epochManager: &EpochManager{currentEpoch: 9},
+		encryptionKeyStore: &KeyStore{
+			publicKeys: map[int]ed25519.PublicKey{1: publicKey},
+		},
+	}
+	receiver.epochAggregator = &EpochAggregator{
+		node:        receiver,
+		log:         nodeLog,
+		epochAggLog: make(map[int64]map[int]EpochAggData),
+	}
+	receiverHub := NewNodeMessageHub()
+	receiverHub.node_ref = receiver
+	receiverHub.log = nodeLog
+	receiverHub.streamCtx, receiverHub.streamCancel = context.WithCancel(context.Background())
+	receiverHub.listener = bufconn.Listen(1024 * 1024)
+	receiverHub.grpcSrv = grpc.NewServer()
+	transportpb.RegisterPBFTTransportServer(receiverHub.grpcSrv, receiverHub)
+	var receiverWG sync.WaitGroup
+	receiverWG.Add(1)
+	go func() {
+		defer receiverWG.Done()
+		_ = receiverHub.grpcSrv.Serve(receiverHub.listener)
+	}()
+	defer func() {
+		receiverHub.Close()
+		receiverWG.Wait()
+	}()
+
+	senderHub := NewNodeMessageHub()
+	senderHub.node_ref = &Node{NodeID: 1, log: nodeLog}
+	senderHub.log = nodeLog
+	senderHub.streamCtx, senderHub.streamCancel = context.WithCancel(context.Background())
+	senderHub.dialContext = func(context.Context, string) (net.Conn, error) {
+		return receiverHub.listener.(*bufconn.Listener).Dial()
+	}
+	defer senderHub.Close()
+	receiverAddr := "passthrough:///peer-2"
+
+	sendEpochData := func(throughput float64) {
+		t.Helper()
+		msg := core.EpochDataForAggregation{
+			EpochNumber:  9,
+			Throughput:   throughput,
+			ProposalRate: throughput / 2,
+			From:         1,
+		}
+		pbMsg := transportpb.EpochDataForAggregationToPB(msg)
+		payload, marshalErr := marshalDeterministic(pbMsg)
+		if marshalErr != nil {
+			t.Fatalf("marshalDeterministic returned error: %v", marshalErr)
+		}
+		senderHub.Send(core.MsgEpochAggDataMessage, receiverAddr, msg, ed25519.Sign(privateKey, payload))
+	}
+
+	waitForThroughput := func(want float64) {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for {
+			receiver.epochAggregator.mu.Lock()
+			got := receiver.epochAggregator.epochAggLog[9][1].throughput
+			receiver.epochAggregator.mu.Unlock()
+			if got == want {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("streamed epoch throughput = %f, want %f", got, want)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	sendEpochData(100)
+	waitForThroughput(100)
+
+	senderHub.mu.RLock()
+	firstState := senderHub.peerStreams[receiverAddr]
+	senderHub.mu.RUnlock()
+	if firstState == nil {
+		t.Fatal("persistent peer stream was not cached")
+	}
+
+	sendEpochData(200)
+	waitForThroughput(200)
+
+	senderHub.mu.RLock()
+	secondState := senderHub.peerStreams[receiverAddr]
+	streamCount := len(senderHub.peerStreams)
+	senderHub.mu.RUnlock()
+	if secondState != firstState {
+		t.Fatal("second node message did not reuse the existing peer stream")
+	}
+	if streamCount != 1 {
+		t.Fatalf("peer stream count = %d, want 1", streamCount)
+	}
+
+	receiverHub.clientStreamMu.RLock()
+	clientStream := receiverHub.clientStream
+	receiverHub.clientStreamMu.RUnlock()
+	if clientStream != nil {
+		t.Fatal("node stream replaced the dedicated client response stream")
+	}
+
+	receiverHub.Close()
+	receiverWG.Wait()
+	dropDeadline := time.Now().Add(2 * time.Second)
+	for {
+		senderHub.mu.RLock()
+		remainingStreams := len(senderHub.peerStreams)
+		senderHub.mu.RUnlock()
+		if remainingStreams == 0 {
+			break
+		}
+		if time.Now().After(dropDeadline) {
+			t.Fatalf("peer stream was not removed after remote shutdown; remaining=%d", remainingStreams)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }

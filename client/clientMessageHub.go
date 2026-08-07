@@ -15,6 +15,7 @@ import (
 	"github.com/michael112233/pbft/transportpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
 const (
@@ -148,7 +149,11 @@ func (hub *ClientMessageHub) openNodeStream(addr string) (*nodeStreamState, erro
 	client := transportpb.NewPBFTTransportClient(conn)
 	// Use hub.ctx for stream lifetime. A short timeout context here would
 	// cancel the stream immediately after openNodeStream returns.
-	stream, err := client.ClientNodeChannel(hub.ctx)
+	streamCtx := metadata.NewOutgoingContext(
+		hub.ctx,
+		metadata.Pairs(transportpb.ChannelKindMetadataKey, transportpb.ChannelKindClient),
+	)
+	stream, err := client.ClientNodeChannel(streamCtx)
 	if err != nil {
 		_ = conn.Close()
 		return nil, err

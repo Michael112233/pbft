@@ -16,16 +16,22 @@ import (
 	"github.com/michael112233/pbft/transportpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 )
 
 const (
-	rpcTimeout      = 300 * time.Second
 	maxGRPCMsgBytes = 1000 * 1024 * 1024
 )
 
 type clientStreamState struct {
 	stream transportpb.PBFTTransport_ClientNodeChannelServer
+	sendMu sync.Mutex
+}
+
+type peerStreamState struct {
+	conn   *grpc.ClientConn
+	stream transportpb.PBFTTransport_ClientNodeChannelClient
 	sendMu sync.Mutex
 }
 
@@ -35,12 +41,14 @@ type NodeMessageHub struct {
 	node_ref *Node
 	log      *logger.Logger
 
-	mu        sync.RWMutex
-	clients   map[string]transportpb.PBFTTransportClient
-	conns     map[string]*grpc.ClientConn
-	grpcSrv   *grpc.Server
-	listener  net.Listener
-	closeOnce sync.Once
+	mu           sync.RWMutex
+	peerStreams  map[string]*peerStreamState
+	streamCtx    context.Context
+	streamCancel context.CancelFunc
+	grpcSrv      *grpc.Server
+	listener     net.Listener
+	dialContext  func(context.Context, string) (net.Conn, error)
+	closeOnce    sync.Once
 
 	clientStreamMu sync.RWMutex
 	clientStream   *clientStreamState
@@ -48,8 +56,7 @@ type NodeMessageHub struct {
 
 func NewNodeMessageHub() *NodeMessageHub {
 	return &NodeMessageHub{
-		clients: make(map[string]transportpb.PBFTTransportClient),
-		conns:   make(map[string]*grpc.ClientConn),
+		peerStreams: make(map[string]*peerStreamState),
 	}
 }
 
@@ -59,6 +66,7 @@ func (hub *NodeMessageHub) Start(node *Node, wg *sync.WaitGroup) {
 	}
 	hub.node_ref = node
 	hub.log = node.log
+	hub.streamCtx, hub.streamCancel = context.WithCancel(context.Background())
 
 	lis, err := net.Listen("tcp", hub.node_ref.GetAddr())
 	if err != nil {
@@ -95,15 +103,18 @@ func (hub *NodeMessageHub) Close() {
 	hub.closeOnce.Do(func() {
 		hub.log.Debug("nodeMessageHub closing...")
 
+		if hub.streamCancel != nil {
+			hub.streamCancel()
+		}
+
 		hub.mu.Lock()
 		grpcSrv := hub.grpcSrv
 		listener := hub.listener
-		conns := make([]*grpc.ClientConn, 0, len(hub.conns))
-		for _, conn := range hub.conns {
-			conns = append(conns, conn)
+		peerStreams := make([]*peerStreamState, 0, len(hub.peerStreams))
+		for _, state := range hub.peerStreams {
+			peerStreams = append(peerStreams, state)
 		}
-		hub.clients = make(map[string]transportpb.PBFTTransportClient)
-		hub.conns = make(map[string]*grpc.ClientConn)
+		hub.peerStreams = make(map[string]*peerStreamState)
 		hub.mu.Unlock()
 
 		hub.clientStreamMu.Lock()
@@ -116,8 +127,8 @@ func (hub *NodeMessageHub) Close() {
 		if listener != nil {
 			_ = listener.Close()
 		}
-		for _, conn := range conns {
-			_ = conn.Close()
+		for _, state := range peerStreams {
+			_ = state.conn.Close()
 		}
 		hub.log.Debug("messageHub is close.")
 	})
@@ -202,6 +213,10 @@ func (hub *NodeMessageHub) injectArtificialLatency(msgType, targetAddr string) {
 }
 
 func (hub *NodeMessageHub) ClientNodeChannel(stream transportpb.PBFTTransport_ClientNodeChannelServer) error {
+	if channelKindFromContext(stream.Context()) == transportpb.ChannelKindNode {
+		return hub.receiveNodeStream(stream)
+	}
+
 	streamState := &clientStreamState{stream: stream}
 	hub.setClientStream(streamState)
 	defer hub.clearClientStream(streamState)
@@ -237,6 +252,39 @@ func (hub *NodeMessageHub) ClientNodeChannel(stream transportpb.PBFTTransport_Cl
 
 		default:
 			hub.log.Error("Unknown stream message type received: msgType=%s", env.MsgType)
+		}
+	}
+}
+
+func channelKindFromContext(ctx context.Context) string {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return transportpb.ChannelKindClient
+	}
+	values := md.Get(transportpb.ChannelKindMetadataKey)
+	if len(values) == 0 {
+		return transportpb.ChannelKindClient
+	}
+	return values[0]
+}
+
+func (hub *NodeMessageHub) receiveNodeStream(stream transportpb.PBFTTransport_ClientNodeChannelServer) error {
+	for {
+		env, err := stream.Recv()
+		if err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+				return nil
+			}
+			return err
+		}
+
+		ack, err := hub.Deliver(stream.Context(), env)
+		if err != nil {
+			hub.log.Error("node stream delivery failed. msgType=%s from=%d err=%v", env.MsgType, env.From, err)
+			continue
+		}
+		if ack != nil && !ack.Ok {
+			hub.log.Error("node stream delivery rejected. msgType=%s from=%d err=%s", env.MsgType, env.From, ack.Error)
 		}
 	}
 }
@@ -490,33 +538,41 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 	}
 }
 
-func (hub *NodeMessageHub) getOrCreateClient(addr string) (transportpb.PBFTTransportClient, error) {
+func (hub *NodeMessageHub) getOrCreatePeerStream(addr string) (*peerStreamState, error) {
 	hub.mu.RLock()
-	client, ok := hub.clients[addr]
+	state, ok := hub.peerStreams[addr]
+	streamCtx := hub.streamCtx
 	hub.mu.RUnlock()
 	if ok {
-		return client, nil
+		return state, nil
+	}
+	if streamCtx == nil {
+		return nil, errors.New("node message hub is not started")
 	}
 
-	dialer := &net.Dialer{}
-	localHost, _, err := net.SplitHostPort(hub.node_ref.GetAddr())
-	if err != nil {
-		return nil, err
-	}
-	if localIP := net.ParseIP(localHost); localIP != nil {
-		dialer.LocalAddr = &net.TCPAddr{IP: localIP, Port: 0}
+	dialContext := hub.dialContext
+	if dialContext == nil {
+		dialer := &net.Dialer{}
+		localHost, _, err := net.SplitHostPort(hub.node_ref.GetAddr())
+		if err != nil {
+			return nil, err
+		}
+		if localIP := net.ParseIP(localHost); localIP != nil {
+			dialer.LocalAddr = &net.TCPAddr{IP: localIP, Port: 0}
+		}
+		dialContext = func(ctx context.Context, target string) (net.Conn, error) {
+			conn, dialErr := dialer.DialContext(ctx, "tcp", target)
+			if dialErr == nil {
+				hub.log.Info("node dialed %s from %s", target, conn.LocalAddr())
+			}
+			return conn, dialErr
+		}
 	}
 
 	conn, err := grpc.NewClient(
 		addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithContextDialer(func(ctx context.Context, target string) (net.Conn, error) {
-			conn, err := dialer.DialContext(ctx, "tcp", target)
-			if err == nil {
-				hub.log.Info("node dialed %s from %s", target, conn.LocalAddr())
-			}
-			return conn, err
-		}),
+		grpc.WithContextDialer(dialContext),
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(maxGRPCMsgBytes),
 			grpc.MaxCallSendMsgSize(maxGRPCMsgBytes),
@@ -526,32 +582,66 @@ func (hub *NodeMessageHub) getOrCreateClient(addr string) (transportpb.PBFTTrans
 		return nil, err
 	}
 
-	createdClient := transportpb.NewPBFTTransportClient(conn)
+	client := transportpb.NewPBFTTransportClient(conn)
+	peerCtx := metadata.NewOutgoingContext(
+		streamCtx,
+		metadata.Pairs(transportpb.ChannelKindMetadataKey, transportpb.ChannelKindNode),
+	)
+	stream, err := client.ClientNodeChannel(peerCtx)
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	createdState := &peerStreamState{conn: conn, stream: stream}
 
 	hub.mu.Lock()
-	if existingClient, exists := hub.clients[addr]; exists {
+	if existingState, exists := hub.peerStreams[addr]; exists {
 		hub.mu.Unlock()
 		_ = conn.Close()
-		return existingClient, nil
+		return existingState, nil
 	}
-	hub.clients[addr] = createdClient
-	hub.conns[addr] = conn
+	hub.peerStreams[addr] = createdState
 	hub.mu.Unlock()
+	go hub.watchPeerStream(addr, createdState)
 
-	return createdClient, nil
+	return createdState, nil
 }
 
-func (hub *NodeMessageHub) dropClient(addr string) {
+func (hub *NodeMessageHub) watchPeerStream(addr string, state *peerStreamState) {
+	for {
+		_, err := state.stream.Recv()
+		if err != nil {
+			hub.dropPeerStream(addr, state)
+			return
+		}
+	}
+}
+
+func (hub *NodeMessageHub) dropPeerStream(addr string, expected *peerStreamState) {
 	hub.mu.Lock()
-	conn, ok := hub.conns[addr]
-	if ok {
-		delete(hub.conns, addr)
-		delete(hub.clients, addr)
+	state, ok := hub.peerStreams[addr]
+	if ok && state == expected {
+		delete(hub.peerStreams, addr)
 	}
 	hub.mu.Unlock()
-	if ok {
-		_ = conn.Close()
+	if ok && state == expected {
+		_ = state.conn.Close()
 	}
+}
+
+func (hub *NodeMessageHub) sendEnvelopeOverPeerStream(addr string, env *transportpb.Envelope) error {
+	state, err := hub.getOrCreatePeerStream(addr)
+	if err != nil {
+		return err
+	}
+
+	state.sendMu.Lock()
+	err = state.stream.Send(env)
+	state.sendMu.Unlock()
+	if err != nil {
+		hub.dropPeerStream(addr, state)
+	}
+	return err
 }
 
 func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}, signature []byte) (*transportpb.Envelope, error) {
@@ -764,23 +854,8 @@ func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, sign
 
 	hub.injectArtificialLatency(msgType, ip)
 
-	client, err := hub.getOrCreateClient(ip)
-	if err != nil {
-		hub.log.Error("dial target failed. msgType=%s target=%s err=%v", msgType, ip, err)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
-	defer cancel()
-
-	ack, err := client.Deliver(ctx, env)
-	if err != nil {
-		hub.log.Error("deliver rpc failed. msgType=%s target=%s err=%v", msgType, ip, err)
-		hub.dropClient(ip)
-		return
-	}
-	if ack != nil && !ack.Ok {
-		hub.log.Error("deliver rejected. msgType=%s target=%s err=%s", msgType, ip, ack.Error)
+	if err := hub.sendEnvelopeOverPeerStream(ip, env); err != nil {
+		hub.log.Error("node stream send failed. msgType=%s target=%s err=%v", msgType, ip, err)
 	}
 
 }
