@@ -210,7 +210,7 @@ func (tm *TransactionManager) sendTxsForRetry() {
 		tm.log.Info("Iterated through %d txns, found %d candidates for retry, %d of which have been retried multiple times\n", txnsIterated, len(candidates), candidatesWithMultipleRetries)
 
 		timestart := time.Now()
-		tm.client.sendTransactions(candidates)
+		// tm.client.sendTransactions(candidates)
 		timeduration := time.Since(timestart)
 		tm.log.Info("Time taken to send %d transactions for retry: %s\n", len(candidates), timeduration)
 	}

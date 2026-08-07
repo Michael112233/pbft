@@ -3,6 +3,7 @@ package client
 import (
 	"sync"
 	"time"
+	"github.com/michael112233/pbft/logger"
 )
 
 // requestPacer owns the single send timeline shared by normal and retry
@@ -28,7 +29,7 @@ func requestSendSpacing(txCount, batchSize int, interval time.Duration) time.Dur
 }
 
 // we use callback fn for easy testing so no need to involve full client
-func (p *requestPacer) pace(txCount, batchSize int, interval time.Duration, send func()) {
+func (p *requestPacer) pace(txCount, batchSize int, interval time.Duration, log *logger.Logger, send func()) {
 
 	spacing := requestSendSpacing(txCount, batchSize, interval)
 	if spacing == 0 || send == nil { // just safety check ignore
@@ -53,6 +54,8 @@ func (p *requestPacer) pace(txCount, batchSize int, interval time.Duration, send
 	// but if current time less than next send then sleep or remaining time
 	if p.nextSendAt.After(currentTime) {
 		sleep(p.nextSendAt.Sub(currentTime))
+	} else {
+		log.Debug("no sleep needed")
 	}
 
 	sendStarted := now()

@@ -49,3 +49,5 @@ logs/
 
 # pem
 keys/*.pem
+
+go1.26.3.linux-amd64.tar.gz.1

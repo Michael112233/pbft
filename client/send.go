@@ -14,7 +14,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const clientSendInterval = 50 * time.Millisecond
+const clientSendInterval = 57 * time.Millisecond
 
 const (
 	normalRequestMessageType = "RequestMessage"
@@ -217,7 +217,7 @@ func (c *Client) sendRequestTransactions(txs []core.ClientMsgSignature, requestM
 	batchSize := int(c.config.InjectSpeed)
 	// creates batches of batch size if txns len greater which usually happen when coming from retry path
 	forEachTransactionBatch(txs, batchSize, func(batch []core.ClientMsgSignature) {
-		c.requestPacer.pace(len(batch), batchSize, clientSendInterval, func() {
+		c.requestPacer.pace(len(batch), batchSize, clientSendInterval, c.log, func() {
 			c.leaderMu.RLock()
 			leader := c.leaderAddr
 			c.leaderMu.RUnlock()

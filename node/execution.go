@@ -73,9 +73,9 @@ func (n *Node) postActions(actions []executionPostAction) {
 		n.log.Test("Executed request for seq %d success=%t", action.seq, action.result.Success)
 		if !action.noOp {
 			// go n.sendReply(action.msg, action.result, action.seq)
-			n.pool.Delete(action.digest, action.seq)
-			n.duplicationMap.Delete(action.digest, action.seq)
-			n.pbftTimerManager.onRequestExecuted(n) // resets timer and periodic vc stop timer
+			// n.pool.Delete(action.digest, action.seq)
+			// n.duplicationMap.Delete(action.digest, action.seq)
+			// n.pbftTimerManager.onRequestExecuted(n) // resets timer and periodic vc stop timer
 		}
 	}
 }
@@ -251,6 +251,12 @@ func (n *Node) newcollectReadyExecutions(seq int64, slot *consensusSlot, msg cor
 		n.executionMu.Lock()
 		n.lastExecuted = nextSeq
 		n.executionMu.Unlock()
+		if !pending.noOp {
+			n.pool.Delete(pending.digestClientMsg, nextSeq)
+			n.duplicationMap.Delete(pending.digestClientMsg, nextSeq)
+		}
+
+		n.pbftTimerManager.onRequestExecuted(n)
 
 		if transferPath {
 			n.log.Info("From cp state transfer/ client req transfer and did execution for seq %d ", nextSeq)

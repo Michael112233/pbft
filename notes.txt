@@ -23,7 +23,7 @@ sudo tc class add dev "$IFACE" parent 1: classid 1:20 \
     htb rate "$RATE" ceil "$RATE"
 
 sudo tc filter add dev "$IFACE" protocol ip parent 1: prio 1 u32 \
-    match ip src 127.0.0.3/32 flowid 1:10
+    match ip src 127.0.0.2/32 flowid 1:10
 
 sudo tc filter add dev "$IFACE" protocol ip parent 1: prio 1 u32 \
     match ip src 127.0.0.4/32 flowid 1:20

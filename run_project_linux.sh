@@ -182,12 +182,12 @@ for i in $(seq 2 "$NODE_COUNT"); do
 done
 
 sleep 5
-setup_netem
+# setup_netem
 # Optional: start client in another window
 tmux new-window -t "$SESSION" -n "client" \
     "cd \"$CURRENT_DIR\" && ./pbft_main -r client -m loopbackip; status=\$?; echo; echo \"client exited with status \$status\"; exec bash"
 
-start_netem_schedule
+# start_netem_schedule
 
 echo "All nodes started."
 echo "Attaching to tmux session: $SESSION"
