@@ -39,6 +39,7 @@ type Config struct {
 	PeriodicReq        bool  `json:"periodic_req"`
 	CompleteSuite      bool  `json:"complete_suite"`
 	LatencyLog         bool  `json:"node_latency_logger"`
+	SerialClient       bool  `json:"serial_client"`
 }
 
 func ReadCfg(filename string) *Config {

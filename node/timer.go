@@ -228,7 +228,7 @@ func (tm *TimerManager) startPBFTTimerLocked() {
 		default:
 		}
 	}
-	tm.pbftTimer.Reset(500 * time.Millisecond)
+	tm.pbftTimer.Reset(100 * time.Millisecond)
 	tm.pbftTimerInitiated = true
 }
 
@@ -245,7 +245,7 @@ func (tm *TimerManager) resetPBFTTimerLocked() {
 		default:
 		}
 	}
-	tm.pbftTimer.Reset(500 * time.Millisecond)
+	tm.pbftTimer.Reset(100 * time.Millisecond)
 	tm.pbftTimerInitiated = true
 }
 

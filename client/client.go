@@ -51,6 +51,8 @@ type Client struct {
 	requestSendRateDone     chan struct{}
 	requestSendRateStarted  atomic.Bool
 	requestSendRateStopOnce sync.Once
+
+	reqExecutedCh chan struct{}
 }
 
 func NewClient(addr string, name string, config *config.Config, leaderAddr string) *Client {
@@ -81,6 +83,7 @@ func NewClient(addr string, name string, config *config.Config, leaderAddr strin
 		memoryLoggerDone:    make(chan struct{}),
 		requestSendRateStop: make(chan struct{}),
 		requestSendRateDone: make(chan struct{}),
+		reqExecutedCh:       make(chan struct{}, 2000),
 	}
 	txnManager := NewTransactionManager(c, log)
 	c.TransactionManager = txnManager
@@ -96,7 +99,7 @@ func (c *Client) Start() {
 		go c.requestSendRateLogger()
 	}
 	// keep it on for normal retry
-	c.TransactionManager.StartRetryTimer(true)
+	// c.TransactionManager.StartRetryTimer(true)
 	c.injectSpeed = c.config.InjectSpeed
 	time.Sleep(100 * time.Millisecond) // msg hub to start
 	c.InjectTxs()

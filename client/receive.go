@@ -18,7 +18,10 @@ func (c *Client) HandleReplyMessage(data core.ReplyMessage) {
 func (c *Client) HandleCommitTpsMessage(data core.CommitTps) {
 
 	// c.log.Info(fmt.Sprintf("Received commit tps message from %s, client message id %d", data.From, data.ClientMsg.Id))
-	go c.TransactionManager.CommitTps(data)
+	executed := c.TransactionManager.CommitTps(data)
+	if executed && c.config.SerialClient {
+		c.reqExecutedCh <- struct{}{}
+	}
 }
 
 func (c *Client) HandleLeaderUpdate(data core.LeaderIdUpdate) {

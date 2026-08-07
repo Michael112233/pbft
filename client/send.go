@@ -147,6 +147,9 @@ func (c *Client) InjectTxs() {
 		}
 		padding := strings.Repeat("x", paddingBytes)
 		batchSize := int(c.config.InjectSpeed)
+		if c.config.SerialClient {
+			batchSize = 1
+		}
 		signedTxs := c.startSignedTxPipeline(
 			totaltxns,
 			padding,
@@ -169,12 +172,20 @@ func (c *Client) InjectTxs() {
 			}
 
 			c.TransactionManager.AddTransaction(batch)
-			c.sendRequestTransactions(batch, normalRequestMessageType)
+			if c.config.SerialClient {
+				c.altSendRequestTransactionsForSerialClient(batch, normalRequestMessageType)
+			} else {
+				c.sendRequestTransactions(batch, normalRequestMessageType)
+			}
+			// c.sendRequestTransactions(batch, normalRequestMessageType)
 
 			collectStart := time.Now()
 			batch, ok = collectSignedBatch(signedTxs, batchSize)
 			if wait := time.Since(collectStart); ok && wait > 5*time.Millisecond {
 				c.log.Info("Waited %s for signed transaction batch; signer pipeline may be bottlenecked", wait)
+			}
+			if c.config.SerialClient {
+				<-c.reqExecutedCh
 			}
 		}
 		if c.config.CompleteSuite {
@@ -231,4 +242,18 @@ func (c *Client) sendRequestTransactions(txs []core.ClientMsgSignature, requestM
 			)
 		})
 	})
+}
+
+func (c *Client) altSendRequestTransactionsForSerialClient(txs []core.ClientMsgSignature, requestMessageType string) {
+	c.leaderMu.RLock()
+	leader := c.leaderAddr
+	c.leaderMu.RUnlock()
+
+	c.messageHub.Send(
+		core.MsgRequestMessage,
+		c.addr,
+		leader,
+		core.RequestMessage{Txs: txs, MsgType: requestMessageType},
+		nil,
+	)
 }

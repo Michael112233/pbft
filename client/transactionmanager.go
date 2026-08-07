@@ -242,7 +242,7 @@ func (tm *TransactionManager) ReplyTxn(reply core.ReplyMessage) {
 
 }
 
-func (tm *TransactionManager) CommitTps(reply core.CommitTps) {
+func (tm *TransactionManager) CommitTps(reply core.CommitTps) bool {
 
 	s := tm.getShard(reply.ClientMsg.Id)
 
@@ -251,7 +251,7 @@ func (tm *TransactionManager) CommitTps(reply core.CommitTps) {
 	txn, ok := s.txns[reply.ClientMsg.Id]
 	s.mu.RUnlock()
 	if !ok {
-		return
+		return false
 	}
 
 	// Per-txn lock for longer operations - doesn't block other txns in shard
@@ -259,7 +259,7 @@ func (tm *TransactionManager) CommitTps(reply core.CommitTps) {
 	txn.mu.Lock()
 	if txn.committed {
 		txn.mu.Unlock()
-		return
+		return false
 	}
 
 	txn.finishTimestamp = time.Now().UnixNano()
@@ -273,6 +273,7 @@ func (tm *TransactionManager) CommitTps(reply core.CommitTps) {
 		delete(s.txns, reply.ClientMsg.Id)
 	}
 	s.mu.Unlock()
+
 	numberOfCommittedTxns := tm.txnCommited.Add(1)
 	if numberOfCommittedTxns == tm.client.TotalTxnsToInject() {
 		tm.log.Info("All transactions committed")
@@ -283,6 +284,7 @@ func (tm *TransactionManager) CommitTps(reply core.CommitTps) {
 		tm.latencyMu.Unlock()
 	}
 
+	return true
 	// if reply.ClientMsg.Id > txnGCRetentionWindow && reply.ClientMsg.Id%30000 == 0 {
 	// 	go tm.GCTxns(reply.ClientMsg.Id - txnGCRetentionWindow)
 	// }

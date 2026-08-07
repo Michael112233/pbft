@@ -96,3 +96,6 @@ ping -I 127.0.0.2 -c 4 127.0.0.3
 
 test node to client
 ping -I 127.0.0.10 -c 4 127.0.0.2
+
+
+250 window and 300 retry
