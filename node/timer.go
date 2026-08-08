@@ -134,7 +134,7 @@ func (tm *TimerManager) startPeriodicElectionTimer(n *Node) {
 
 		n.viewMu.Lock()
 		tm.log.Error("Periodic election timer expired for view %d; triggering dummy view-change", n.forView)
-		if !n.peakTpsTest || true {
+		if !n.peakTpsTest || false {
 			tm.log.Error("Triggering dummy view-change due to periodic election timer expiry")
 			n.handleViewChangeTimeoutDummy()
 		}

@@ -159,6 +159,11 @@ type Node struct {
 	checkpointSerializedRoutineDone     chan struct{}
 	checkpointSerializedRoutineStopOnce sync.Once
 	checkpointChan                      chan checkpointAction
+	netemEventChan                      chan netemEvent
+	netemEventStop                      chan struct{}
+	netemEventDone                      chan struct{}
+	netemEventStarted                   atomic.Bool
+	netemEventStopOnce                  sync.Once
 
 	//locked by viewmu
 	scoreboard *Scoreboard
@@ -240,6 +245,9 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		checkpointChan:                  make(chan checkpointAction, 1000),
 		checkpointSerializedRoutineStop: make(chan struct{}),
 		checkpointSerializedRoutineDone: make(chan struct{}),
+		netemEventChan:                  make(chan netemEvent, len(cfg.Netem.Rules)+1), // can store 1 extra above total rules
+		netemEventStop:                  make(chan struct{}),
+		netemEventDone:                  make(chan struct{}),
 		split:                           false,
 		dead:                            cfg.NodesDead[nodeID],
 		proposalDelay:                   cfg.ProposalDelayNode == nodeID,
@@ -323,6 +331,9 @@ func (n *Node) Start() error {
 	if n.checkpointSerializedRoutineStarted.CompareAndSwap(false, true) {
 		go n.checkpointSerializedRoutine()
 	}
+	if n.cfg.Netem.Enabled && n.netemEventStarted.CompareAndSwap(false, true) {
+		go n.netemEventWorker()
+	}
 	go n.ClientSignatureVerifier()
 	go n.VerifiedClientMessageHandler()
 	if n.pbftTimerManager.pbftTimerStarted.CompareAndSwap(false, true) {
@@ -397,6 +408,12 @@ func (n *Node) Stop() {
 	})
 	if n.checkpointSerializedRoutineStarted.Load() {
 		<-n.checkpointSerializedRoutineDone
+	}
+	n.netemEventStopOnce.Do(func() {
+		close(n.netemEventStop)
+	})
+	if n.netemEventStarted.Load() {
+		<-n.netemEventDone
 	}
 	n.log.Info("node stopped")
 }
@@ -717,7 +734,7 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 			return
 		} else if preprepareMsg.View < view {
 			n.log.Info("Received PrePrepare for past view %d seq %d while current view is %d, ignoring and for view is %d", preprepareMsg.View, preprepareMsg.SeqNum, view, forView)
-		} else {
+		} else if preprepareMsg.SeqNum%500 == 0 {
 			n.log.Info("Received PrePrepare for current view %d (equal views) seq %d but currently in view change, ignoring and for view is %d", preprepareMsg.View, preprepareMsg.SeqNum, forView)
 		}
 		// n.viewMu.RUnlock()
@@ -985,7 +1002,7 @@ func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 			return
 		} else if prepareMsg.View < view {
 			n.log.Info("Received Prepare for past view %d seq %d while current view is %d, ignoring and for view is %d", prepareMsg.View, prepareMsg.SeqNum, view, forView)
-		} else {
+		} else if prepareMsg.SeqNum%500 == 0 {
 			n.log.Info("Received Prepare for current view %d (equal views) seq %d but currently in view change, ignoring and for view is %d", prepareMsg.View, prepareMsg.SeqNum, forView)
 		}
 		// n.viewMu.RUnlock()
@@ -1052,7 +1069,7 @@ func (n *Node) HandleCommit(commitMsg core.CommitMsg) {
 			return
 		} else if commitMsg.View < view {
 			n.log.Info("Received Commit for past view %d seq %d while current view is %d, ignoring", commitMsg.View, commitMsg.SeqNum, view)
-		} else {
+		} else if commitMsg.SeqNum%500 == 0 {
 			n.log.Info("Received Commit for current view %d (equal views) seq %d but currently in view change, ignoring and for view is %d", commitMsg.View, commitMsg.SeqNum, forView)
 		}
 		// n.viewMu.RUnlock()
@@ -1738,7 +1755,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	}
 
 	go n.sendLeaderIdUpdate(leaderId, newview)
-	n.pbftTimerManager.forceResetPBFTTimer()
+	n.pbftTimerManager.trackPreprepareRequest()
 	n.startPeriodicTimerForNewView(newview)
 	n.replayBufferedMessagesForView(newview)
 	go n.gcViewChangeMsgs(newview, true)
@@ -2141,6 +2158,7 @@ func (n *Node) newView() {
 	}
 	n.log.Info("Entering replay from primary might not need at primary")
 	n.startPeriodicTimerForNewView(n.view)
+
 	go n.replayBufferedMessagesForView(n.view)
 	go n.gcViewChangeMsgs(n.view, false)
 
@@ -2180,14 +2198,14 @@ func (n *Node) createVCContent(stableCheckpointSeq int64) map[int64]*core.Prepar
 			continue
 		}
 		if slot.prePrepare.View < n.view {
-			n.log.Warn("Sending a prepare for a view lower than n.view where my n.view is %d and prepare is for view %d and checkpoint is %d", n.view, slot.prePrepare.View, stableCheckpointSeq)
+			// n.log.Warn("Sending a prepare for a view lower than n.view where my n.view is %d and prepare is for view %d and checkpoint is %d", n.view, slot.prePrepare.View, stableCheckpointSeq)
 		}
 		seqNum := slot.prePrepare.SeqNum
 		candidateView := slot.prePrepare.View
 		existingCert, exists := preparedCerts[seqNum]
 		if exists {
 			if existingCert.PreprepareMsg.PreprepareMsgMini.View > candidateView {
-				n.log.Warn("skipping over a prepared cert for seq %d with view %d because we already have a prepared cert for view %d", seqNum, candidateView, existingCert.PreprepareMsg.PreprepareMsgMini.View)
+				// n.log.Warn("skipping over a prepared cert for seq %d with view %d because we already have a prepared cert for view %d", seqNum, candidateView, existingCert.PreprepareMsg.PreprepareMsgMini.View)
 				slot.mu.Unlock()
 				continue
 			} else if existingCert.PreprepareMsg.PreprepareMsgMini.View == candidateView {

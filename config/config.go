@@ -23,6 +23,7 @@ type Config struct {
 	LeaderType         string       `json:"leader_type"`
 	FarNodeID          int          `json:"far_node_id"`
 	FarNodeDelayMs     int64        `json:"far_node_delay_ms"`
+	Netem              NetemConfig  `json:"netem"`
 	LeaderTypeEnum     core.VCType
 	ActiveL            bool  `json:"active_l"`
 	PerformanceTrigger bool  `json:"performance_trigger"`
@@ -54,6 +55,11 @@ func ReadCfg(filename string) *Config {
 	err = json.Unmarshal(jsonData, config)
 	if err != nil {
 		fmt.Printf("error unmarshaling json: %v\n", err)
+		os.Exit(1)
+	}
+	config.ApplyNetemDefaults()
+	if err := config.ValidateNetem(); err != nil {
+		fmt.Printf("Invalid netem config: %v\n", err)
 		os.Exit(1)
 	}
 	if config.LeaderType == "roundrobin" {

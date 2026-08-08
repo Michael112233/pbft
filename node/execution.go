@@ -251,6 +251,7 @@ func (n *Node) newcollectReadyExecutions(seq int64, slot *consensusSlot, msg cor
 		n.executionMu.Lock()
 		n.lastExecuted = nextSeq
 		n.executionMu.Unlock()
+		n.notifyNetemExecutionEvent(nextSeq)
 		if !pending.noOp {
 			n.pool.Delete(pending.digestClientMsg, nextSeq)
 			n.duplicationMap.Delete(pending.digestClientMsg, nextSeq)
@@ -278,7 +279,7 @@ func (n *Node) newcollectReadyExecutions(seq int64, slot *consensusSlot, msg cor
 		}
 		n.startPeriodicTimerForReqExe(n.lastExecuted)
 		if n.latencyLog && !pending.noOp {
-    		n.RecordEndTime(pending.digestClientMsg, time.Now())
+			n.RecordEndTime(pending.digestClientMsg, time.Now())
 		}
 
 		if n.lastExecuted%CHECKPOINT_INTERVAL == 0 {

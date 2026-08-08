@@ -14,7 +14,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const clientSendInterval = 57 * time.Millisecond
+const clientSendInterval = 80 * time.Millisecond
 
 const (
 	normalRequestMessageType = "RequestMessage"

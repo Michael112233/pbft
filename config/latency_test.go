@@ -36,6 +36,38 @@ func TestReadCfgParsesFarNodeLatencySettings(t *testing.T) {
 	}
 }
 
+func TestReadCfgParsesNetemExecutionTrigger(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "cfg.json")
+	content := `{
+		"node_num": 4,
+		"nodes_dead": {},
+		"leader_type": "roundrobin",
+		"netem": {
+			"enabled": true,
+			"rules": [{
+				"id": "delay-after-seq-2",
+				"event": {"type": "execution", "node_id": 1, "seq": 2},
+				"action": {"delay_ms": 250, "lifetime": "until_next_event"}
+			}]
+		}
+	}`
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	cfg := ReadCfg(cfgPath)
+	if !cfg.Netem.Enabled {
+		t.Fatal("Netem.Enabled = false, want true")
+	}
+	if cfg.Netem.Interface != DefaultNetemInterface {
+		t.Fatalf("Netem.Interface = %q, want %q", cfg.Netem.Interface, DefaultNetemInterface)
+	}
+	if len(cfg.Netem.Rules) != 1 || cfg.Netem.Rules[0].Action.DelayMs != 250 {
+		t.Fatalf("Netem.Rules = %#v, want one 250ms rule", cfg.Netem.Rules)
+	}
+}
+
 func TestArtificialLatency(t *testing.T) {
 	oldNodeAddr := NodeAddr
 	NodeAddr = map[int]string{
