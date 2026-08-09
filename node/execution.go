@@ -251,13 +251,16 @@ func (n *Node) newcollectReadyExecutions(seq int64, slot *consensusSlot, msg cor
 		n.executionMu.Lock()
 		n.lastExecuted = nextSeq
 		n.executionMu.Unlock()
+		executedAt := time.Now()
 		n.notifyNetemExecutionEvent(nextSeq)
 		if !pending.noOp {
 			n.pool.Delete(pending.digestClientMsg, nextSeq)
 			n.duplicationMap.Delete(pending.digestClientMsg, nextSeq)
 		}
 
-		n.pbftTimerManager.onRequestExecuted(n)
+		if n.viewTimerManager != nil {
+			n.viewTimerManager.RecordExecution(n.GetView(), nextSeq, executedAt)
+		}
 
 		if transferPath {
 			n.log.Info("From cp state transfer/ client req transfer and did execution for seq %d ", nextSeq)

@@ -96,6 +96,7 @@ type Node struct {
 
 	pbftTimerManager     *TimerManager
 	periodicTimerManager *PeriodicTimerManager
+	viewTimerManager     *ViewTimerManager
 	viewIntent           *ViewIntent
 
 	viewChangeMsgsLog map[int64][]*core.ViewChangeMsgSig
@@ -269,6 +270,7 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 	epochAggregator := NewEpochAggregator(n, log)
 	n.viewIntent = viewIntent
 	n.periodicTimerManager = periodicTimerManager
+	n.viewTimerManager = NewViewTimerManager(log, cfg.Fixed)
 	n.epochManager = epochManager
 	n.epochAggregator = epochAggregator
 	if address := config.LearningAgentAddr[nodeID]; address != "" {
@@ -302,6 +304,9 @@ func (n *Node) Start() error {
 		// 	return err
 		// }
 		n.log.Info("learning-agent startup handshake succeeded")
+	}
+	if n.viewTimerManager != nil {
+		n.viewTimerManager.Start(n)
 	}
 	n.messageHub.Start(n, &sync.WaitGroup{})
 	if n.throughputMeasurementsStarted.CompareAndSwap(false, true) {
@@ -357,6 +362,9 @@ func (n *Node) Stop() {
 	// Close network resources to stop listeners and connections
 	if n.messageHub != nil && n.messageHub.node_ref != nil {
 		n.messageHub.Close()
+	}
+	if n.viewTimerManager != nil {
+		n.viewTimerManager.Close()
 	}
 	n.pbftTimerManager.pbftTimerStopOnce.Do(func() {
 		close(n.pbftTimerManager.pbftTimerStopCh)
@@ -686,7 +694,6 @@ func (n *Node) preprepare(batch core.ClientMsgSignature) {
 	// n.viewMu.RUnlock()
 
 	// n.pool.Add(digestClientMsg, batch)
-	n.pbftTimerManager.trackPreprepareRequest()
 	n.log.Test("PrePrepare sent for view %d seq %d with batch size %d", view, seqNum, 1)
 	// go func() {
 	if n.proposalDelay {
@@ -838,7 +845,6 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 		slot.mu.Unlock()
 	}
 	n.pool.Add(digestClientMsg, preprepareMsg.ClientMsg)
-	n.pbftTimerManager.trackPreprepareRequest()
 	n.EpochProposalInterval(preprepareMsg.SeqNum)
 	if n.latencyLog { // right now doing outside epoch eventually merge in epoch
 		if preprepareMsg.SeqNum == 1 {
@@ -1755,7 +1761,9 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	}
 
 	go n.sendLeaderIdUpdate(leaderId, newview)
-	n.pbftTimerManager.trackPreprepareRequest()
+	if n.viewTimerManager != nil {
+		n.viewTimerManager.StartView(newview, time.Now())
+	}
 	n.startPeriodicTimerForNewView(newview)
 	n.replayBufferedMessagesForView(newview)
 	go n.gcViewChangeMsgs(newview, true)
@@ -2157,6 +2165,9 @@ func (n *Node) newView() {
 		go n.sendReqMissingClientMsg(missingStates, n.view, n.leaderId)
 	}
 	n.log.Info("Entering replay from primary might not need at primary")
+	if n.viewTimerManager != nil {
+		n.viewTimerManager.StartView(n.view, time.Now())
+	}
 	n.startPeriodicTimerForNewView(n.view)
 
 	go n.replayBufferedMessagesForView(n.view)
@@ -2166,6 +2177,9 @@ func (n *Node) newView() {
 
 func (n *Node) handleViewChangeTimeoutDummy() {
 
+	if n.viewTimerManager != nil {
+		n.viewTimerManager.StopView(n.view)
+	}
 	n.viewChangeRunning = true
 
 	n.forView = n.forView + 1
@@ -2179,6 +2193,26 @@ func (n *Node) handleViewChangeTimeoutDummy() {
 		n.WRRVCTimeout()
 	}
 
+}
+
+func (n *Node) handleViewTimerExpiry(view int64) {
+	n.viewMu.Lock()
+	defer n.viewMu.Unlock()
+	// for view is my edition
+	if !n.fixed || n.view != view || n.forView != view {
+		return
+	}
+	if n.viewChangeRunning {
+		n.log.Info("View timer expired for view %d while a view change is already running", view)
+		return
+	}
+	if n.peakTpsTest {
+		n.log.Error("View timer expired for view %d but peak TPS test is enabled", view)
+		return
+	}
+
+	n.log.Error("Triggering dummy view-change due to view timer expiry for view %d", view)
+	n.handleViewChangeTimeoutDummy()
 }
 
 func (n *Node) createVCContent(stableCheckpointSeq int64) map[int64]*core.PreparedCert {

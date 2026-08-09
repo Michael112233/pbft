@@ -294,3 +294,6 @@ spread rather than drawing conclusions from a single run.
 The three recommended headline measurements for this experiment are
 `max_no_progress_ms`, `zero_tps_window_count`, and
 `peer_rtt_window_median_ms`.
+
+
+fast suspicion versus stable leader tenure.

@@ -7,7 +7,6 @@ import (
 func (n *Node) periodicVC(periodInterval int64) {
 
 	n.viewMu.Lock()
-	n.pbftTimerManager.forceStopPBFTTimer()
 
 	if n.vcType == core.VCTypeElection {
 		n.pbftTimerManager.startPeriodicElectionTimer(n)
@@ -33,7 +32,6 @@ func (n *Node) periodicVC(periodInterval int64) {
 func (n *Node) perfVC() {
 
 	n.viewMu.Lock()
-	n.pbftTimerManager.forceStopPBFTTimer()
 
 	if n.vcType == core.VCTypeElection {
 		n.pbftTimerManager.startPeriodicElectionTimer(n)
