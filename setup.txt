@@ -6,6 +6,7 @@ source ~/.profile
 go version
 sudo apt update
 sudo apt install python3-pip
+python3 -m pip install -r requirements.txt
 
 
 git clone https://github.com/Michael112233/pbft.git

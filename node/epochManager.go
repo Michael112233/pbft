@@ -228,13 +228,23 @@ func (em *EpochManager) updateEpochThroughputCSV(epochNumber int64, throughput f
 
 	return nil
 }
+func (em *EpochManager) StateTransferJump(beforeSeq, afterSeq int64) {
+	em.mu.Lock()
+	defer em.mu.Unlock()
+	if EPOCH_INTERVAL*em.currentEpoch > beforeSeq && EPOCH_INTERVAL*em.currentEpoch <= afterSeq {
+		em.log.Warn("State transfer jump detected from seq %d to %d, crossing epoch end boundary at epoch %d", beforeSeq, afterSeq, em.currentEpoch)
+	}
+	if (em.currentEpoch-1)*EPOCH_INTERVAL+WATERMARK_INTERVAL > beforeSeq && (em.currentEpoch-1)*EPOCH_INTERVAL+WATERMARK_INTERVAL <= afterSeq {
+		em.log.Warn("State transfer jump detected from seq %d to %d, crossing watermark boundary at epoch %d", beforeSeq, afterSeq, em.currentEpoch)
+	}
+}
 
 // state transfer jumps
 // node functions
 // outer node fun inner em function
 // lock even necessary
 func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) bool {
-	return false
+	// return false
 	em.mu.Lock()
 
 	if lastExeSeq == 1 {
@@ -270,11 +280,21 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) bool {
 		em.epochData[em.currentEpoch] = epochData
 		em.log.Info("Epoch %d completed", em.currentEpoch)
 		em.log.FeatureInfo("Epoch %d completed", em.currentEpoch)
-		decisionforNextEpoch, decisionExists := em.epochDecision[em.currentEpoch]
-		if !decisionExists {
-			em.log.Error("No epoch decision found for epoch %d", em.currentEpoch)
+		decisionforNextEpoch := "periodic"
+		if em.currentEpoch == 1 {
+			decisionforNextEpoch = "periodic"
 
+		} else if em.currentEpoch == 2 {
+			decisionforNextEpoch = "fixed"
+		} else {
+			decisionforNextEpoch = "periodic"
 		}
+
+		// decisionforNextEpoch, decisionExists := em.epochDecision[em.currentEpoch]
+		// if !decisionExists {
+		// 	em.log.Error("No epoch decision found for epoch %d", em.currentEpoch)
+
+		// }
 		em.currentEpoch++
 		throughputStartTime := time.Now()
 		proposalStartTime := time.Now() // a little delayed but its fine
@@ -292,6 +312,7 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) bool {
 		}
 		em.mu.Unlock()
 		em.node.SwitchTrigger(decisionforNextEpoch)
+		// when uncomment send true
 
 		return true
 	}
@@ -391,7 +412,7 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) bool {
 
 // since we dont do one req at a time and window is big so preprepare can be out of order
 func (em *EpochManager) ActiononProposalInterval(seqNum int64) { // might get same  seqnum multiple times if in old view its not committed
-	return
+	// return
 	em.mu.Lock()
 	defer em.mu.Unlock()
 
@@ -470,6 +491,10 @@ func (n *Node) EpochReqExecuted(seq int64) bool {
 	return n.epochManager.ActiononLastExeSeq(seq)
 }
 
+// only detect one jump and first ever jump
+func (n *Node) EpochJump(beforeSeq, afterSeq int64) {
+	n.epochManager.StateTransferJump(beforeSeq, afterSeq)
+}
 func (n *Node) EpochProposalInterval(seq int64) {
 	n.epochManager.ActiononProposalInterval(seq)
 }

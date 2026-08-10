@@ -76,7 +76,7 @@ func (ea *EpochAggregator) ReceiveEpochData(epoch int64, nodeID int, throughput 
 		avgProposalRate := totalProposalRate / float64(len(ea.epochAggLog[epoch]))
 		ea.log.Info("Aggregated epoch data for epoch %d: avgThroughput=%.2f, avgProposalRate=%.2f", epoch, avgThroughput, avgProposalRate)
 		ea.log.FeatureInfo("Aggregated epoch data for epoch %d: avgThroughput=%.2f, avgProposalRate=%.2f", epoch, avgThroughput, avgProposalRate)
-		go ea.node.SendEpochDataToAgent(epoch, avgThroughput, avgProposalRate)
+		// go ea.node.SendEpochDataToAgent(epoch, avgThroughput, avgProposalRate)
 
 	}
 }

@@ -2199,6 +2199,13 @@ func (n *Node) handleViewChangeTimeoutDummy() {
 }
 
 func (n *Node) handleViewTimerExpiry(view int64) {
+	n.checkpointMu.Lock()
+	if n.lastStableCheckpoint.seq >= 800000 {
+		n.log.Info("View timer expired for view %d but last stable checkpoint is %d, not triggering view change", view, n.lastStableCheckpoint.seq)
+		n.checkpointMu.Unlock()
+		return
+	}
+	n.checkpointMu.Unlock()
 	n.viewMu.Lock()
 	defer n.viewMu.Unlock()
 
@@ -2213,7 +2220,7 @@ func (n *Node) handleViewTimerExpiry(view int64) {
 	shadowTotal := n.shadowSuspicionTotal.Add(1)
 	n.log.Info("Shadow suspicion count is now %d after execution timeout in view %d", shadowTotal, view)
 
-	if !n.fixed {
+	if !n.ReadFixedTrigger() {
 		n.viewTimerManager.MarkShadowTimeout(view)
 		return
 	}
@@ -2336,14 +2343,20 @@ func (n *Node) ReadPeriodicTrigger() bool {
 	return n.periodicReq
 }
 
+func (n *Node) ReadFixedTrigger() bool {
+	n.changemu.RLock()
+	defer n.changemu.RUnlock()
+	return n.fixed
+}
+
 func (n *Node) SwitchTrigger(protocol string) {
 	n.changemu.Lock()
 	defer n.changemu.Unlock()
-	if protocol == "performance" {
-		n.performanceTrigger = true
+	if protocol == "fixed" {
+		n.fixed = true
 		n.periodicReq = false
 	} else if protocol == "periodic" {
-		n.performanceTrigger = false
+		n.fixed = false
 		n.periodicReq = true
 	} else {
 		n.log.Error("Invalid protocol trigger: %s", protocol)

@@ -125,8 +125,11 @@ func (n *Node) commitSerializedRoutine() {
 				n.log.Warn("Moving forward execution machine may execute req because of cp transfer")
 				n.executionMachine.RestoreCheckpoint(cpState.balances)
 				n.executionMu.Lock()
+				exeBefore := n.lastExecuted
 				n.lastExecuted = cpState.seq
+				exeAfter := n.lastExecuted
 				n.executionMu.Unlock()
+				n.EpochJump(exeBefore, exeAfter)
 				n.newcollectReadyExecutions(
 					-1,
 					nil,
@@ -275,11 +278,13 @@ func (n *Node) newcollectReadyExecutions(seq int64, slot *consensusSlot, msg cor
 		if n.lastExecuted >= periodInterval {
 			periodicTrigger = true
 		}
-		switchedTriggers := n.EpochReqExecuted(nextSeq)
-		if switchedTriggers {
-			periodicTrigger = false
-			performanceTrigger = 0
-		}
+		// if leader is at fixed and doesnt exe epoch boundary but rest exe and switch to peridic req then interval wont hit as leader not propose
+		// preiodic to fixed this may cause extra vc but ig its fine
+		_ = n.EpochReqExecuted(nextSeq)
+		// if switchedTriggers {
+		// 	periodicTrigger = false
+		// 	// performanceTrigger = 0
+		// }
 		n.startPeriodicTimerForReqExe(n.lastExecuted)
 		if n.latencyLog && !pending.noOp {
 			n.RecordEndTime(pending.digestClientMsg, time.Now())

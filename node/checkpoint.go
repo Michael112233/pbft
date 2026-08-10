@@ -46,7 +46,9 @@ func (n *Node) HandleCheckpoint(checkpointMsg core.CheckpointMsg, signature []by
 			go n.gcConsensusState(key.seq)
 			go n.gcCheckpoints(key)
 			// garbage collect old checkpoints
-			n.log.Info("Stable checkpoint advanced on receiving remote checkpoint seq=%d digest=%x votes=%d", key.seq, key.digest, len(checkpointData.votes))
+			if n.lastStableCheckpoint.seq%1000 == 0 {
+				n.log.Info("Stable checkpoint advanced on receiving remote checkpoint seq=%d digest=%x votes=%d", key.seq, key.digest, len(checkpointData.votes))
+			}
 		} else if key.seq > n.lastStableCheckpoint.seq && checkpointData.balances == nil {
 			needStateTransfer = true
 		}
@@ -289,7 +291,9 @@ func (n *Node) checkpointUpdateConditionLocal(msg core.CheckpointMsg, copyOfBala
 			n.lastStableCheckpoint = key
 			go n.gcConsensusState(key.seq)
 			go n.gcCheckpoints(key)
-			n.log.Info("Stable checkpoint advanced locally seq=%d digest=%x votes=%d", key.seq, key.digest, len(checkpointData.votes))
+			if n.lastStableCheckpoint.seq%1000 == 0 {
+				n.log.Info("Stable checkpoint advanced locally seq=%d digest=%x votes=%d", key.seq, key.digest, len(checkpointData.votes))
+			}
 		}
 	}
 
