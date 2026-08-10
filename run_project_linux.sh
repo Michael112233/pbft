@@ -97,11 +97,11 @@ start_netem_controller() {
     exit 1
 }
 
-if (( NETEM_ENABLED == 1 )) || [[ -f "$NETEM_PID_PATH" ]]; then
-    echo "Authenticating sudo for netem controller management..."
-    sudo -v
-    stop_existing_netem_controller
-fi
+# if (( NETEM_ENABLED == 1 )) || [[ -f "$NETEM_PID_PATH" ]]; then
+#     echo "Authenticating sudo for netem controller management..."
+#     sudo -v
+#     stop_existing_netem_controller
+# fi
 
 pkill -f pbft_main || true
 echo "Cleaning up log files..."
@@ -140,7 +140,7 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
     tmux kill-session -t "$SESSION"
 fi
 
-start_netem_controller
+# start_netem_controller
 
 echo "Learning-agent launcher log: $CURRENT_DIR/logs/learning-agent-launcher.log"
 echo "Learning-agent node logs: $CURRENT_DIR/logs/learning-agent-node-<id>.log"

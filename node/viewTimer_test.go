@@ -104,6 +104,28 @@ func TestViewTimerExpiresOncePerViewAndRearmsForNewView(t *testing.T) {
 	assertViewTimerExpiry(t, node.expiries, 3)
 }
 
+func TestViewTimerShadowTimeoutRearmsAfterProgressInSameView(t *testing.T) {
+	const timeout = 100 * time.Millisecond
+	node := newFakeViewTimerNode()
+	manager := newViewTimerManager(logger.NewLogger(1, "view-timer-test"), true, timeout)
+	t.Cleanup(manager.Close)
+	manager.Start(node)
+
+	firstExecution := time.Now()
+	manager.RecordExecution(1, 1, firstExecution)
+	manager.handleTimerDelivery(firstExecution.Add(timeout))
+	assertViewTimerExpiry(t, node.expiries, 1)
+	manager.MarkShadowTimeout(1)
+
+	manager.handleTimerDelivery(firstExecution.Add(2 * timeout))
+	assertNoViewTimerExpiry(t, node.expiries)
+
+	resumedAt := firstExecution.Add(3 * timeout)
+	manager.RecordExecution(1, 2, resumedAt)
+	manager.handleTimerDelivery(resumedAt.Add(timeout))
+	assertViewTimerExpiry(t, node.expiries, 1)
+}
+
 func TestViewTimerStopViewAndClosePreventExpiry(t *testing.T) {
 	const timeout = 20 * time.Millisecond
 	node := newFakeViewTimerNode()

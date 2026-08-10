@@ -105,11 +105,12 @@ type Node struct {
 	pool           *Pool
 	duplicationMap *DuplicationMap
 
-	executionMachine  execution.StateMachine
-	executionMu       sync.RWMutex
-	lastExecuted      int64
-	noOpsExecuted     atomic.Int64
-	pendingExecutions map[int64]pendingExecution
+	executionMachine     execution.StateMachine
+	executionMu          sync.RWMutex
+	lastExecuted         int64
+	noOpsExecuted        atomic.Int64
+	shadowSuspicionTotal atomic.Int64
+	pendingExecutions    map[int64]pendingExecution
 
 	checkpointMu                   sync.Mutex
 	checkpoints                    map[checkpoint]CheckpointData
@@ -270,7 +271,9 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 	epochAggregator := NewEpochAggregator(n, log)
 	n.viewIntent = viewIntent
 	n.periodicTimerManager = periodicTimerManager
-	n.viewTimerManager = NewViewTimerManager(log, cfg.Fixed)
+	// The execution-gap timer stays active under both arms so periodic mode can
+	// observe the suspicions that fixed mode would have enforced.
+	n.viewTimerManager = NewViewTimerManager(log, true)
 	n.epochManager = epochManager
 	n.epochAggregator = epochAggregator
 	if address := config.LearningAgentAddr[nodeID]; address != "" {
@@ -2198,12 +2201,20 @@ func (n *Node) handleViewChangeTimeoutDummy() {
 func (n *Node) handleViewTimerExpiry(view int64) {
 	n.viewMu.Lock()
 	defer n.viewMu.Unlock()
-	// for view is my edition
-	if !n.fixed || n.view != view || n.forView != view {
+
+	if n.view != view || n.forView != view {
 		return
 	}
 	if n.viewChangeRunning {
 		n.log.Info("View timer expired for view %d while a view change is already running", view)
+		return
+	}
+
+	shadowTotal := n.shadowSuspicionTotal.Add(1)
+	n.log.Info("Shadow suspicion count is now %d after execution timeout in view %d", shadowTotal, view)
+
+	if !n.fixed {
+		n.viewTimerManager.MarkShadowTimeout(view)
 		return
 	}
 	if n.peakTpsTest {
@@ -2213,6 +2224,10 @@ func (n *Node) handleViewTimerExpiry(view int64) {
 
 	n.log.Error("Triggering dummy view-change due to view timer expiry for view %d", view)
 	n.handleViewChangeTimeoutDummy()
+}
+
+func (n *Node) GetShadowSuspicionTotal() int64 {
+	return n.shadowSuspicionTotal.Load()
 }
 
 func (n *Node) createVCContent(stableCheckpointSeq int64) map[int64]*core.PreparedCert {

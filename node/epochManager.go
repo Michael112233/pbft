@@ -23,6 +23,7 @@ type EpochNode interface {
 	GetNodeID() int
 	SendandEnterEpochData(epoch int64, throughput float64, proposalRate float64)
 	SwitchTrigger(protocol string)
+	GetShadowSuspicionTotal() int64
 }
 
 type ThroughputData struct {
@@ -38,20 +39,29 @@ type ProposalIntervalData struct {
 	TotalTime      time.Duration
 	ProposalRate   float64
 }
+
+type ShadowCount struct {
+	shadowEpochStartTotal int64
+	count                 int64
+}
 type EpochData struct {
 	ThroughputData       ThroughputData
 	ProposalIntervalData ProposalIntervalData
+	ShadowCount          ShadowCount
 }
 type EpochManager struct {
-	mu             sync.RWMutex
-	currentEpoch   int64
-	epochData      map[int64]EpochData
-	epochDecision  map[int64]string // it is decision for watermark send in current epoch and applied in next epoch and its reward come with watermark of next to next epoch
-	log            *logger.Logger
-	csvFile        *os.File
-	csvWriter      *csv.Writer
-	node           EpochNode
-	latencyMonitor *LatencyMonitor
+	mu                    sync.RWMutex
+	currentEpoch          int64
+	epochData             map[int64]EpochData
+	epochDecision         map[int64]string // it is decision for watermark send in current epoch and applied in next epoch and its reward come with watermark of next to next epoch
+	log                   *logger.Logger
+	csvFile               *os.File
+	csvWriter             *csv.Writer
+	node                  EpochNode
+	latencyMonitor        *LatencyMonitor
+	shadowEpoch           int64
+	shadowEpochStartTotal int64
+	shadowEpochStarted    bool
 }
 
 func NewEpochManager(node EpochNode, log *logger.Logger) *EpochManager {
@@ -69,6 +79,33 @@ func NewEpochManager(node EpochNode, log *logger.Logger) *EpochManager {
 	return epochManager
 }
 
+// recordShadowSuspicionTotal snapshots the monotonic node counter at the
+// beginning of an epoch and returns its raw delta at the epoch boundary. It is
+// independent of the currently disabled learning-epoch path.
+func (em *EpochManager) recordShadowSuspicionTotal(lastExeSeq, total int64) (int64, int64, bool) {
+	if lastExeSeq <= 0 {
+		return 0, 0, false
+	}
+
+	em.mu.Lock()
+	defer em.mu.Unlock()
+	if !em.shadowEpochStarted {
+		em.shadowEpoch = (lastExeSeq-1)/EPOCH_INTERVAL + 1
+		em.shadowEpochStartTotal = total
+		em.shadowEpochStarted = true
+	}
+
+	if lastExeSeq != em.shadowEpoch*EPOCH_INTERVAL {
+		return 0, 0, false
+	}
+
+	epoch := em.shadowEpoch
+	count := total - em.shadowEpochStartTotal
+	em.shadowEpoch++
+	em.shadowEpochStartTotal = total
+	return epoch, count, true
+}
+
 func (em *EpochManager) openEpochCSV() {
 	if err := os.MkdirAll("logs", 0755); err != nil {
 		em.log.Error("Failed to create logs directory for epoch CSV: %v", err)
@@ -84,7 +121,7 @@ func (em *EpochManager) openEpochCSV() {
 	}
 
 	writer := csv.NewWriter(file)
-	if err := writer.Write([]string{"epoch", "throughput", "proposal_rate"}); err != nil {
+	if err := writer.Write([]string{"epoch", "throughput", "proposal_rate", "shadow_count"}); err != nil {
 		em.log.Error("Failed to write epoch CSV header: %v", err)
 		_ = file.Close()
 		return
@@ -100,7 +137,7 @@ func (em *EpochManager) openEpochCSV() {
 	em.csvWriter = writer
 }
 
-func (em *EpochManager) writeEpochCSV(epochNumber int64, throughput float64, proposalRate float64) error {
+func (em *EpochManager) writeEpochCSV(epochNumber int64, throughput float64, proposalRate float64, shadowCount int64) error {
 	if em.csvWriter == nil {
 
 		return fmt.Errorf("epoch CSV writer is not initialized")
@@ -110,6 +147,7 @@ func (em *EpochManager) writeEpochCSV(epochNumber int64, throughput float64, pro
 		strconv.FormatInt(epochNumber, 10),
 		strconv.FormatFloat(throughput, 'f', 6, 64),
 		strconv.FormatFloat(proposalRate, 'f', 6, 64),
+		strconv.FormatInt(shadowCount, 10),
 	}
 	if err := em.csvWriter.Write(record); err != nil {
 
@@ -146,17 +184,18 @@ func (em *EpochManager) updateEpochThroughputCSV(epochNumber int64, throughput f
 		return fmt.Errorf("close epoch CSV after reading: %w", closeErr)
 	}
 
-	if len(records) == 0 || len(records[0]) != 3 ||
+	if len(records) == 0 || len(records[0]) != 4 ||
 		records[0][0] != "epoch" ||
 		records[0][1] != "throughput" ||
-		records[0][2] != "proposal_rate" {
+		records[0][2] != "proposal_rate" ||
+		records[0][3] != "shadow_count" {
 		return fmt.Errorf("epoch CSV has an invalid header")
 	}
 
 	found := false
 	for rowIndex, record := range records[1:] {
-		if len(record) != 3 {
-			return fmt.Errorf("epoch CSV row %d has %d fields, want 3", rowIndex+2, len(record))
+		if len(record) != 4 {
+			return fmt.Errorf("epoch CSV row %d has %d fields, want 4", rowIndex+2, len(record))
 		}
 
 		recordEpoch, err := strconv.ParseInt(record[0], 10, 64)
@@ -201,12 +240,16 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) bool {
 	if lastExeSeq == 1 {
 		throughputStartTime := time.Now()
 		proposalStartTime := time.Now() // a little delayed but its fine
+		shadowCountStart := em.node.GetShadowSuspicionTotal()
 		em.epochData[em.currentEpoch] = EpochData{
 			ThroughputData: ThroughputData{
 				StartTime: throughputStartTime,
 			},
 			ProposalIntervalData: ProposalIntervalData{
 				StartTime: proposalStartTime,
+			},
+			ShadowCount: ShadowCount{
+				shadowEpochStartTotal: shadowCountStart,
 			},
 		}
 
@@ -235,12 +278,16 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) bool {
 		em.currentEpoch++
 		throughputStartTime := time.Now()
 		proposalStartTime := time.Now() // a little delayed but its fine
+		shadowCountStart := em.node.GetShadowSuspicionTotal()
 		em.epochData[em.currentEpoch] = EpochData{
 			ThroughputData: ThroughputData{
 				StartTime: throughputStartTime,
 			},
 			ProposalIntervalData: ProposalIntervalData{
 				StartTime: proposalStartTime,
+			},
+			ShadowCount: ShadowCount{
+				shadowEpochStartTotal: shadowCountStart,
 			},
 		}
 		em.mu.Unlock()
@@ -263,6 +310,8 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) bool {
 				em.mu.Unlock()
 				return false
 			}
+			shadowCountNow := em.node.GetShadowSuspicionTotal()
+			epochData.ShadowCount.count = shadowCountNow - epochData.ShadowCount.shadowEpochStartTotal
 			throughput := 0 // cant have throughput of last epoch as this is the first epoch
 			_ = throughput  // used when the epoch CSV write call is added
 			// at watermark we measure current epoch state and last epoch tput
@@ -270,7 +319,7 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) bool {
 			em.log.FeatureInfo("Watermark reached for current epoch number %d", em.currentEpoch)
 			go em.node.SendandEnterEpochData(em.currentEpoch, float64(throughput), proposalRate)
 			writeTime := time.Now()
-			writeErr := em.writeEpochCSV(em.currentEpoch, float64(throughput), proposalRate)
+			writeErr := em.writeEpochCSV(em.currentEpoch, float64(throughput), proposalRate, epochData.ShadowCount.count)
 			writeDuration := time.Since(writeTime)
 			if writeDuration > 5*time.Millisecond {
 				em.log.Error("Writing epoch CSV at watermark for current epoch number %d took longer than 5ms: %v", em.currentEpoch, writeDuration)
@@ -300,7 +349,9 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) bool {
 				return false
 			}
 			writeTime := time.Now()
-			writeErr := em.writeEpochCSV(em.currentEpoch, float64(0), proposalRate) // throughput will be updated later when epoch ends
+			shadowCountNow := em.node.GetShadowSuspicionTotal()
+			currentEpochData.ShadowCount.count = shadowCountNow - currentEpochData.ShadowCount.shadowEpochStartTotal
+			writeErr := em.writeEpochCSV(em.currentEpoch, float64(0), proposalRate, currentEpochData.ShadowCount.count) // throughput will be updated later when epoch ends
 			if writeErr != nil {
 				em.log.Error("Failed to write epoch CSV at watermark for current epoch number %d: %v", em.currentEpoch, writeErr)
 				em.mu.Unlock()
@@ -413,6 +464,9 @@ func (n *Node) RecordEndTime(digest [32]byte, endTime time.Time) {
 	n.epochManager.RecordEndTime(digest, endTime)
 }
 func (n *Node) EpochReqExecuted(seq int64) bool {
+	if epoch, count, complete := n.epochManager.recordShadowSuspicionTotal(seq, n.GetShadowSuspicionTotal()); complete {
+		n.log.Info("Raw shadow suspicion count for epoch %d on node %d is %d", epoch, n.GetNodeID(), count)
+	}
 	return n.epochManager.ActiononLastExeSeq(seq)
 }
 

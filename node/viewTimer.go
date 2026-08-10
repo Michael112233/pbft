@@ -27,9 +27,12 @@ type ViewTimerManager struct {
 	activeView   int64
 	deadline     time.Time
 	timedOutView int64
-	activated    bool
-	closed       bool
-	node         viewTimerNode
+	// shadowAwaitingProgress allows an observation-only timeout to re-arm in
+	// the same view, but only after execution progress resumes.
+	shadowAwaitingProgress bool
+	activated              bool
+	closed                 bool
+	node                   viewTimerNode
 
 	stopCh   chan struct{}
 	doneCh   chan struct{}
@@ -92,7 +95,8 @@ func (vtm *ViewTimerManager) worker() {
 
 // RecordExecution starts the initial-view timer only after sequence one. Once
 // activated, executions reset an already armed timer for the same view. A
-// stopped or expired view is not re-armed until StartView installs a new view.
+// real timeout is not re-armed until StartView installs a new view. A shadow
+// timeout can re-arm in the same view after execution progress resumes.
 func (vtm *ViewTimerManager) RecordExecution(view int64, sequence int64, executedAt time.Time) {
 	if vtm == nil || !vtm.enabled {
 		return
@@ -114,6 +118,14 @@ func (vtm *ViewTimerManager) RecordExecution(view int64, sequence int64, execute
 		vtm.activated = true
 		vtm.activeView = view
 		vtm.timedOutView = -1
+		vtm.shadowAwaitingProgress = false
+		vtm.armLocked(executedAt.Add(vtm.timeout))
+		return
+	}
+
+	if vtm.activeView == view && vtm.timedOutView == view && vtm.shadowAwaitingProgress {
+		vtm.timedOutView = -1
+		vtm.shadowAwaitingProgress = false
 		vtm.armLocked(executedAt.Add(vtm.timeout))
 		return
 	}
@@ -145,7 +157,24 @@ func (vtm *ViewTimerManager) StartView(view int64, startedAt time.Time) {
 	vtm.activated = true
 	vtm.activeView = view
 	vtm.timedOutView = -1
-	vtm.armLocked(startedAt.Add(vtm.timeout))
+	vtm.shadowAwaitingProgress = false
+	vtm.armLocked(startedAt.Add(300 * time.Millisecond))
+}
+
+// MarkShadowTimeout records that the delivered timeout was observation-only.
+// The timer remains disarmed until RecordExecution observes progress in the
+// same view.
+func (vtm *ViewTimerManager) MarkShadowTimeout(view int64) {
+	if vtm == nil || !vtm.enabled {
+		return
+	}
+
+	vtm.lock.Lock()
+	defer vtm.lock.Unlock()
+	if vtm.closed || vtm.activeView != view || vtm.timedOutView != view {
+		return
+	}
+	vtm.shadowAwaitingProgress = true
 }
 
 // StopView disarms only the supplied view. It intentionally leaves the
