@@ -220,6 +220,7 @@ type EpochDataForAggregation struct {
 	EpochNumber  int64
 	Throughput   float64
 	ProposalRate float64
+	ShadowCount  int
 	From         int
 }
 

@@ -934,6 +934,7 @@ func EpochDataForAggregationToPB(msg core.EpochDataForAggregation) *EpochDataFor
 		EpochNumber:  msg.EpochNumber,
 		Throughput:   msg.Throughput,
 		ProposalRate: msg.ProposalRate,
+		ShadowCount:  int32(msg.ShadowCount),
 		From:         int32(msg.From),
 	}
 }
@@ -946,6 +947,7 @@ func EpochDataForAggregationFromPB(msg *EpochDataForAggregation) (core.EpochData
 		EpochNumber:  msg.EpochNumber,
 		Throughput:   msg.Throughput,
 		ProposalRate: msg.ProposalRate,
+		ShadowCount:  int(msg.ShadowCount),
 		From:         int(msg.From),
 	}, nil
 }

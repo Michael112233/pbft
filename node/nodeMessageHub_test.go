@@ -226,6 +226,7 @@ func TestBuildEnvelopeEpochDataForAggregation(t *testing.T) {
 		EpochNumber:  9,
 		Throughput:   1234.5,
 		ProposalRate: 678.25,
+		ShadowCount:  42,
 		From:         2,
 	}
 
@@ -338,6 +339,7 @@ func TestDeliverEpochDataForAggregation(t *testing.T) {
 			EpochNumber:  9,
 			Throughput:   1234.5,
 			ProposalRate: 678.25,
+			ShadowCount:  42,
 			From:         1,
 		})
 		payload, err := marshalDeterministic(epochData)
@@ -361,7 +363,7 @@ func TestDeliverEpochDataForAggregation(t *testing.T) {
 			testNode.epochAggregator.mu.Lock()
 			received := testNode.epochAggregator.epochAggLog[9][1]
 			testNode.epochAggregator.mu.Unlock()
-			if received.throughput == 1234.5 && received.proposalRate == 678.25 {
+			if received.throughput == 1234.5 && received.proposalRate == 678.25 && received.shadowCount == 42 {
 				break
 			}
 			if time.Now().After(deadline) {
@@ -456,6 +458,7 @@ func TestNodeMessagesReusePersistentPeerStream(t *testing.T) {
 			EpochNumber:  9,
 			Throughput:   throughput,
 			ProposalRate: throughput / 2,
+			ShadowCount:  42,
 			From:         1,
 		}
 		pbMsg := transportpb.EpochDataForAggregationToPB(msg)

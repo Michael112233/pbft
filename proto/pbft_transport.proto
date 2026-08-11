@@ -209,6 +209,7 @@ message EpochDataForAggregation {
   double throughput = 2;
   double proposal_rate = 3;
   int32 from = 4;
+  int32 shadow_count = 5;
 }
 
 message ReplyMessage {

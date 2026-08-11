@@ -113,7 +113,7 @@ func (c *LearningAgentHub) Start() error {
 	return nil
 }
 
-func (c *LearningAgentHub) SendLearningData(ctx context.Context, epoch int64, throughput float64, proposalRate float64) error {
+func (c *LearningAgentHub) SendLearningData(ctx context.Context, epoch int64, throughput float64, proposalRate float64, shadowCount int) error {
 	if epoch < 0 {
 		return fmt.Errorf("learning-data epoch must be nonnegative: %d", epoch)
 	}
@@ -135,6 +135,7 @@ func (c *LearningAgentHub) SendLearningData(ctx context.Context, epoch int64, th
 		Data: map[string]float64{
 			"reward":            throughput,
 			"proposal_interval": proposalRate,
+			"shadow_count":      float64(shadowCount),
 		},
 	}
 	response, err := client.SendLearningData(ctx, request)
@@ -211,14 +212,14 @@ func (n *Node) ExchangeWithLearningAgent(ctx context.Context, payload []byte) ([
 	}
 	return n.learningAgent.Exchange(ctx, payload)
 }
-func (n *Node) SendLearningDataToAgent(epoch int64, throughput float64, proposalRate float64) {
+func (n *Node) SendLearningDataToAgent(epoch int64, throughput float64, proposalRate float64, shadowCount int) {
 	if n.learningAgent == nil {
 		n.log.Error("learning agent is not configured for this node")
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), learningAgentRPCTimeout)
 	defer cancel()
-	err := n.learningAgent.SendLearningData(ctx, epoch, throughput, proposalRate)
+	err := n.learningAgent.SendLearningData(ctx, epoch, throughput, proposalRate, shadowCount)
 	if err != nil {
 		n.log.Error("Failed to send learning data to agent: %v", err)
 	}

@@ -313,6 +313,7 @@ func TestEpochDataForAggregationRoundTrip(t *testing.T) {
 		EpochNumber:  12,
 		Throughput:   1234.5,
 		ProposalRate: 678.25,
+		ShadowCount:  42,
 		From:         3,
 	}
 

@@ -28,7 +28,7 @@ GRACEFUL_STOP_SECONDS = 5
 NODE_RPC_TIMEOUT_SECONDS = 1.0
 MAX_REPLAY_LENGTH = 1000
 LEARNING_DATA_REWARD_KEY = "reward"
-LEARNING_DATA_STATE_KEYS = ("proposal_interval",)
+LEARNING_DATA_STATE_KEYS = ("shadow_count",)
 
 
 class StopEvent(Protocol):
@@ -41,7 +41,7 @@ class StopEvent(Protocol):
 
 class ProtocolName(StrEnum):
     Periodic = "periodic"
-    Performance = "performance"
+    Performance = "fixed"
 
 PROTOCOLS = [p.value for p in ProtocolName]
 
@@ -69,7 +69,7 @@ class MultiRF:
         for protocol in PROTOCOLS:
             self.experiences_X[protocol] = []
             self.experiences_y[protocol] = []
-            self.models[protocol] = RandomForestRegressor(max_depth=5)
+            self.models[protocol] = RandomForestRegressor(max_depth=5, random_state=seed)
 
     def record_state_action_reward(self, LearningData: LearningData):
         protocol = LearningData.current_protocol
@@ -100,11 +100,25 @@ class MultiRF:
             dtype=np.float64,
         ) #(N,)
 
-        bootstrap_indices = np.random.choice(
+        if replay_length < 5:
+             bootstrap_indices = np.arange(replay_length)
+        else:
+            bootstrap_indices = self.rng.choice(
             replay_length,
             size=replay_length,
             replace=True,
         )
+        # bootstrap_indices = np.random.choice(
+        #     replay_length,
+        #     size=replay_length,
+        #     replace=True,
+        # )
+
+        # bootstrap_indices = np.random.choice(
+        #     replay_length,
+        #     size=replay_length,
+        #     replace=True,
+        # )
 
         bootstrap_X = replay_X[bootstrap_indices]
         bootstrap_y = replay_y[bootstrap_indices]
@@ -129,19 +143,41 @@ class MultiRF:
             prediction = self.models[protocol].predict(model_input)
             predicted_rewards[protocol] = float(prediction[0])
 
-        max_reward = max(predicted_rewards.values())
-
-        best_protocols = [
-            protocol
-            for protocol, reward in predicted_rewards.items()
-            if reward == max_reward
-        ]
-
-        selected_index = self.rng.integers(
-            0,
-            len(best_protocols),
+        ranked_rewards = sorted(
+            predicted_rewards.items(),
+            key=lambda item: item[1],
+            reverse=True,
         )
-        return best_protocols[selected_index]
+
+        best_protocol, max_reward = ranked_rewards[0]
+        second_protocol, second_reward = ranked_rewards[1]
+        reward_difference = max_reward - second_reward
+        LOGGER.info(
+            "Best: %s=%.4f, second: %s=%.4f, difference=%.4f",
+            best_protocol,
+            max_reward,
+            second_protocol,
+            second_reward,
+            reward_difference,
+        )
+
+        # for protocol in PROTOCOLS:
+        #     prediction = self.models[protocol].predict(model_input)
+        #     predicted_rewards[protocol] = float(prediction[0])
+
+        # max_reward = max(predicted_rewards.values())
+
+        # best_protocols = [
+        #     protocol
+        #     for protocol, reward in predicted_rewards.items()
+        #     if reward == max_reward
+        # ]
+
+        # selected_index = self.rng.integers(
+        #     0,
+        #     len(best_protocols),
+        # )
+        return best_protocol
 
 
 class EpsilonGreedyBandit:

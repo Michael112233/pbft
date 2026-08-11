@@ -21,7 +21,7 @@ const (
 
 type EpochNode interface {
 	GetNodeID() int
-	SendandEnterEpochData(epoch int64, throughput float64, proposalRate float64)
+	SendandEnterEpochData(epoch int64, throughput float64, proposalRate float64, shadowCount int)
 	SwitchTrigger(protocol string)
 	GetShadowSuspicionTotal() int64
 }
@@ -332,15 +332,15 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) bool {
 				return false
 			}
 			shadowCountNow := em.node.GetShadowSuspicionTotal()
-			epochData.ShadowCount.count = shadowCountNow - epochData.ShadowCount.shadowEpochStartTotal
+			shadowCount := shadowCountNow - epochData.ShadowCount.shadowEpochStartTotal
 			throughput := 0 // cant have throughput of last epoch as this is the first epoch
 			_ = throughput  // used when the epoch CSV write call is added
 			// at watermark we measure current epoch state and last epoch tput
 			em.log.Info("Watermark reached for current epoch number %d", em.currentEpoch)
 			em.log.FeatureInfo("Watermark reached for current epoch number %d", em.currentEpoch)
-			go em.node.SendandEnterEpochData(em.currentEpoch, float64(throughput), proposalRate)
+			go em.node.SendandEnterEpochData(em.currentEpoch, float64(throughput), proposalRate, int(shadowCount))
 			writeTime := time.Now()
-			writeErr := em.writeEpochCSV(em.currentEpoch, float64(throughput), proposalRate, epochData.ShadowCount.count)
+			writeErr := em.writeEpochCSV(em.currentEpoch, float64(throughput), proposalRate, shadowCount)
 			writeDuration := time.Since(writeTime)
 			if writeDuration > 5*time.Millisecond {
 				em.log.Error("Writing epoch CSV at watermark for current epoch number %d took longer than 5ms: %v", em.currentEpoch, writeDuration)
@@ -371,8 +371,8 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) bool {
 			}
 			writeTime := time.Now()
 			shadowCountNow := em.node.GetShadowSuspicionTotal()
-			currentEpochData.ShadowCount.count = shadowCountNow - currentEpochData.ShadowCount.shadowEpochStartTotal
-			writeErr := em.writeEpochCSV(em.currentEpoch, float64(0), proposalRate, currentEpochData.ShadowCount.count) // throughput will be updated later when epoch ends
+			shadowCount := shadowCountNow - currentEpochData.ShadowCount.shadowEpochStartTotal
+			writeErr := em.writeEpochCSV(em.currentEpoch, float64(0), proposalRate, shadowCount) // throughput will be updated later when epoch ends
 			if writeErr != nil {
 				em.log.Error("Failed to write epoch CSV at watermark for current epoch number %d: %v", em.currentEpoch, writeErr)
 				em.mu.Unlock()
@@ -392,7 +392,7 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) bool {
 			}
 			em.log.Info("Watermark reached for current epoch number %d", em.currentEpoch)
 			em.log.FeatureInfo("Watermark reached for current epoch number %d", em.currentEpoch)
-			go em.node.SendandEnterEpochData(em.currentEpoch, throughput, proposalRate)
+			go em.node.SendandEnterEpochData(em.currentEpoch, throughput, proposalRate, int(shadowCount))
 			updateTime := time.Now()
 			updateErr := em.updateEpochThroughputCSV(em.currentEpoch-1, throughput)
 			if updateErr != nil {
@@ -499,8 +499,8 @@ func (n *Node) EpochProposalInterval(seq int64) {
 	n.epochManager.ActiononProposalInterval(seq)
 }
 
-func (n *Node) SendandEnterEpochData(epoch int64, throughput float64, proposalRate float64) {
-	n.epochAggregator.SendandEnterEpochData(epoch, throughput, proposalRate)
+func (n *Node) SendandEnterEpochData(epoch int64, throughput float64, proposalRate float64, shadowCount int) {
+	n.epochAggregator.SendandEnterEpochData(epoch, throughput, proposalRate, shadowCount)
 }
 
 func (n *Node) HandleDecisionFromLearningAgent(epoch int64, protocol string) {
