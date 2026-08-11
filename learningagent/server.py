@@ -10,10 +10,11 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 from typing import Protocol
+
 try:
-    from enum import StrEnum          # Python 3.11+
+    from enum import StrEnum  # Python 3.11+
 except ImportError:
-    from strenum import StrEnum       # Python 3.10
+    from strenum import StrEnum  # Python 3.10
 from sklearn.ensemble import RandomForestRegressor
 from collections import deque
 import grpc
@@ -21,7 +22,6 @@ import grpc
 from learningagent import learning_agent_pb2
 from learningagent import learning_agent_pb2_grpc
 from learningagent.address import SUPPORTED_MODES, node_address, server_address
-
 
 LOGGER = logging.getLogger(__name__)
 GRACEFUL_STOP_SECONDS = 5
@@ -43,14 +43,16 @@ class ProtocolName(StrEnum):
     Periodic = "periodic"
     Performance = "fixed"
 
+
 PROTOCOLS = [p.value for p in ProtocolName]
+
 
 @dataclass(frozen=True, slots=True)
 class LearningData:
     sequence_id: int
     current_protocol: ProtocolName
     reward: float
-    state: NDArray[np.float64] #1d array
+    state: NDArray[np.float64]  # 1d array
 
 
 DecisionQueue = queue.Queue[LearningData | None]
@@ -66,10 +68,13 @@ class MultiRF:
         self.experiences_y = {}
         self.models = {}
         self.rng = np.random.default_rng(seed)
+        self.fitted: set[ProtocolName] = set()
         for protocol in PROTOCOLS:
             self.experiences_X[protocol] = []
             self.experiences_y[protocol] = []
-            self.models[protocol] = RandomForestRegressor(max_depth=5, random_state=seed)
+            self.models[protocol] = RandomForestRegressor(
+                max_depth=5, random_state=seed
+            )
 
     def record_state_action_reward(self, LearningData: LearningData):
         protocol = LearningData.current_protocol
@@ -94,20 +99,20 @@ class MultiRF:
         replay_X = np.asarray(
             experiences_X[-replay_length:],
             dtype=np.float64,
-        ) #(N,F)
+        )  # (N,F)
         replay_y = np.asarray(
             experiences_y[-replay_length:],
             dtype=np.float64,
-        ) #(N,)
+        )  # (N,)
 
         if replay_length < 5:
-             bootstrap_indices = np.arange(replay_length)
+            bootstrap_indices = np.arange(replay_length)
         else:
             bootstrap_indices = self.rng.choice(
-            replay_length,
-            size=replay_length,
-            replace=True,
-        )
+                replay_length,
+                size=replay_length,
+                replace=True,
+            )
         # bootstrap_indices = np.random.choice(
         #     replay_length,
         #     size=replay_length,
@@ -127,13 +132,22 @@ class MultiRF:
             bootstrap_X,
             bootstrap_y,
         )
-    def predict(self,state: NDArray[np.float64]) -> ProtocolName:
+        self.fitted.add(protocol)
+
+    def predict(self, state: NDArray[np.float64]) -> ProtocolName:
+
+        missing = set(PROTOCOLS) - self.fitted
+        # at seq 3 Performance arm is trained but we still havent received data for periodic so its arm is not trained
+        if missing:
+            LOGGER.info(
+                "predict called before all models are fitted; missing: %s",
+                ", ".join(missing),
+            )
+            return ProtocolName.Performance
         state = np.asarray(state, dtype=np.float64)
 
         if state.ndim != 1:
-            raise ValueError(
-                f"state must be one-dimensional, got shape {state.shape}"
-            )
+            raise ValueError(f"state must be one-dimensional, got shape {state.shape}")
 
         model_input = state.reshape(1, -1)
 
@@ -185,8 +199,8 @@ class EpsilonGreedyBandit:
 
     def __init__(
         self,
-        epsilon: float = 0.1, # smaller then less randomisation
-        alpha: float = 0.1, #bigger alpha more reactive to recent
+        epsilon: float = 0.1,  # smaller then less randomisation
+        alpha: float = 0.1,  # bigger alpha more reactive to recent
         seed: int | None = None,
     ) -> None:
         epsilon = float(epsilon)
@@ -216,11 +230,9 @@ class EpsilonGreedyBandit:
 
         current_value = self.values[protocol]
         if self.reward_counts[protocol] == 0:
-            self.values[protocol] = reward #initialize faster
+            self.values[protocol] = reward  # initialize faster
         else:
-            self.values[protocol] += self.alpha * (
-                reward - current_value
-            )
+            self.values[protocol] += self.alpha * (reward - current_value)
         # self.values[protocol] = current_value + self.alpha * (
         #     reward - current_value
         # )
@@ -228,9 +240,7 @@ class EpsilonGreedyBandit:
 
     def predict(self) -> ProtocolName:
         unselected_protocols = [
-            protocol
-            for protocol, count in self.selection_counts.items()
-            if count == 0
+            protocol for protocol, count in self.selection_counts.items() if count == 0
         ]
 
         if unselected_protocols:
@@ -244,7 +254,7 @@ class EpsilonGreedyBandit:
                 selected_protocol,
             )
         elif self.rng.random() < self.epsilon:
-            
+
             selected_protocol = self._random_protocol(list(ProtocolName))
             LOGGER.info(
                 "random exploration triggered: selected protocol %s",
@@ -263,7 +273,7 @@ class EpsilonGreedyBandit:
                 selected_protocol,
                 self.values[selected_protocol],
                 self.values[ProtocolName.Periodic],
-                self.values[ProtocolName.Performance]
+                self.values[ProtocolName.Performance],
             )
 
         self.selection_counts[selected_protocol] += 1
@@ -290,7 +300,6 @@ def run_decision_worker(
 
         task = request_queue.get()
 
-
         try:
             if task is None:
                 return
@@ -302,6 +311,8 @@ def run_decision_worker(
                         task.sequence_id,
                         sequence_id + 1,
                     )
+                # at seq id 3 we have history 2 and this is first time we get data for action send in seq id 1
+                # at sequence 4 we have trained both arms once
                 if len(history) == 2:
                     prev_prev_state_action_reward = history.popleft()
                     completed_experience = LearningData(
@@ -310,7 +321,11 @@ def run_decision_worker(
                         reward=task.reward,
                         state=prev_prev_state_action_reward.state,
                     )
-                    if prev_prev_state_action_reward.sequence_id == 1 and prev_prev_state_action_reward.current_protocol != ProtocolName.Performance:
+                    if (
+                        prev_prev_state_action_reward.sequence_id == 1
+                        and prev_prev_state_action_reward.current_protocol
+                        != ProtocolName.Performance
+                    ):
                         logging.warning(
                             "node %d decision sequence %d protocol %s is invalid (expected %s)",
                             node_id,
@@ -318,7 +333,11 @@ def run_decision_worker(
                             prev_prev_state_action_reward.current_protocol,
                             ProtocolName.Performance,
                         )
-                    if prev_prev_state_action_reward.sequence_id == 2 and prev_prev_state_action_reward.current_protocol != ProtocolName.Periodic:
+                    if (
+                        prev_prev_state_action_reward.sequence_id == 2
+                        and prev_prev_state_action_reward.current_protocol
+                        != ProtocolName.Periodic
+                    ):
                         logging.warning(
                             "node %d decision sequence %d protocol %s is invalid (expected %s)",
                             node_id,
@@ -326,12 +345,19 @@ def run_decision_worker(
                             prev_prev_state_action_reward.current_protocol,
                             ProtocolName.Periodic,
                         )
-                    bandit.train(prev_prev_state_action_reward.current_protocol, task.reward)
-                    # cmab.record_state_action_reward(completed_experience)
-                    # cmab.train(completed_experience.current_protocol)
+                    # bandit.train(
+                    #     prev_prev_state_action_reward.current_protocol, task.reward
+                    # )
+                    cmab.record_state_action_reward(completed_experience)
+                    cmab.train(completed_experience.current_protocol)
                 sequence_id = task.sequence_id
                 if sequence_id == 1 or sequence_id == 2:
-                    next_protocol = bandit.predict()
+                    next_protocol = ""
+                    if sequence_id == 1:
+                        next_protocol = ProtocolName.Performance
+                    else:
+                        next_protocol = ProtocolName.Periodic
+                    # next_protocol = bandit.predict()
                     state_action_reward = LearningData(
                         sequence_id=sequence_id,
                         current_protocol=next_protocol,
@@ -339,11 +365,11 @@ def run_decision_worker(
                         state=task.state,
                     )
                     history.append(state_action_reward)
-                                        
+
                 elif sequence_id > 2:
-                    # next_protocol = cmab.predict(task.state)
+                    next_protocol = cmab.predict(task.state)
                     # next_protocol = ProtocolName.Periodic
-                    next_protocol = bandit.predict()
+                    # next_protocol = bandit.predict()
                     state_action_reward = LearningData(
                         sequence_id=sequence_id,
                         current_protocol=next_protocol,
@@ -358,10 +384,6 @@ def run_decision_worker(
                         task.sequence_id,
                     )
                     continue
-
-                
-
-
 
                 ack = node_stub.SendDecision(
                     learning_agent_pb2.LearningDecision(
@@ -412,7 +434,7 @@ class LearningAgentService(learning_agent_pb2_grpc.LearningAgentServicer):
         decision_queue: DecisionQueue | None = None,
     ):
         self.node_id = node_id
-        self.node_stub = node_stub # to send messages to node server
+        self.node_stub = node_stub  # to send messages to node server
         self.decision_queue = decision_queue
 
     def Exchange(self, request, context):
@@ -425,6 +447,7 @@ class LearningAgentService(learning_agent_pb2_grpc.LearningAgentServicer):
             node_id=self.node_id,
             payload=request.payload,
         )
+
     def SendLearningData(self, request, context):
         if request.node_id != self.node_id:
             context.abort(
@@ -437,8 +460,7 @@ class LearningAgentService(learning_agent_pb2_grpc.LearningAgentServicer):
         if missing_keys:
             context.abort(
                 grpc.StatusCode.INVALID_ARGUMENT,
-                "learning data is missing required key(s): "
-                + ", ".join(missing_keys),
+                "learning data is missing required key(s): " + ", ".join(missing_keys),
             )
 
         reward = request.data[LEARNING_DATA_REWARD_KEY]
@@ -482,7 +504,13 @@ class LearningAgentService(learning_agent_pb2_grpc.LearningAgentServicer):
             timeout=timeout,
         )
 
-    def enqueue_decision(self, sequence_id: int, current_protocol: str, reward: float, state: NDArray[np.float64]) -> None:
+    def enqueue_decision(
+        self,
+        sequence_id: int,
+        current_protocol: str,
+        reward: float,
+        state: NDArray[np.float64],
+    ) -> None:
         if self.decision_queue is None:
             raise RuntimeError("learning-agent decision worker queue is not configured")
         self.decision_queue.put_nowait(

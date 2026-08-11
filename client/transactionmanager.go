@@ -86,7 +86,7 @@ func NewTransactionManager(client ClientTxnManager, log *logger.Logger) *Transac
 	tm := &TransactionManager{
 		txnRetryManager:   &TransactionRetryManager{timer: transactionRetryTimer, timerStopCh: make(chan struct{}), timerDoneCh: make(chan struct{})},
 		tpsSeries:         make([]TPSPoint, 0),
-		tpsSampleInterval: 500 * time.Millisecond,
+		tpsSampleInterval: 100 * time.Millisecond,
 		tpsSamplerStopCh:  make(chan struct{}),
 		client:            client,
 		log:               log,

@@ -1,13 +1,13 @@
 """Run a small synthetic experiment against the existing MultiRF model."""
 
 from collections import Counter
+from time import time
 
 import numpy as np
 
 from learningagent.server import LearningData, MultiRF, ProtocolName
 
-
-SIMULATION_STEPS = 100
+SIMULATION_STEPS = 10
 RANDOM_SEED = 5
 MIN_SHADOW_COUNT = 10
 MAX_SHADOW_COUNT = 14
@@ -46,15 +46,15 @@ def record_initial_experiences(model: MultiRF) -> int:
     """Record synthetic starting observations and fit both protocol models."""
     initial_experiences = (
         # Teach the model that fixed initially performs well at shadow_count=0.
-        (ProtocolName.Performance, 1400.0, 0.0),
-        (ProtocolName.Performance, 1400.0, 0.0),
-        (ProtocolName.Performance, 1400.0, 0.0),
+        # (ProtocolName.Performance, 1400.0, 0.0),
+        # (ProtocolName.Performance, 1400.0, 0.0),
+        # (ProtocolName.Performance, 1400.0, 0.0),
         # Keep the original five alternating observations at shadow_count=10.
-        (ProtocolName.Periodic, 1200.0, 10.0),
+        # (ProtocolName.Periodic, 1200.0, 10.0),
         (ProtocolName.Performance, 1100.0, 10.0),
-        (ProtocolName.Periodic, 1200.0, 10.0),
-        (ProtocolName.Performance, 1100.0, 10.0),
-        (ProtocolName.Periodic, 1200.0, 10.0),
+        # (ProtocolName.Periodic, 1200.0, 10.0),
+        # (ProtocolName.Performance, 1100.0, 10.0),
+        # (ProtocolName.Periodic, 1200.0, 10.0),
     )
 
     for sequence_id, (protocol, reward, shadow_count) in enumerate(
@@ -87,6 +87,8 @@ def main() -> None:
     }
 
     for step in range(1, SIMULATION_STEPS + 1):
+        # only the arm selected is trained, the other arm is not trained
+        timeStart = time()
         state = generate_state(step, data_rng)
         selected_protocol = ProtocolName(model.predict(state))
         reward = generate_reward(selected_protocol, step, data_rng)
@@ -101,6 +103,7 @@ def main() -> None:
             )
         )
         model.train(selected_protocol)
+        timeEnd = time()
 
         selections[selected_protocol] += 1
         rewards[selected_protocol].append(reward)
@@ -109,6 +112,7 @@ def main() -> None:
             f"shadow_count={int(state[0])} "
             f"selected={selected_protocol.value} "
             f"throughput={reward:.0f}"
+            f" time={timeEnd - timeStart:.4f}s"
         )
 
     print("\nSimulation summary")

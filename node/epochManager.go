@@ -15,8 +15,8 @@ import (
 
 // hot path file writes
 const (
-	EPOCH_INTERVAL     int64 = 120000
-	WATERMARK_INTERVAL int64 = 60000 // sizes related to sliding window
+	EPOCH_INTERVAL     int64 = 60000
+	WATERMARK_INTERVAL int64 = 30000 // sizes related to sliding window
 )
 
 type EpochNode interface {
@@ -280,15 +280,15 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) bool {
 		em.epochData[em.currentEpoch] = epochData
 		em.log.Info("Epoch %d completed", em.currentEpoch)
 		em.log.FeatureInfo("Epoch %d completed", em.currentEpoch)
-		decisionforNextEpoch := "periodic"
-		if em.currentEpoch == 1 {
-			decisionforNextEpoch = "periodic"
+		// decisionforNextEpoch := "periodic"
+		// if em.currentEpoch == 1 {
+		// 	decisionforNextEpoch = "periodic"
 
-		} else if em.currentEpoch == 2 {
-			decisionforNextEpoch = "fixed"
-		} else {
-			decisionforNextEpoch = "periodic"
-		}
+		// } else if em.currentEpoch == 2 {
+		// 	decisionforNextEpoch = "fixed"
+		// } else {
+		// 	decisionforNextEpoch = "periodic"
+		// }
 
 		// decisionforNextEpoch, decisionExists := em.epochDecision[em.currentEpoch]
 		// if !decisionExists {
@@ -311,7 +311,7 @@ func (em *EpochManager) ActiononLastExeSeq(lastExeSeq int64) bool {
 			},
 		}
 		em.mu.Unlock()
-		em.node.SwitchTrigger(decisionforNextEpoch)
+		// em.node.SwitchTrigger(decisionforNextEpoch)
 		// when uncomment send true
 
 		return true
