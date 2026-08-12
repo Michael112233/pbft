@@ -99,7 +99,7 @@ func NewTransactionManager(client ClientTxnManager, log *logger.Logger) *Transac
 
 func (tm *TransactionManager) retryTimerWorker(normalStart bool) {
 	if normalStart {
-		tm.txnRetryManager.timer.Reset(3 * time.Second)
+		tm.txnRetryManager.timer.Reset(50 * time.Millisecond)
 	} else {
 		tm.txnRetryManager.timer.Reset(10 * time.Millisecond)
 	}
@@ -108,7 +108,7 @@ func (tm *TransactionManager) retryTimerWorker(normalStart bool) {
 		select {
 		case <-tm.txnRetryManager.timer.C:
 			tm.sendTxsForRetry()
-			tm.txnRetryManager.timer.Reset(1 * time.Second)
+			tm.txnRetryManager.timer.Reset(50 * time.Millisecond)
 		case <-tm.txnRetryManager.timerStopCh:
 			return
 		}
@@ -176,7 +176,7 @@ func (tm *TransactionManager) AddTransaction(batch []core.ClientMsgSignature) {
 			done:           false,
 			clientMsgSig:   msgSig,
 			retryCount:     0,
-			nextRetryTime:  timeNow.Add(1 * time.Second),
+			nextRetryTime:  timeNow.Add(50 * time.Millisecond),
 		}
 		s.mu.Unlock()
 	}
@@ -210,7 +210,7 @@ func (tm *TransactionManager) sendTxsForRetry() {
 		tm.log.Info("Iterated through %d txns, found %d candidates for retry, %d of which have been retried multiple times\n", txnsIterated, len(candidates), candidatesWithMultipleRetries)
 
 		timestart := time.Now()
-		// tm.client.sendTransactions(candidates)
+		tm.client.sendTransactions(candidates)
 		timeduration := time.Since(timestart)
 		tm.log.Info("Time taken to send %d transactions for retry: %s\n", len(candidates), timeduration)
 	}

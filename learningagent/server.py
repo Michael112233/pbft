@@ -76,6 +76,30 @@ class MultiRF:
                 max_depth=5, random_state=seed
             )
 
+        self.initialize_performance_model()
+
+    def initialize_performance_model(self) -> None:
+        """Record the initial fixed-protocol experiences and fit its model."""
+        initial_experiences = (
+            (ProtocolName.Performance, 2460.0, 0.0),
+            (ProtocolName.Performance, 2460.0, 0.0),
+        )
+
+        for sequence_id, (protocol, reward, shadow_count) in enumerate(
+            initial_experiences,
+            start=1,
+        ):
+            self.record_state_action_reward(
+                LearningData(
+                    sequence_id=sequence_id,
+                    current_protocol=protocol,
+                    reward=reward,
+                    state=np.asarray([shadow_count], dtype=np.float64),
+                )
+            )
+
+        self.train(ProtocolName.Performance)
+
     def record_state_action_reward(self, LearningData: LearningData):
         protocol = LearningData.current_protocol
         self.experiences_X[protocol].append(LearningData.state)

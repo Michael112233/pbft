@@ -158,7 +158,7 @@ func (vtm *ViewTimerManager) StartView(view int64, startedAt time.Time) {
 	vtm.activeView = view
 	vtm.timedOutView = -1
 	vtm.shadowAwaitingProgress = false
-	vtm.armLocked(startedAt.Add(300 * time.Millisecond))
+	vtm.armLocked(startedAt.Add(1 * time.Second))
 }
 
 // MarkShadowTimeout records that the delivered timeout was observation-only.

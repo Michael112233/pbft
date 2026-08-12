@@ -67,10 +67,9 @@ start_netem_schedule() {
         sleep 3
 
         sudo -n tc qdisc change dev "$NETEM_INTERFACE" parent 1:3 handle 30: \
-            netem limit "$NETEM_LIMIT" delay 100ms
-        echo "$(date --iso-8601=ns) delay=100ms"
-        sleep 0.1
-
+            netem limit "$NETEM_LIMIT" delay 150ms
+        echo "$(date --iso-8601=ns) delay=150ms"
+        sleep 0.15
         sudo -n tc qdisc change dev "$NETEM_INTERFACE" parent 1:3 handle 30: \
             netem limit "$NETEM_LIMIT" delay 0ms
         echo "$(date --iso-8601=ns) delay=0ms"
@@ -115,6 +114,28 @@ start_netem_schedule() {
     echo "Started netem schedule with PID $NETEM_SCHEDULE_PID; transitions are logged to $NETEM_DELAY_LOG."
 }
 
+start_repeating_netem_spikes() {
+    : > "$NETEM_DELAY_LOG"
+
+    (
+        set -e
+
+        while true; do
+            sudo -n tc qdisc change dev "$NETEM_INTERFACE" parent 1:3 handle 30: \
+                netem limit "$NETEM_LIMIT" delay 150ms
+            echo "$(date --iso-8601=ns) delay=150ms"
+            sleep 0.15
+
+            sudo -n tc qdisc change dev "$NETEM_INTERFACE" parent 1:3 handle 30: \
+                netem limit "$NETEM_LIMIT" delay 0ms
+            echo "$(date --iso-8601=ns) delay=0ms"
+            sleep 1.5
+        done
+    ) >> "$NETEM_DELAY_LOG" 2>&1 &
+
+    NETEM_SCHEDULE_PID=$!
+    echo "Started repeating netem spikes with PID $NETEM_SCHEDULE_PID; transitions are logged to $NETEM_DELAY_LOG."
+}
 
 pkill -f pbft_main || true
 echo "Cleaning up log files..."
@@ -159,27 +180,29 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
 fi
 
 # Start all Python servers under one launcher in the first tmux window.
-# tmux new-session -d -s "$SESSION" -n "learning-agents" \
-#     "cd \"$CURRENT_DIR\" && python3 -m learningagent.launcher --node-count $NODE_COUNT --mode loopbackip --log-dir \"$CURRENT_DIR/logs\"; status=\$?; echo; echo \"learning-agent launcher exited with status \$status\"; exec bash"
+tmux new-session -d -s "$SESSION" -n "learning-agents" \
+    "cd \"$CURRENT_DIR\" && python3 -m learningagent.launcher --node-count $NODE_COUNT --mode loopbackip --log-dir \"$CURRENT_DIR/logs\"; status=\$?; echo; echo \"learning-agent launcher exited with status \$status\"; exec bash"
 
 echo "Learning-agent launcher log: $CURRENT_DIR/logs/learning-agent-launcher.log"
 echo "Learning-agent node logs: $CURRENT_DIR/logs/learning-agent-node-<id>.log"
 echo "Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log"
 
-tmux new-session -d -s "$SESSION" -n "node1" \
-    "cd \"$CURRENT_DIR\" && ./pbft_main -r node -m loopbackip -n 1; status=\$?; echo; echo \"node1 exited with status \$status\"; exec bash"
+# tmux new-session -d -s "$SESSION" -n "node1" \
+#     "cd \"$CURRENT_DIR\" && ./pbft_main -r node -m loopbackip -n 1; status=\$?; echo; echo \"node1 exited with status \$status\"; exec bash"
 # Start every Go node in its own window.
-for i in $(seq 2 "$NODE_COUNT"); do
+for i in $(seq 1 "$NODE_COUNT"); do
     tmux new-window -t "$SESSION" -n "node$i" \
         "cd \"$CURRENT_DIR\" && ./pbft_main -r node -m loopbackip -n $i; status=\$?; echo; echo \"node$i exited with status \$status\"; exec bash"
 done
 
 sleep 5
-# setup_netem
+setup_netem
 # Optional: start client in another window
 tmux new-window -t "$SESSION" -n "client" \
     "cd \"$CURRENT_DIR\" && ./pbft_main -r client -m loopbackip; status=\$?; echo; echo \"client exited with status \$status\"; exec bash"
 
+sleep 2
+start_repeating_netem_spikes
 # start_netem_schedule
 
 echo "All nodes started."

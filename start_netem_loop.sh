@@ -50,7 +50,7 @@ run_worker() {
         sudo -n tc qdisc change dev "$NETEM_INTERFACE" parent 1:3 handle 30: \
             netem limit "$NETEM_LIMIT" delay 0ms
         echo "$(date --iso-8601=ns) delay=0ms"
-        sleep 3
+        sleep 2
     done
 }
 

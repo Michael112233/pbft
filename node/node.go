@@ -2199,13 +2199,13 @@ func (n *Node) handleViewChangeTimeoutDummy() {
 }
 
 func (n *Node) handleViewTimerExpiry(view int64) {
-	n.checkpointMu.Lock()
-	if n.lastStableCheckpoint.seq >= 850000 {
-		n.log.Info("View timer expired for view %d but last stable checkpoint is %d, not triggering view change", view, n.lastStableCheckpoint.seq)
-		n.checkpointMu.Unlock()
-		return
-	}
-	n.checkpointMu.Unlock()
+	// n.checkpointMu.Lock()
+	// if n.lastStableCheckpoint.seq >= 61000 {
+	// 	n.log.Info("View timer expired for view %d but last stable checkpoint is %d, not triggering view change", view, n.lastStableCheckpoint.seq)
+	// 	n.checkpointMu.Unlock()
+	// 	return
+	// }
+	// n.checkpointMu.Unlock()
 	n.viewMu.Lock()
 	defer n.viewMu.Unlock()
 

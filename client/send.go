@@ -14,7 +14,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const clientSendInterval = 80 * time.Millisecond
+const clientSendInterval = 25 * time.Millisecond
 
 const (
 	normalRequestMessageType = "RequestMessage"
@@ -195,7 +195,12 @@ func (c *Client) InjectTxs() {
 }
 
 func (c *Client) sendTransactions(txs []core.ClientMsgSignature) {
-	c.sendRequestTransactions(txs, retryRequestMessageType)
+	if c.config.SerialClient {
+		c.altSendRequestTransactionsForSerialClient(txs, retryRequestMessageType)
+
+	} else {
+		c.sendRequestTransactions(txs, retryRequestMessageType)
+	}
 }
 
 func forEachTransactionBatch(txs []core.ClientMsgSignature, batchSize int, visit func([]core.ClientMsgSignature)) {

@@ -233,9 +233,11 @@ func (em *EpochManager) StateTransferJump(beforeSeq, afterSeq int64) {
 	defer em.mu.Unlock()
 	if EPOCH_INTERVAL*em.currentEpoch > beforeSeq && EPOCH_INTERVAL*em.currentEpoch <= afterSeq {
 		em.log.Warn("State transfer jump detected from seq %d to %d, crossing epoch end boundary at epoch %d", beforeSeq, afterSeq, em.currentEpoch)
+		em.log.FeatureError("State transfer jump detected from seq %d to %d, crossing epoch end boundary at epoch %d", beforeSeq, afterSeq, em.currentEpoch)
 	}
 	if (em.currentEpoch-1)*EPOCH_INTERVAL+WATERMARK_INTERVAL > beforeSeq && (em.currentEpoch-1)*EPOCH_INTERVAL+WATERMARK_INTERVAL <= afterSeq {
 		em.log.Warn("State transfer jump detected from seq %d to %d, crossing watermark boundary at epoch %d", beforeSeq, afterSeq, em.currentEpoch)
+		em.log.FeatureError("State transfer jump detected from seq %d to %d, crossing watermark boundary at epoch %d", beforeSeq, afterSeq, em.currentEpoch)
 	}
 }
 
@@ -434,7 +436,7 @@ func (em *EpochManager) ActiononProposalInterval(seqNum int64) { // might get sa
 	}
 }
 func (em *EpochManager) ReceiveEpochDecision(epoch int64, protocol string) {
-	return
+	// return
 	em.mu.Lock()
 
 	if epoch != em.currentEpoch {

@@ -7,11 +7,11 @@ import numpy as np
 
 from learningagent.server import LearningData, MultiRF, ProtocolName
 
-SIMULATION_STEPS = 10
+SIMULATION_STEPS = 20
 RANDOM_SEED = 5
-MIN_SHADOW_COUNT = 10
-MAX_SHADOW_COUNT = 14
-STATE_SHIFT_AFTER_STEP = 50
+MIN_SHADOW_COUNT = 6
+MAX_SHADOW_COUNT = 10
+STATE_SHIFT_AFTER_STEP = 16
 SHIFTED_SHADOW_COUNT = 0
 
 
@@ -34,11 +34,11 @@ def generate_reward(
 ) -> float:
     """Generate synthetic throughput for the selected protocol."""
     if protocol == ProtocolName.Periodic:
-        return float(rng.integers(1250, 1301))
+        return float(rng.integers(2400, 2410))
     if protocol == ProtocolName.Performance:
         if step > STATE_SHIFT_AFTER_STEP:
-            return 1400.0
-        return float(rng.integers(1100, 1151))
+            return 2460.0
+        return float(rng.integers(2100, 2151))
     raise ValueError(f"unsupported protocol: {protocol}")
 
 
@@ -48,11 +48,12 @@ def record_initial_experiences(model: MultiRF) -> int:
         # Teach the model that fixed initially performs well at shadow_count=0.
         # (ProtocolName.Performance, 1400.0, 0.0),
         # (ProtocolName.Performance, 1400.0, 0.0),
-        # (ProtocolName.Performance, 1400.0, 0.0),
+        (ProtocolName.Performance, 2460.0, 0.0),
+        (ProtocolName.Performance, 2460.0, 0.0),
         # Keep the original five alternating observations at shadow_count=10.
         # (ProtocolName.Periodic, 1200.0, 10.0),
-        (ProtocolName.Performance, 1100.0, 10.0),
-        # (ProtocolName.Periodic, 1200.0, 10.0),
+        (ProtocolName.Performance, 2100.0, 6.0),
+        (ProtocolName.Periodic, 2400.0, 10.0),
         # (ProtocolName.Performance, 1100.0, 10.0),
         # (ProtocolName.Periodic, 1200.0, 10.0),
     )
