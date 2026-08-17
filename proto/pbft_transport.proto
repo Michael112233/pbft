@@ -4,16 +4,17 @@ package pbft.transport.v1;
 
 option go_package = "github.com/michael112233/pbft/transportpb;transportpb";
 
+import "google/protobuf/timestamp.proto";
+
 message Transaction {
   string sender = 1;
   string receiver = 2;
   string amount = 3;
-  int64 timestamp = 4;
 }
 
 message ClientMsg {
   int64 id = 1;
-  int64 timestamp = 2;
+  google.protobuf.Timestamp timestamp = 2;
   Transaction txn = 3;
   string client_name = 4;
   string padding = 5;
@@ -21,7 +22,7 @@ message ClientMsg {
 
 message ClientMsgReply {
   int64 id = 1;
-  int64 timestamp = 2;
+  google.protobuf.Timestamp timestamp = 2;
   Transaction txn = 3;
   string client_name = 4;
 }
@@ -36,6 +37,13 @@ message RequestMessage {
   string msg_type = 2;
 }
 
+// ClientBatchDigestPayload is the canonical protobuf representation hashed for
+// a batch. Client signatures are deliberately excluded and verified
+// separately.
+message ClientBatchDigestPayload {
+  repeated ClientMsg client_msgs = 1;
+}
+
 message VCRunningStatus {
   repeated ClientMsgSignature txs = 1;
   bool vc_running = 2;
@@ -44,9 +52,10 @@ message VCRunningStatus {
 message PreprepareMsg {
   int64 view = 1;
   int64 seq_num = 2;
-  ClientMsgSignature client_msg = 3;
+  repeated ClientMsgSignature client_msg = 3;
   reserved 4;
   bytes digest_client_msg = 5;
+  repeated bytes digest_individual_client_msgs = 6;
 }
 
 message PreprepareSignPayload {
@@ -72,44 +81,11 @@ message CommitMsg {
   reserved 5;
 }
 
-message CheckpointMsg {
-  int64 seq_num = 1;
-  bytes digest = 2;
-  int32 from = 3;
-}
-
-message RequestStateTransferMsg {
-  int64 seq_num = 1;
-  bytes digest = 2;
-  int32 from = 3;
-}
-
-message ReqMissingClientMsg {
-  repeated bytes missing_client_msgs = 1;
-  int32 from = 2;
-}
-
-message MissingClientData {
-  bytes digest = 1;
-  ClientMsgSignature msg = 2;
-}
-
-message ReplyMissingClientMsg {
-  repeated MissingClientData missing_client_msgs = 1;
-  int32 from = 2;
-}
-
-message StateTransferMsg {
-  int64 seq_num = 1;
-  bytes digest = 2;
-  int32 from = 3;
-  map<string, string> balances = 4;
-}
-
 message PreprepareMsgMini {
   int64 view = 1;
   int64 seq_num = 2;
   bytes digest_client_msg = 3;
+  repeated bytes digest_individual_client_msgs = 4;
 }
 
 message PreprepareMsgSig {
@@ -121,95 +97,6 @@ message PreprepareMsgSig {
 message PrepareMsgSig {
   PrepareMsg prepare_msg = 1;
   bytes signature = 2;
-}
-
-message CheckpointMsgSig {
-  CheckpointMsg checkpoint_msg = 1;
-  bytes signature = 2;
-}
-
-message PreparedCert {
-  PreprepareMsgSig preprepare_msg = 1;
-  map<int32, PrepareMsgSig> prepare_log = 2;
-}
-
-message ElectionVCData {
-  bool req_vote = 1;
-  bool grant_vote = 2;
-  int32 grant_to = 3;
-}
-
-message RoundRobinVCData {
-  bool grant_vote = 1;
-}
-
-message WRRVCData {
-  double throughput = 1;
-}
-
-message ViewChangeMsg {
-  enum VCType {
-    VC_TYPE_UNSPECIFIED = 0;
-    VC_TYPE_ELECTION = 1;
-    VC_TYPE_ROUND_ROBIN = 2;
-    VC_TYPE_WRR = 3;
-  }
-
-  int64 view_number = 1;
-  int64 checkpoint_seq_number = 2;
-  int32 from = 3;
-  map<int64, PreparedCert> prepared_certs = 4;
-  VCType vc_type = 5;
-
-  oneof vc_data {
-    ElectionVCData election = 6;
-    RoundRobinVCData round_robin = 7;
-    WRRVCData wrr = 8;
-  }
-
-  bytes checkpoint_digest = 9;
-  repeated CheckpointMsgSig checkpoint_proof = 10;
-}
-
-message ViewChangeMsgSig {
-  ViewChangeMsg view_change_msg = 1;
-  bytes signature = 2;
-}
-
-message GrantVoteMsg {
-  int64 view_number = 1;
-  int32 from = 2;
-}
-
-message GrantVoteMsgSig {
-  GrantVoteMsg grant_vote_msg = 1;
-  bytes signature = 2;
-}
-
-message NewViewMsg {
-  repeated PreprepareMsgSig preprepare_log = 1;
-  repeated ViewChangeMsgSig view_change_log = 2;
-  int64 new_view_number = 3;
-  int32 from = 4;
-  double throughput = 5;
-}
-
-message NewViewMsgSig {
-  NewViewMsg new_view_msg = 1;
-  bytes signature = 2;
-}
-
-message IntentToChangeViewMsg {
-  int64 view_number = 1;
-  int32 from = 2;
-}
-
-message EpochDataForAggregation {
-  int64 epoch_number = 1;
-  double throughput = 2;
-  double proposal_rate = 3;
-  int32 from = 4;
-  int32 shadow_count = 5;
 }
 
 message ReplyMessage {
@@ -252,19 +139,9 @@ message Envelope {
     CommitMsg commit = 13;
     ReplyMessage reply = 14;
     CloseMessage close = 15;
-    ViewChangeMsg view_change = 16;
-    GrantVoteMsg grant_vote = 17;
-    NewViewMsg new_view = 18;
-    CheckpointMsg checkpoint = 19;
     CommitTps commit_tps = 20;
     LeaderIdUpdate leader_id_update = 21;
     VCRunningStatus vc_running_status = 22;
-    RequestStateTransferMsg request_state_transfer = 23;
-    StateTransferMsg state_transfer = 24;
-    ReqMissingClientMsg req_missing_client_msg = 25;
-    ReplyMissingClientMsg reply_missing_client_msg = 26;
-    IntentToChangeViewMsg intent_to_change_view = 27;
-    EpochDataForAggregation epoch_data_for_aggregation = 28;
   }
 }
 

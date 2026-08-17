@@ -21,15 +21,15 @@ const (
 	retryRequestMessageType  = "RetryRequestMessage"
 )
 
-func GenerateDummyTxs(count int) []*core.Transaction {
-	txs := make([]*core.Transaction, count)
+func GenerateDummyTxs(count int) []core.Transaction {
+	txs := make([]core.Transaction, count)
 	for i := 0; i < count; i++ {
 		txs[i] = GenerateDummyTx(int64(i))
 	}
 	return txs
 }
 
-func GenerateDummyTx(id int64) *core.Transaction {
+func GenerateDummyTx(id int64) core.Transaction {
 	return core.NewTransaction(
 		string(rune('A'+id%26)),
 		string(rune('A'+(id+1)%26)),
@@ -76,7 +76,7 @@ func (c *Client) startSignedTxPipeline(totalTxs int64, padding string, queueCapa
 
 				clientMsg := core.ClientMsg{
 					Id:         id,
-					Timestamp:  time.Now().UnixNano(),
+					Timestamp:  time.Now(),
 					Txn:        GenerateDummyTx(id),
 					ClientName: c.name,
 					Padding:    padding,

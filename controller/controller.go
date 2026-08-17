@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/michael112233/pbft/client"
@@ -22,7 +21,7 @@ func runNode(nodeID int64, cfg *config.Config) {
 		fmt.Printf("Failed to create node %d: %v\n", nodeID, err)
 		return
 	}
-	Node.PrintDetails()
+	// Node.PrintDetails()
 
 	defer Node.Stop()
 
@@ -44,32 +43,33 @@ func runNode(nodeID int64, cfg *config.Config) {
 			break
 		} else if input[0] == 's' {
 			// Extract number after 's'
-			parts := strings.Fields(input) // splits "s 1245" into ["s", "1245"]
-			if len(parts) >= 2 {
-				if num, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
-					Node.PrintSlot(num)
-				} else {
-					fmt.Println("Invalid number:", parts[1])
-				}
-			}
-		} else if input[0] == 'i' {
-
-			Node.PrintDetails() // no number provided, use default
-
-		} else if input[0] == 'd' {
-			Node.Dead()
-		} else if input[0] == 'e' {
-			Node.PrintExecutedSlots()
-		} else if input[0] == 'c' {
-			Node.PrintCommitSentSummary()
-		} else if input[0] == 'l' {
-			Node.TimesLeader()
-		} else if input[0] == 'a' {
-			Node.PrintAccountBalances()
-
-		} else if input[0] == 'x' {
-			Node.PrintLatencySummary()
+			// parts := strings.Fields(input) // splits "s 1245" into ["s", "1245"]
+			// if len(parts) >= 2 {
+			// 	if num, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
+			// 		// Node.PrintSlot(num)
+			// 	} else {
+			// 		fmt.Println("Invalid number:", parts[1])
+			// 	}
+			// }
 		}
+		// } else if input[0] == 'i' {
+
+		// 	Node.PrintDetails() // no number provided, use default
+
+		// } else if input[0] == 'd' {
+		// 	Node.Dead()
+		// } else if input[0] == 'e' {
+		// 	Node.PrintExecutedSlots()
+		// } else if input[0] == 'c' {
+		// 	Node.PrintCommitSentSummary()
+		// } else if input[0] == 'l' {
+		// 	Node.TimesLeader()
+		// } else if input[0] == 'a' {
+		// 	Node.PrintAccountBalances()
+
+		// } else if input[0] == 'x' {
+		// 	// Node.PrintLatencySummary()
+		// }
 
 	}
 }

@@ -35,6 +35,12 @@ type peerStreamState struct {
 	sendMu sync.Mutex
 }
 
+type ConsensusMsg struct {
+	MsgType   string
+	Msg       interface{}
+	Signature []byte
+}
+
 type NodeMessageHub struct {
 	transportpb.UnimplementedPBFTTransportServer
 
@@ -277,7 +283,7 @@ func (hub *NodeMessageHub) receiveNodeStream(stream transportpb.PBFTTransport_Cl
 			}
 			return err
 		}
-
+		timeStart := time.Now()
 		ack, err := hub.Deliver(stream.Context(), env)
 		if err != nil {
 			hub.log.Error("node stream delivery failed. msgType=%s from=%d err=%v", env.MsgType, env.From, err)
@@ -285,6 +291,10 @@ func (hub *NodeMessageHub) receiveNodeStream(stream transportpb.PBFTTransport_Cl
 		}
 		if ack != nil && !ack.Ok {
 			hub.log.Error("node stream delivery rejected. msgType=%s from=%d err=%s", env.MsgType, env.From, ack.Error)
+		}
+		timeElapsed := time.Since(timeStart)
+		if timeElapsed > 5*time.Millisecond {
+			hub.log.Warn("node stream delivery took too long. msgType=%s from=%d elapsed=%s", env.MsgType, env.From, timeElapsed)
 		}
 	}
 }
@@ -300,12 +310,12 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		if request == nil {
 			return &transportpb.Ack{Ok: false, Error: "missing request body"}, nil
 		}
-		data, err := transportpb.RequestFromPB(request)
+		_, err := transportpb.RequestFromPB(request)
 		if err != nil {
 			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
 		}
-		hub.node_ref.recordClientRequestReceived(len(data.Txs))
-		go hub.node_ref.HandleRequestMessage(data)
+		// hub.node_ref.recordClientRequestReceived(len(data.Txs))
+		// go hub.node_ref.HandleRequestMessage(data)
 		return &transportpb.Ack{Ok: true}, nil
 
 	case core.MsgPreprepareMessage:
@@ -321,7 +331,12 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		if err != nil {
 			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
 		}
-		go hub.node_ref.HandlePrePrepare(data, env.Signature)
+		// go hub.node_ref.HandlePrePrepare(data, env.Signature)
+		hub.node_ref.consensusMsgChan <- ConsensusMsg{
+			MsgType:   core.MsgPreprepareMessage,
+			Msg:       data,
+			Signature: env.Signature,
+		}
 		return &transportpb.Ack{Ok: true}, nil
 
 	case core.MsgPrepareMessage:
@@ -337,7 +352,12 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		if err != nil {
 			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
 		}
-		go hub.node_ref.HandlePrepare(data, env.Signature)
+		// go hub.node_ref.HandlePrepare(data, env.Signature)
+		hub.node_ref.consensusMsgChan <- ConsensusMsg{
+			MsgType:   core.MsgPrepareMessage,
+			Msg:       data,
+			Signature: env.Signature,
+		}
 		return &transportpb.Ack{Ok: true}, nil
 
 	case core.MsgCommitMessage:
@@ -353,178 +373,12 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		if err != nil {
 			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
 		}
-		go hub.node_ref.HandleCommit(data)
-		return &transportpb.Ack{Ok: true}, nil
-
-	case core.MsgCheckpointMessage:
-		checkpoint := env.GetCheckpoint()
-		if checkpoint == nil {
-			return &transportpb.Ack{Ok: false, Error: "missing checkpoint body"}, nil
+		// go hub.node_ref.HandleCommit(data)
+		hub.node_ref.consensusMsgChan <- ConsensusMsg{
+			MsgType:   core.MsgCommitMessage,
+			Msg:       data,
+			Signature: env.Signature,
 		}
-		if int(checkpoint.From) != int(env.From) {
-			return &transportpb.Ack{Ok: false, Error: "checkpoint sender mismatch"}, nil
-		}
-		if !hub.verifySignature(int(env.From), env.Signature, checkpoint) {
-			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
-		}
-		data, err := transportpb.CheckpointFromPB(checkpoint)
-		if err != nil {
-			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
-		}
-		go hub.node_ref.HandleCheckpoint(data, env.Signature)
-		return &transportpb.Ack{Ok: true}, nil
-
-	case core.MsgRequestStateTransfer:
-		request := env.GetRequestStateTransfer()
-		if request == nil {
-			return &transportpb.Ack{Ok: false, Error: "missing request state transfer body"}, nil
-		}
-		if int(request.From) != int(env.From) {
-			return &transportpb.Ack{Ok: false, Error: "request state transfer sender mismatch"}, nil
-		}
-		if !hub.verifySignature(int(env.From), env.Signature, request) {
-			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
-		}
-		data, err := transportpb.RequestStateTransferFromPB(request)
-		if err != nil {
-			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
-		}
-		go hub.node_ref.HandleRequestStateTransfer(data, env.Signature)
-		return &transportpb.Ack{Ok: true}, nil
-
-	case core.MsgReqMissingClientMessage:
-		request := env.GetReqMissingClientMsg()
-		if request == nil {
-			return &transportpb.Ack{Ok: false, Error: "missing request missing client body"}, nil
-		}
-		if int(request.From) != int(env.From) {
-			return &transportpb.Ack{Ok: false, Error: "request missing client sender mismatch"}, nil
-		}
-		if !hub.verifySignature(int(env.From), env.Signature, request) {
-			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
-		}
-		data, err := transportpb.ReqMissingClientMsgFromPB(request)
-		if err != nil {
-			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
-		}
-		go hub.node_ref.HandleReqMissingClientMsg(data, env.Signature)
-		return &transportpb.Ack{Ok: true}, nil
-
-	case core.MsgReplyMissingClientMessage:
-		reply := env.GetReplyMissingClientMsg()
-		if reply == nil {
-			return &transportpb.Ack{Ok: false, Error: "missing reply missing client body"}, nil
-		}
-		if int(reply.From) != int(env.From) {
-			return &transportpb.Ack{Ok: false, Error: "reply missing client sender mismatch"}, nil
-		}
-		if !hub.verifySignature(int(env.From), env.Signature, reply) {
-			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
-		}
-		data, err := transportpb.ReplyMissingClientMsgFromPB(reply)
-		if err != nil {
-			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
-		}
-		go hub.node_ref.HandleReplyMissingClientMsg(data, env.Signature)
-		return &transportpb.Ack{Ok: true}, nil
-
-	case core.MsgStateTransfer:
-		stateTransfer := env.GetStateTransfer()
-		if stateTransfer == nil {
-			return &transportpb.Ack{Ok: false, Error: "missing state transfer body"}, nil
-		}
-		if int(stateTransfer.From) != int(env.From) {
-			return &transportpb.Ack{Ok: false, Error: "state transfer sender mismatch"}, nil
-		}
-		if !hub.verifySignature(int(env.From), env.Signature, stateTransfer) {
-			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
-		}
-		data, err := transportpb.StateTransferFromPB(stateTransfer)
-		if err != nil {
-			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
-		}
-		go hub.node_ref.HandleStateTransfer(data, env.Signature)
-		return &transportpb.Ack{Ok: true}, nil
-	case core.MsgViewChangeMessage:
-		viewChange := env.GetViewChange()
-		if viewChange == nil {
-			return &transportpb.Ack{Ok: false, Error: "missing view change body"}, nil
-		}
-		if !hub.verifySignature(int(env.From), env.Signature, viewChange) {
-			// hub.log.Error("Signature verification failed for ViewChange message from node ID: %d", env.From)
-			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
-		}
-		data, err := transportpb.ViewChangeFromPB(viewChange)
-		if err != nil {
-			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
-		}
-		go hub.node_ref.HandleViewChange(data, env.Signature)
-		return &transportpb.Ack{Ok: true}, nil
-
-	// case core.MsgGrantVoteMessage:
-	// 	// grantVote := env.GetGrantVote()
-	// 	// if grantVote == nil {
-	// 	// 	return &transportpb.Ack{Ok: false, Error: "missing grant vote body"}, nil
-	// 	// }
-	// 	// if !hub.verifySignature(int(env.From), env.Signature, grantVote) {
-	// 	// 	return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
-	// 	// }
-	// 	// data, err := transportpb.GrantVoteFromPB(grantVote)
-	// 	// if err != nil {
-	// 	// 	return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
-	// 	// }
-	// 	// go hub.node_ref.HandleGrantVote(data, env.Signature)
-	// 	// return &transportpb.Ack{Ok: true}, nil
-
-	case core.MsgNewViewMessage:
-		newView := env.GetNewView()
-		if newView == nil {
-			return &transportpb.Ack{Ok: false, Error: "missing new view body"}, nil
-		}
-		if !hub.verifySignature(int(env.From), env.Signature, newView) {
-			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
-		}
-		data, err := transportpb.NewViewFromPB(newView)
-		if err != nil {
-			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
-		}
-		go hub.node_ref.HandleNewView(data, env.Signature)
-		return &transportpb.Ack{Ok: true}, nil
-
-	case core.MsgIntentToChangeViewMessage:
-		intent := env.GetIntentToChangeView()
-		if intent == nil {
-			return &transportpb.Ack{Ok: false, Error: "missing intent to change view body"}, nil
-		}
-		if int(intent.From) != int(env.From) {
-			return &transportpb.Ack{Ok: false, Error: "intent to change view sender mismatch"}, nil
-		}
-		if !hub.verifySignature(int(env.From), env.Signature, intent) {
-			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
-		}
-		data, err := transportpb.IntentToChangeViewFromPB(intent)
-		if err != nil {
-			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
-		}
-		go hub.node_ref.HandleViewIntentMsg(data, env.Signature)
-		return &transportpb.Ack{Ok: true}, nil
-
-	case core.MsgEpochAggDataMessage:
-		epochData := env.GetEpochDataForAggregation()
-		if epochData == nil {
-			return &transportpb.Ack{Ok: false, Error: "missing epoch data for aggregation body"}, nil
-		}
-		if int(epochData.From) != int(env.From) {
-			return &transportpb.Ack{Ok: false, Error: "epoch data for aggregation sender mismatch"}, nil
-		}
-		if !hub.verifySignature(int(env.From), env.Signature, epochData) {
-			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
-		}
-		data, err := transportpb.EpochDataForAggregationFromPB(epochData)
-		if err != nil {
-			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
-		}
-		go hub.node_ref.HandleEpochAggData(data, env.Signature)
 		return &transportpb.Ack{Ok: true}, nil
 
 	case core.MsgCloseMessage:
@@ -696,93 +550,6 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}, signat
 		env.Body = &transportpb.Envelope_Commit{Commit: pbMsg}
 		env.From = int32(hub.node_ref.GetNodeID())
 		// env.Signature = crypto.SignMessageEd25519(payloadBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey())
-
-	case core.MsgCheckpointMessage:
-		checkpoint, ok := msg.(core.CheckpointMsg)
-		if !ok {
-			return nil, errInvalidPayloadType(msgType, msg)
-		}
-		pbMsg := transportpb.CheckpointToPB(checkpoint)
-		env.Body = &transportpb.Envelope_Checkpoint{Checkpoint: pbMsg}
-		env.From = int32(hub.node_ref.GetNodeID())
-
-	case core.MsgRequestStateTransfer:
-		request, ok := msg.(core.RequestStateTransferMsg)
-		if !ok {
-			return nil, errInvalidPayloadType(msgType, msg)
-		}
-		env.Body = &transportpb.Envelope_RequestStateTransfer{RequestStateTransfer: transportpb.RequestStateTransferToPB(request)}
-		env.From = int32(hub.node_ref.GetNodeID())
-
-	case core.MsgReqMissingClientMessage:
-		request, ok := msg.(core.ReqMissingClientMsg)
-		if !ok {
-			return nil, errInvalidPayloadType(msgType, msg)
-		}
-		env.Body = &transportpb.Envelope_ReqMissingClientMsg{ReqMissingClientMsg: transportpb.ReqMissingClientMsgToPB(request)}
-		env.From = int32(hub.node_ref.GetNodeID())
-
-	case core.MsgReplyMissingClientMessage:
-		reply, ok := msg.(core.ReplyMissingClientMsg)
-		if !ok {
-			return nil, errInvalidPayloadType(msgType, msg)
-		}
-		env.Body = &transportpb.Envelope_ReplyMissingClientMsg{ReplyMissingClientMsg: transportpb.ReplyMissingClientMsgToPB(reply)}
-		env.From = int32(hub.node_ref.GetNodeID())
-
-	case core.MsgStateTransfer:
-		stateTransfer, ok := msg.(core.StateTransferMsg)
-		if !ok {
-			return nil, errInvalidPayloadType(msgType, msg)
-		}
-		env.Body = &transportpb.Envelope_StateTransfer{StateTransfer: transportpb.StateTransferToPB(stateTransfer)}
-		env.From = int32(hub.node_ref.GetNodeID())
-
-	case core.MsgViewChangeMessage:
-		viewChange, ok := msg.(core.ViewChangeMsg)
-		if !ok {
-			return nil, errInvalidPayloadType(msgType, msg)
-		}
-		pbMsg := transportpb.ViewChangeToPB(viewChange)
-		env.Body = &transportpb.Envelope_ViewChange{ViewChange: pbMsg}
-		env.From = int32(hub.node_ref.GetNodeID())
-		// env.Signature = crypto.SignMessageEd25519(payloadBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey())
-
-	case core.MsgGrantVoteMessage:
-		grantVote, ok := msg.(core.GrantVoteMsg)
-		if !ok {
-			return nil, errInvalidPayloadType(msgType, msg)
-		}
-		pbMsg := transportpb.GrantVoteToPB(grantVote)
-		env.Body = &transportpb.Envelope_GrantVote{GrantVote: pbMsg}
-		env.From = int32(hub.node_ref.GetNodeID())
-
-	case core.MsgNewViewMessage:
-		newView, ok := msg.(core.NewViewMsg)
-		if !ok {
-			return nil, errInvalidPayloadType(msgType, msg)
-		}
-		pbMsg := transportpb.NewViewToPB(newView)
-		env.Body = &transportpb.Envelope_NewView{NewView: pbMsg}
-		env.From = int32(hub.node_ref.GetNodeID())
-
-	case core.MsgIntentToChangeViewMessage:
-		intent, ok := msg.(core.IntentToChangeViewMsg)
-		if !ok {
-			return nil, errInvalidPayloadType(msgType, msg)
-		}
-		pbMsg := transportpb.IntentToChangeViewToPB(intent)
-		env.Body = &transportpb.Envelope_IntentToChangeView{IntentToChangeView: pbMsg}
-		env.From = int32(hub.node_ref.GetNodeID())
-
-	case core.MsgEpochAggDataMessage:
-		epochData, ok := msg.(core.EpochDataForAggregation)
-		if !ok {
-			return nil, errInvalidPayloadType(msgType, msg)
-		}
-		pbMsg := transportpb.EpochDataForAggregationToPB(epochData)
-		env.Body = &transportpb.Envelope_EpochDataForAggregation{EpochDataForAggregation: pbMsg}
-		env.From = int32(hub.node_ref.GetNodeID())
 
 	case core.MsgReplyMessage:
 		reply, ok := msg.(core.ReplyMessage)

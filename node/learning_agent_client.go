@@ -21,7 +21,7 @@ var (
 
 type NodeLearningAgent interface {
 	GetNodeID() int
-	HandleDecisionFromLearningAgent(epoch int64, protocol string)
+	// HandleDecisionFromLearningAgent(epoch int64, protocol string)
 }
 
 type LearningAgentHub struct {
@@ -68,7 +68,7 @@ func (c *LearningAgentHub) SendDecision(
 	}
 
 	ack.Accepted = true
-	go c.node.HandleDecisionFromLearningAgent(int64(request.GetSequenceId()), request.GetNextProtocol())
+	// go c.node.HandleDecisionFromLearningAgent(int64(request.GetSequenceId()), request.GetNextProtocol())
 	return ack, nil
 }
 

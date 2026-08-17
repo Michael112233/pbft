@@ -15,15 +15,4 @@ const (
 	MsgRequestStateTransfer   string = "MsgRequestStateTransfer"
 	MsgStateTransfer          string = "MsgStateTransfer"
 	MsgNewViewMessage         string = "MsgNewViewMessage"
-	MsgMempoolMessage         string = "MsgMempoolMessage"
-
-	MsgRequestVote               string = "MsgRequestVote"
-	MsgRequestVoteResponse       string = "MsgRequestVoteResponse"
-	MsgAppendEntries             string = "MsgAppendEntries"
-	MsgHeartbeatMessage          string = "MsgHeartbeatMessage"
-	MsgGrantVoteMessage          string = "MsgGrantVoteMessage"
-	MsgReqMissingClientMessage   string = "MsgReqMissingClientMessage"
-	MsgReplyMissingClientMessage string = "MsgReplyMissingClientMessage"
-	MsgIntentToChangeViewMessage string = "MsgIntentToChangeViewMessage"
-	MsgEpochAggDataMessage       string = "MsgEpochAggDataMessage"
 )

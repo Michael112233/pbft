@@ -1,29 +1,27 @@
 package node
 
 import (
-	"fmt"
-
 	"github.com/michael112233/pbft/core"
+	"github.com/michael112233/pbft/crypto"
+	"github.com/michael112233/pbft/transportpb"
+	"google.golang.org/protobuf/proto"
 )
 
-// handle request message
-func (n *Node) HandleRequestMessage(data core.RequestMessage) {
-	if data.MsgType == "RetryRequestMessage" {
-		n.log.Info("Received retry request message from client %s, id %d, length of batch is %d", data.Txs[0].Data.ClientName, data.Txs[0].Data.Id, len(data.Txs))
-	}
-	n.viewMu.RLock()
+func (n *Node) HandleRequestMessage(requests core.RequestMessage) {
+	// usually will have one req
 
-	if n.viewChangeRunning || n.leaderId != n.GetNodeID() {
-		n.log.Info(fmt.Sprintf("Node %d is in view change or not leader anymore, drop the request message from client %s, id %d", n.GetNodeID(), data.Txs[0].Data.ClientName, data.Txs[0].Data.Id))
-		n.viewMu.RUnlock()
-		return
+	for _, req := range requests.Txs {
+		clientMsgBytes, err := proto.MarshalOptions{Deterministic: true}.Marshal(transportpb.ClientMsgToPB(req.Data))
+		if err != nil {
+			n.log.Error("Failed to marshal client message for signature verification: %v", err)
+			return
+		}
+		verified := crypto.VerifySignatureEd25519(clientMsgBytes, req.Signature, n.encryptionKeyStore.clientKey)
+		if !verified {
+			n.log.Error("Failed to verify client message signature for request ID %d and client %s", req.Data.Id, req.Data.ClientName)
+			continue
+		}
+		n.ReceiveVerifiedClientRequestCh(req)
 	}
 
-	n.viewMu.RUnlock()
-	n.log.Test(fmt.Sprintf("Received request message from client %s, id %d, length of batch is %d", data.Txs[0].Data.ClientName, data.Txs[0].Data.Id, len(data.Txs)))
-
-	for _, clientMsgSig := range data.Txs {
-		// go n.preprepare(clientMsgSig)
-		n.verifiedClientMsgsChan <- clientMsgSig
-	}
 }

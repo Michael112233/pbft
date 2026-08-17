@@ -84,7 +84,7 @@ func TestAccountStateMachineRejectsInvalidTransfersWithoutStateMutation(t *testi
 
 	result := sm.Apply(core.ClientMsg{
 		Id: 2,
-		Txn: &core.Transaction{
+		Txn: core.Transaction{
 			Sender:   "alice",
 			Receiver: "bob",
 			Amount:   new(big.Int).Add(beforeAlice, big.NewInt(1)),
@@ -110,7 +110,7 @@ func TestAccountStateMachineRejectsInvalidTransfersWithoutStateMutation(t *testi
 func newClientMsg(id int64, sender, receiver string, amount int64) core.ClientMsg {
 	return core.ClientMsg{
 		Id: id,
-		Txn: &core.Transaction{
+		Txn: core.Transaction{
 			Sender:   sender,
 			Receiver: receiver,
 			Amount:   big.NewInt(amount),

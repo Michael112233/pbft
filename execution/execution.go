@@ -40,7 +40,7 @@ func (sm *AccountStateMachine) Apply(msg core.ClientMsg) Result {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	if msg.Txn == nil {
+	if msg.Txn.Sender == "" && msg.Txn.Receiver == "" && msg.Txn.Amount == nil {
 		return Result{Success: false, Error: "missing transaction"}
 	}
 	if msg.Txn.Sender == "" {

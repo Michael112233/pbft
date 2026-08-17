@@ -67,3 +67,21 @@ func (lm *LatencyMonitor) RecordEndTime(digest [32]byte, endTime time.Time) {
 	}
 
 }
+
+func (n *Node) RecordStartTime(seqNum int64, digest [32]byte, startTime time.Time) {
+	if n.latencyLog { // right now doing outside epoch eventually merge in epoch
+		if seqNum == 1 {
+			n.lm.StartMonitoring()
+			n.lm.RecordStartTime(digest, startTime)
+		} else {
+			n.lm.RecordStartTime(digest, startTime)
+		}
+	}
+
+}
+
+func (n *Node) RecordEndTime(digest [32]byte, endTime time.Time) {
+	if n.latencyLog {
+		n.lm.RecordEndTime(digest, endTime)
+	}
+}

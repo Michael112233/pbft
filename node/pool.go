@@ -1,142 +1,64 @@
 package node
 
 import (
-	"sync"
+	"fmt"
 
 	"github.com/michael112233/pbft/core"
+	"github.com/michael112233/pbft/logger"
 )
 
-// func makeClientRequestKey(msg core.ClientMsg) clientRequestKey {
-// 	return clientRequestKey{
-// 		clientName: msg.ClientName,
-// 		id:         msg.Id,
-// 	}
-// }
-
+type PoolData struct {
+	req      core.ClientMsgSignature
+	executed bool
+	seqNum   int64
+	view     int64
+}
 type Pool struct {
-	lock      sync.RWMutex
-	existsMap map[[32]byte]core.ClientMsgSignature
-	delMap    map[[32]byte]int64
+	existsMap map[[32]byte]PoolData
+	log       *logger.Logger
 }
 
-func NewPool() *Pool {
+func NewPool(log *logger.Logger) *Pool {
 	return &Pool{
-		existsMap: make(map[[32]byte]core.ClientMsgSignature),
-		delMap:    make(map[[32]byte]int64),
+		existsMap: make(map[[32]byte]PoolData),
+		log:       log,
 	}
 }
 
-// func (p *Pool) AddforLeader(digest [32]byte, msg core.ClientMsgSignature, view int64) bool {
-// 	p.lock.Lock()
-// 	defer p.lock.Unlock()
-// 	if data, exists := p.existsMap[digest]; !exists {
-// 		if _, deleted := p.delMap[digest]; !deleted {
-// 			p.existsMap[digest] = PoolData{
-// 				msg:          msg,
-// 				proposalView: view,
-// 			}
-// 			return true
-// 		}
-// 	} else {
-// 		if view > data.proposalView {
-// 			data.proposalView = view
-// 			p.existsMap[digest] = data
-// 			return true
-// 		} else {
-// 			return false
-// 		}
-// 	}
-// 	return false
-// }
+func (p *Pool) AddBatch(reqs []core.ClientMsgSignature, digests [][32]byte, seqNum int64, view int64) {
+	for i, req := range reqs {
+		p.existsMap[digests[i]] = PoolData{
+			req:      req,
+			executed: false,
+			seqNum:   seqNum,
+			view:     view,
+		}
+	}
+}
 
-// second boolean is for executed
-func (p *Pool) Add(digest [32]byte, msg core.ClientMsgSignature) (bool, bool) {
-	p.lock.Lock()
-	defer p.lock.Unlock()
-	if _, exists := p.existsMap[digest]; !exists {
-		if _, deleted := p.delMap[digest]; !deleted {
-			p.existsMap[digest] = msg
-			return true, false
+func (p *Pool) GetBatch(digests [][32]byte) ([]core.ClientMsgSignature, bool) {
+	reqs := make([]core.ClientMsgSignature, len(digests))
+	for i, digest := range digests {
+		if data, exists := p.existsMap[digest]; exists {
+			reqs[i] = data.req
 		} else {
-			return false, true
+			return nil, false
 		}
 	}
-	return false, false
+	return reqs, true
 }
 
-func (p *Pool) Delete(digest [32]byte, seq int64) {
-	p.lock.Lock()
-	defer p.lock.Unlock()
-	// key := makeClientRequestKey(msg)
-	delete(p.existsMap, digest)
-	p.delMap[digest] = seq
-}
-
-func (p *Pool) PendingRequests() int {
-	p.lock.RLock()
-	defer p.lock.RUnlock()
-	return len(p.existsMap)
-}
-
-func (p *Pool) Get(digest [32]byte) (core.ClientMsgSignature, bool, bool) {
-	p.lock.RLock()
-	defer p.lock.RUnlock()
-	msg, exists := p.existsMap[digest]
-
-	_, executed := p.delMap[digest]
-	return msg, exists, executed
-}
-
-// func (p *Pool) GetforLeader(digest [32]byte, view int64) (core.ClientMsgSignature, bool, bool) {
-// 	p.lock.Lock()
-// 	defer p.lock.Unlock()
-// 	msg, exists := p.existsMap[digest]
-// 	if exists {
-// 		if view > msg.proposalView {
-// 			msg.proposalView = view
-// 			p.existsMap[digest] = msg
-// 		}
-// 	}
-
-//		_, executed := p.delMap[digest]
-//		return msg.msg, exists, executed
-//	}
-func (p *Pool) GetMultiple(digests [][32]byte) []core.MissingClientData {
-	p.lock.RLock()
-	defer p.lock.RUnlock()
-	// var msgs []core.ClientMsgSignature
-	msgs := make([]core.MissingClientData, 0, len(digests))
+func (p *Pool) MarkExecuted(digests [][32]byte) error {
 	for _, digest := range digests {
-		if msg, exists := p.existsMap[digest]; exists {
-			msgs = append(msgs, core.MissingClientData{
-				Digest: digest,
-				Msg:    msg,
-			})
-		}
-	}
-	return msgs
-}
-
-func (p *Pool) AddMultiple(msgs []core.MissingClientData) bool {
-	p.lock.Lock()
-	defer p.lock.Unlock()
-	added := false
-	for _, msg := range msgs {
-		if _, exists := p.existsMap[msg.Digest]; !exists {
-			if _, deleted := p.delMap[msg.Digest]; !deleted {
-				p.existsMap[msg.Digest] = msg.Msg
-				added = true
+		if data, exists := p.existsMap[digest]; exists {
+			if data.executed {
+				return fmt.Errorf("request with digest %x already marked as executed", digest)
 			}
+			data.executed = true
+			p.existsMap[digest] = data
+		} else {
+			return fmt.Errorf("request with digest %x not found in pool", digest)
 		}
 	}
-	return added
-}
-func (p *Pool) GCDelMap(seq int64) {
-	p.lock.Lock()
-	defer p.lock.Unlock()
-	for digest, executedSeq := range p.delMap {
-		if executedSeq < seq {
-			delete(p.delMap, digest)
-		}
-	}
+	return nil
 }

@@ -2,8 +2,6 @@ package node
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"net"
 	"sync"
 	"testing"
@@ -87,293 +85,6 @@ func TestBuildEnvelopeVCRunningStatus(t *testing.T) {
 	}
 }
 
-func TestBuildEnvelopeIntentToChangeView(t *testing.T) {
-	hub := &NodeMessageHub{
-		node_ref: &Node{NodeID: 2},
-	}
-	signature := []byte{1, 2, 3}
-	intent := core.IntentToChangeViewMsg{
-		ViewNumber: 9,
-		From:       2,
-	}
-
-	env, err := hub.buildEnvelope(core.MsgIntentToChangeViewMessage, intent, signature)
-	if err != nil {
-		t.Fatalf("buildEnvelope returned error: %v", err)
-	}
-	if env.From != 2 {
-		t.Fatalf("env.From = %d, want 2", env.From)
-	}
-	if string(env.Signature) != string(signature) {
-		t.Fatalf("env.Signature = %v, want %v", env.Signature, signature)
-	}
-
-	body, ok := env.Body.(*transportpb.Envelope_IntentToChangeView)
-	if !ok {
-		t.Fatalf("env.Body type = %T, want *transportpb.Envelope_IntentToChangeView", env.Body)
-	}
-	data, err := transportpb.IntentToChangeViewFromPB(body.IntentToChangeView)
-	if err != nil {
-		t.Fatalf("IntentToChangeViewFromPB returned error: %v", err)
-	}
-	if data != intent {
-		t.Fatalf("intent mismatch: got %+v want %+v", data, intent)
-	}
-}
-
-func TestDeliverIntentToChangeView(t *testing.T) {
-	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("GenerateKey returned error: %v", err)
-	}
-
-	nodeLog := &logger.Logger{}
-	hub := &NodeMessageHub{
-		node_ref: &Node{
-			NodeID: 2,
-			log:    nodeLog,
-			encryptionKeyStore: &KeyStore{
-				publicKeys: map[int]ed25519.PublicKey{1: publicKey},
-			},
-		},
-		log: nodeLog,
-	}
-
-	deliver := func(t *testing.T, env *transportpb.Envelope) *transportpb.Ack {
-		t.Helper()
-		ack, err := hub.Deliver(context.Background(), env)
-		if err != nil {
-			t.Fatalf("Deliver returned error: %v", err)
-		}
-		if ack == nil {
-			t.Fatal("Deliver returned nil ack")
-		}
-		return ack
-	}
-
-	t.Run("missing body", func(t *testing.T) {
-		ack := deliver(t, &transportpb.Envelope{
-			MsgType: core.MsgIntentToChangeViewMessage,
-			From:    1,
-		})
-		if ack.Ok || ack.Error != "missing intent to change view body" {
-			t.Fatalf("ack = %+v, want missing-body rejection", ack)
-		}
-	})
-
-	t.Run("sender mismatch", func(t *testing.T) {
-		ack := deliver(t, &transportpb.Envelope{
-			MsgType: core.MsgIntentToChangeViewMessage,
-			From:    1,
-			Body: &transportpb.Envelope_IntentToChangeView{
-				IntentToChangeView: transportpb.IntentToChangeViewToPB(core.IntentToChangeViewMsg{
-					ViewNumber: 9,
-					From:       2,
-				}),
-			},
-		})
-		if ack.Ok || ack.Error != "intent to change view sender mismatch" {
-			t.Fatalf("ack = %+v, want sender-mismatch rejection", ack)
-		}
-	})
-
-	t.Run("invalid signature", func(t *testing.T) {
-		ack := deliver(t, &transportpb.Envelope{
-			MsgType:   core.MsgIntentToChangeViewMessage,
-			From:      1,
-			Signature: []byte("invalid"),
-			Body: &transportpb.Envelope_IntentToChangeView{
-				IntentToChangeView: transportpb.IntentToChangeViewToPB(core.IntentToChangeViewMsg{
-					ViewNumber: 9,
-					From:       1,
-				}),
-			},
-		})
-		if ack.Ok || ack.Error != "signature verification failed" {
-			t.Fatalf("ack = %+v, want signature rejection", ack)
-		}
-	})
-
-	t.Run("valid signature", func(t *testing.T) {
-		intent := transportpb.IntentToChangeViewToPB(core.IntentToChangeViewMsg{
-			ViewNumber: 9,
-			From:       1,
-		})
-		payload, err := marshalDeterministic(intent)
-		if err != nil {
-			t.Fatalf("marshalDeterministic returned error: %v", err)
-		}
-		ack := deliver(t, &transportpb.Envelope{
-			MsgType:   core.MsgIntentToChangeViewMessage,
-			From:      1,
-			Signature: ed25519.Sign(privateKey, payload),
-			Body: &transportpb.Envelope_IntentToChangeView{
-				IntentToChangeView: intent,
-			},
-		})
-		if !ack.Ok || ack.Error != "" {
-			t.Fatalf("ack = %+v, want successful delivery", ack)
-		}
-	})
-}
-
-func TestBuildEnvelopeEpochDataForAggregation(t *testing.T) {
-	hub := &NodeMessageHub{
-		node_ref: &Node{NodeID: 2},
-	}
-	signature := []byte{1, 2, 3}
-	epochData := core.EpochDataForAggregation{
-		EpochNumber:  9,
-		Throughput:   1234.5,
-		ProposalRate: 678.25,
-		ShadowCount:  42,
-		From:         2,
-	}
-
-	env, err := hub.buildEnvelope(core.MsgEpochAggDataMessage, epochData, signature)
-	if err != nil {
-		t.Fatalf("buildEnvelope returned error: %v", err)
-	}
-	if env.From != 2 {
-		t.Fatalf("env.From = %d, want 2", env.From)
-	}
-	if string(env.Signature) != string(signature) {
-		t.Fatalf("env.Signature = %v, want %v", env.Signature, signature)
-	}
-
-	body, ok := env.Body.(*transportpb.Envelope_EpochDataForAggregation)
-	if !ok {
-		t.Fatalf("env.Body type = %T, want *transportpb.Envelope_EpochDataForAggregation", env.Body)
-	}
-	data, err := transportpb.EpochDataForAggregationFromPB(body.EpochDataForAggregation)
-	if err != nil {
-		t.Fatalf("EpochDataForAggregationFromPB returned error: %v", err)
-	}
-	if data != epochData {
-		t.Fatalf("epoch data mismatch: got %+v want %+v", data, epochData)
-	}
-}
-
-func TestDeliverEpochDataForAggregation(t *testing.T) {
-	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("GenerateKey returned error: %v", err)
-	}
-
-	nodeLog := &logger.Logger{}
-	testNode := &Node{
-		NodeID: 2,
-		log:    nodeLog,
-		encryptionKeyStore: &KeyStore{
-			publicKeys: map[int]ed25519.PublicKey{1: publicKey},
-		},
-		epochManager: &EpochManager{currentEpoch: 9},
-	}
-	testNode.epochAggregator = &EpochAggregator{
-		node:        testNode,
-		log:         nodeLog,
-		epochAggLog: make(map[int64]map[int]EpochAggData),
-	}
-	hub := &NodeMessageHub{
-		node_ref: testNode,
-		log:      nodeLog,
-	}
-
-	deliver := func(t *testing.T, env *transportpb.Envelope) *transportpb.Ack {
-		t.Helper()
-		ack, err := hub.Deliver(context.Background(), env)
-		if err != nil {
-			t.Fatalf("Deliver returned error: %v", err)
-		}
-		if ack == nil {
-			t.Fatal("Deliver returned nil ack")
-		}
-		return ack
-	}
-
-	t.Run("missing body", func(t *testing.T) {
-		ack := deliver(t, &transportpb.Envelope{
-			MsgType: core.MsgEpochAggDataMessage,
-			From:    1,
-		})
-		if ack.Ok || ack.Error != "missing epoch data for aggregation body" {
-			t.Fatalf("ack = %+v, want missing-body rejection", ack)
-		}
-	})
-
-	t.Run("sender mismatch", func(t *testing.T) {
-		ack := deliver(t, &transportpb.Envelope{
-			MsgType: core.MsgEpochAggDataMessage,
-			From:    1,
-			Body: &transportpb.Envelope_EpochDataForAggregation{
-				EpochDataForAggregation: transportpb.EpochDataForAggregationToPB(core.EpochDataForAggregation{
-					EpochNumber: 9,
-					From:        2,
-				}),
-			},
-		})
-		if ack.Ok || ack.Error != "epoch data for aggregation sender mismatch" {
-			t.Fatalf("ack = %+v, want sender-mismatch rejection", ack)
-		}
-	})
-
-	t.Run("invalid signature", func(t *testing.T) {
-		ack := deliver(t, &transportpb.Envelope{
-			MsgType:   core.MsgEpochAggDataMessage,
-			From:      1,
-			Signature: []byte("invalid"),
-			Body: &transportpb.Envelope_EpochDataForAggregation{
-				EpochDataForAggregation: transportpb.EpochDataForAggregationToPB(core.EpochDataForAggregation{
-					EpochNumber: 9,
-					From:        1,
-				}),
-			},
-		})
-		if ack.Ok || ack.Error != "signature verification failed" {
-			t.Fatalf("ack = %+v, want signature rejection", ack)
-		}
-	})
-
-	t.Run("valid signature", func(t *testing.T) {
-		epochData := transportpb.EpochDataForAggregationToPB(core.EpochDataForAggregation{
-			EpochNumber:  9,
-			Throughput:   1234.5,
-			ProposalRate: 678.25,
-			ShadowCount:  42,
-			From:         1,
-		})
-		payload, err := marshalDeterministic(epochData)
-		if err != nil {
-			t.Fatalf("marshalDeterministic returned error: %v", err)
-		}
-		ack := deliver(t, &transportpb.Envelope{
-			MsgType:   core.MsgEpochAggDataMessage,
-			From:      1,
-			Signature: ed25519.Sign(privateKey, payload),
-			Body: &transportpb.Envelope_EpochDataForAggregation{
-				EpochDataForAggregation: epochData,
-			},
-		})
-		if !ack.Ok || ack.Error != "" {
-			t.Fatalf("ack = %+v, want successful delivery", ack)
-		}
-
-		deadline := time.Now().Add(time.Second)
-		for {
-			testNode.epochAggregator.mu.Lock()
-			received := testNode.epochAggregator.epochAggLog[9][1]
-			testNode.epochAggregator.mu.Unlock()
-			if received.throughput == 1234.5 && received.proposalRate == 678.25 && received.shadowCount == 42 {
-				break
-			}
-			if time.Now().After(deadline) {
-				t.Fatalf("epoch data was not delivered: got %+v", received)
-			}
-			time.Sleep(time.Millisecond)
-		}
-	})
-}
-
 func TestInjectArtificialLatencyForFarNodeSend(t *testing.T) {
 	oldNodeAddr := config.NodeAddr
 	oldClientAddr := config.ClientAddr
@@ -403,26 +114,10 @@ func TestInjectArtificialLatencyForFarNodeSend(t *testing.T) {
 }
 
 func TestNodeMessagesReusePersistentPeerStream(t *testing.T) {
-	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("GenerateKey returned error: %v", err)
-	}
-
 	nodeLog := &logger.Logger{}
 	receiver := &Node{
-		NodeID:       2,
-		fNodes:       1,
-		log:          nodeLog,
-		cfg:          &config.Config{NodeNum: 4},
-		epochManager: &EpochManager{currentEpoch: 9},
-		encryptionKeyStore: &KeyStore{
-			publicKeys: map[int]ed25519.PublicKey{1: publicKey},
-		},
-	}
-	receiver.epochAggregator = &EpochAggregator{
-		node:        receiver,
-		log:         nodeLog,
-		epochAggLog: make(map[int64]map[int]EpochAggData),
+		NodeID: 2,
+		log:    nodeLog,
 	}
 	receiverHub := NewNodeMessageHub()
 	receiverHub.node_ref = receiver
@@ -452,52 +147,36 @@ func TestNodeMessagesReusePersistentPeerStream(t *testing.T) {
 	defer senderHub.Close()
 	receiverAddr := "passthrough:///peer-2"
 
-	sendEpochData := func(throughput float64) {
+	sendClose := func(timestamp int64) {
 		t.Helper()
-		msg := core.EpochDataForAggregation{
-			EpochNumber:  9,
-			Throughput:   throughput,
-			ProposalRate: throughput / 2,
-			ShadowCount:  42,
-			From:         1,
-		}
-		pbMsg := transportpb.EpochDataForAggregationToPB(msg)
-		payload, marshalErr := marshalDeterministic(pbMsg)
-		if marshalErr != nil {
-			t.Fatalf("marshalDeterministic returned error: %v", marshalErr)
-		}
-		senderHub.Send(core.MsgEpochAggDataMessage, receiverAddr, msg, ed25519.Sign(privateKey, payload))
+		senderHub.Send(core.MsgCloseMessage, receiverAddr, core.CloseMessage{
+			Timestamp: timestamp,
+			From:      "node-1",
+			To:        "node-2",
+		}, nil)
 	}
 
-	waitForThroughput := func(want float64) {
+	waitForStream := func() *peerStreamState {
 		t.Helper()
 		deadline := time.Now().Add(2 * time.Second)
 		for {
-			receiver.epochAggregator.mu.Lock()
-			got := receiver.epochAggregator.epochAggLog[9][1].throughput
-			receiver.epochAggregator.mu.Unlock()
-			if got == want {
-				return
+			senderHub.mu.RLock()
+			state := senderHub.peerStreams[receiverAddr]
+			senderHub.mu.RUnlock()
+			if state != nil {
+				return state
 			}
 			if time.Now().After(deadline) {
-				t.Fatalf("streamed epoch throughput = %f, want %f", got, want)
+				t.Fatal("persistent peer stream was not cached")
 			}
 			time.Sleep(time.Millisecond)
 		}
 	}
 
-	sendEpochData(100)
-	waitForThroughput(100)
+	sendClose(100)
+	firstState := waitForStream()
 
-	senderHub.mu.RLock()
-	firstState := senderHub.peerStreams[receiverAddr]
-	senderHub.mu.RUnlock()
-	if firstState == nil {
-		t.Fatal("persistent peer stream was not cached")
-	}
-
-	sendEpochData(200)
-	waitForThroughput(200)
+	sendClose(200)
 
 	senderHub.mu.RLock()
 	secondState := senderHub.peerStreams[receiverAddr]

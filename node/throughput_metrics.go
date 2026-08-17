@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	throughputMeasurementBatchSize  = 10
-	throughputMeasurementBufferSize = 10000
+	throughputMeasurementBatchSize  = 100
+	throughputMeasurementBufferSize = 1000
 )
 
 // this is on hot path of exe if channel full
@@ -26,11 +26,27 @@ type throughputMeasurement struct {
 	Throughput      float64
 }
 
+func (n *Node) throughputMeasurementStart() {
+	if n.throughputMeasurementsStarted.CompareAndSwap(false, true) {
+		go n.throughputMeasurementCSVWriter()
+	}
+}
+
+func (n *Node) throughputMeasurementStop() {
+	n.throughputMeasurementsOnce.Do(func() {
+		close(n.throughputMeasurementsStop)
+	})
+	if n.throughputMeasurementsStarted.Load() {
+		<-n.throughputMeasurementsDone
+	}
+}
+
 func (n *Node) emitThroughputMeasurement(measurement throughputMeasurement) {
 
 	select {
 	case n.throughputMeasurementsChan <- measurement:
 	default:
+		n.log.Warn("too fast for tput measurement")
 	}
 }
 
