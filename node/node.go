@@ -125,6 +125,7 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		encryptionKeyStore: NewKeyStore(nodeID, cfg.NodeNum),
 		pool:               NewPool(log),
 		consensusLog:       NewLog(),
+		executionMachine:   execution.NewAccountStateMachine(),
 
 		eventLoopStopCh:                make(chan struct{}),
 		eventLoopDoneCh:                make(chan struct{}),
@@ -319,6 +320,9 @@ func (n *Node) Split() {
 }
 
 func (n *Node) tryPropose(fullBatch bool) {
+	if n.GetNodeID() != n.GetLeaderId() {
+		return
+	}
 	if n.pendingRequests.Len() < n.GetBatchSize() {
 		n.log.Debug("Not enough pending requests to propose a batch: %d < %d", n.pendingRequests.Len(), n.GetBatchSize())
 		return
@@ -452,7 +456,7 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 
 	n.RecordStartTime(preprepareMsg.SeqNum, preprepareMsg.DigestClientMsg, time.Now())
 
-	n.asyncBroadCast(core.MsgPrepareMessage, msgForLog, signaturePrepare)
+	n.asyncBroadCast(core.MsgPrepareMessage, msg, signaturePrepare)
 	n.tryAdvancePrepare(slot)
 
 }
@@ -551,10 +555,6 @@ func (n *Node) HandleCommit(commitMsg core.CommitMsg) {
 
 func (n *Node) tryExecute(slot *LogEntry) {
 
-	if slot.executed {
-		n.log.Error("should not be executed")
-		return
-	}
 	if slot.committed {
 		return
 	}
@@ -562,6 +562,10 @@ func (n *Node) tryExecute(slot *LogEntry) {
 		return
 	}
 	if slot.commitSent == false {
+		return
+	}
+	if slot.executed {
+		n.log.Error("should not be executed")
 		return
 	}
 	if len(slot.commits) < n.QuorumSize() || matchingVotesC(slot.commits, slot.preprepare.DigestClientMsg) < n.QuorumSize() {

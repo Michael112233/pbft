@@ -196,13 +196,13 @@ for i in $(seq 1 "$NODE_COUNT"); do
 done
 
 sleep 5
-setup_netem
+# setup_netem
 # Optional: start client in another window
 tmux new-window -t "$SESSION" -n "client" \
     "cd \"$CURRENT_DIR\" && ./pbft_main -r client -m loopbackip; status=\$?; echo; echo \"client exited with status \$status\"; exec bash"
 
-sleep 2
-start_repeating_netem_spikes
+# sleep 2
+# start_repeating_netem_spikes
 # start_netem_schedule
 
 echo "All nodes started."
