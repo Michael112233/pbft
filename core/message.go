@@ -1,6 +1,7 @@
 package core
 
 import (
+	"math/big"
 	"time"
 )
 
@@ -84,7 +85,7 @@ type PreprepareMsgMini struct {
 type PreprepareMsgSig struct { // used in VC
 	PreprepareMsgMini PreprepareMsgMini
 	Signature         []byte
-	ActualMsg         ClientMsgSignature
+	ActualMsg         []ClientMsgSignature
 }
 
 type PrepareMsg struct {
@@ -103,4 +104,72 @@ type CommitMsg struct {
 	SeqNum int64
 	Digest [32]byte
 	From   int
+}
+
+type CheckpointMsg struct {
+	SeqNum int64
+	Digest [32]byte
+	From   int
+}
+
+type CheckpointMsgSig struct {
+	CheckpointMsg CheckpointMsg
+	Signature     []byte
+}
+
+type PreparedCert struct {
+	PreprepareMsg PreprepareMsgSig
+	PrepareLog    map[int]PrepareMsgSig
+}
+
+type VCType int
+
+const (
+	VCTypeElection VCType = iota + 1
+	VCTypeRoundRobin
+	VCTypeWRR
+)
+
+type ElectionVCData struct {
+	ReqVote   bool
+	GrantVote bool
+	GrantTo   int
+}
+type RoundRobinVCData struct {
+	GrantVote bool
+}
+type WRRVCData struct {
+	Throughput float64
+}
+
+type ViewChangeMsg struct {
+	ViewNumber          int64
+	CheckpointSeqNumber int64
+	CheckpointDigest    [32]byte
+	CheckpointProof     []CheckpointMsgSig
+	CheckpointBalances  map[string]*big.Int
+	From                int
+	PreparedCerts       map[int64]*PreparedCert
+	Type                VCType
+	ElectionData        *ElectionVCData
+	RoundRobinData      *RoundRobinVCData
+	WRRData             *WRRVCData
+}
+
+type ViewChangeMsgSig struct {
+	ViewChangeMsg ViewChangeMsg
+	Signature     []byte
+}
+
+type NewViewMsg struct {
+	PreprepareLog []PreprepareMsgSig
+	ViewChangeLog []*ViewChangeMsgSig
+	NewViewNumber int64
+	Throughput    float64
+	From          int
+}
+
+type NewViewMsgSig struct {
+	NewViewMsg NewViewMsg
+	Signature  []byte
 }

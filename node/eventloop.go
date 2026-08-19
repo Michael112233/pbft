@@ -36,6 +36,10 @@ func (n *Node) run() {
 
 		select {
 		case req := <-clientRequestCh:
+			if n.viewChangeRunning || n.leaderId != n.GetNodeID() {
+				n.log.Info("Node %d is not the leader or view change is running, ignoring client request", n.GetNodeID())
+				continue
+			}
 			// cheap check to ignore client req
 			if !n.pendingRequests.Enqueue(req) {
 				n.log.Error("node event loop received a request while the pending queue was full")
@@ -45,6 +49,7 @@ func (n *Node) run() {
 				n.tryPropose(true)
 			}
 		case consensusMsg := <-n.consensusMsgChan:
+
 			switch consensusMsg.MsgType {
 			case core.MsgPreprepareMessage:
 				n.HandlePrePrepare(consensusMsg.Msg.(core.PreprepareMsg), consensusMsg.Signature)
@@ -55,6 +60,12 @@ func (n *Node) run() {
 			default:
 				n.log.Error("Unknown consensus message type: %v", consensusMsg.MsgType)
 			}
+		case viewChangeMsg := <-n.viewChangeMsgChan:
+			n.HandleViewChangeRoundRobin(viewChangeMsg.Msg.(core.ViewChangeMsg), viewChangeMsg.Signature)
+		case checkpointMsg := <-n.checkpointMsgChan:
+			n.HandleCheckpoint(checkpointMsg.Msg.(core.CheckpointMsg), checkpointMsg.Signature)
+		case newViewMsg := <-n.newViewMsgChan:
+			n.HandleNewView(newViewMsg.Msg.(core.NewViewMsg), newViewMsg.Signature)
 
 		case <-n.eventLoopStopCh:
 			return

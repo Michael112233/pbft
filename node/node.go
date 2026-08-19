@@ -48,12 +48,17 @@ type Node struct {
 	eventLoopDoneCh                chan struct{}
 	receiveVerifiedClientRequestCh chan core.ClientMsgSignature
 	consensusMsgChan               chan ConsensusMsg
+	viewChangeMsgChan              chan ViewChangeMsg
+	checkpointMsgChan              chan CheckpointMsg
+	newViewMsgChan                 chan NewViewMsg
 	eventLoopStarted               atomic.Bool
 	eventLoopStopOnce              sync.Once
 	pendingRequests                RequestQueue
 	batchLogic                     Batcher
 	pool                           *Pool
 	consensusLog                   *Log
+	checkpointManager              *CheckpointManager
+	bufferedMsgs                   []bufferedConsensusMessage
 
 	////
 
@@ -65,6 +70,8 @@ type Node struct {
 	forView           int64
 	votedFor          int
 	viewChangeRunning bool
+	viewChangeMsgsLog map[int64][]*core.ViewChangeMsgSig
+	vcType            core.VCType
 	sequenceNumber    int64
 	lastExecuted      int64
 
@@ -126,11 +133,16 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		pool:               NewPool(log),
 		consensusLog:       NewLog(),
 		executionMachine:   execution.NewAccountStateMachine(),
+		bufferedMsgs:       make([]bufferedConsensusMessage, 0),
+		// checkpointManager:  NewCheckpointManager(log),
 
 		eventLoopStopCh:                make(chan struct{}),
 		eventLoopDoneCh:                make(chan struct{}),
 		receiveVerifiedClientRequestCh: make(chan core.ClientMsgSignature),
 		consensusMsgChan:               make(chan ConsensusMsg, cfg.ConsensusChanSize),
+		viewChangeMsgChan:              make(chan ViewChangeMsg, 100),
+		checkpointMsgChan:              make(chan CheckpointMsg, 100),
+		newViewMsgChan:                 make(chan NewViewMsg, 20),
 		pendingRequests:                NewRequestQueue(cfg.PendingQueueCapacity),
 		clientReceiveRateStop:          make(chan struct{}),
 		clientReceiveRateDone:          make(chan struct{}),
@@ -155,7 +167,9 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		leaderId:        1,
 		leaderIdForView: map[int64]int{1: 1},
 
+		viewChangeMsgsLog: make(map[int64][]*core.ViewChangeMsgSig),
 		viewChangeRunning: false,
+		vcType:            cfg.LeaderTypeEnum,
 
 		fNodes: (int(cfg.NodeNum) - 1) / 3,
 
@@ -182,7 +196,8 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 
 	n.ArmBatchTimer()
 	n.StopBatchTimer()
-
+	checkpointManager := NewCheckpointManager(log, n)
+	n.checkpointManager = checkpointManager
 	if address := config.LearningAgentAddr[nodeID]; address != "" {
 		learningAgent, err := NewLearningAgent(n, address)
 		if err != nil {
@@ -320,7 +335,7 @@ func (n *Node) Split() {
 }
 
 func (n *Node) tryPropose(fullBatch bool) {
-	if n.GetNodeID() != n.GetLeaderId() {
+	if n.GetNodeID() != n.GetLeaderId() || n.viewChangeRunning {
 		return
 	}
 	if n.pendingRequests.Len() < n.GetBatchSize() {
@@ -330,6 +345,10 @@ func (n *Node) tryPropose(fullBatch bool) {
 	inflight := n.CurrentSequenceNumber() - n.GetLastExecuted()
 	if inflight >= n.AllowedMaxInFlight() {
 		n.log.Debug("Cannot propose: inflight %d >= allowed max inflight %d", inflight, n.AllowedMaxInFlight())
+		return
+	}
+	if n.CurrentSequenceNumber()+1 > n.consensusLog.high {
+		n.log.Debug("Cannot propose: next sequence number %d would exceed the high watermark %d", n.CurrentSequenceNumber()+1, n.consensusLog.high)
 		return
 	}
 	reqs := n.pendingRequests.Dequeue(n.GetBatchSize())
@@ -375,10 +394,35 @@ func (n *Node) tryPropose(fullBatch bool) {
 func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []byte) {
 	// above it have check view chnage running ignore
 	view := n.GetView()
-	if preprepareMsg.View > view {
-		// buffer
+	if n.viewChangeRunning {
+		if preprepareMsg.View > view {
+			// buffer
+			n.bufferConsensusMessage(bufferedConsensusMessage{
+				kind:       bufferedPrePrepare,
+				view:       preprepareMsg.View,
+				preprepare: preprepareMsg,
+				signature:  append([]byte(nil), signature...),
+			})
+			n.log.Info("Buffered PrePrepare for future view %d seq %d while current view is %d", preprepareMsg.View, preprepareMsg.SeqNum, view)
+			return
+		} else if preprepareMsg.View < view {
+			n.log.Info("Received PrePrepare for past view %d seq %d while current view is %d, ignoring and for view is %d", preprepareMsg.View, preprepareMsg.SeqNum, view, n.forView)
+		} else if preprepareMsg.SeqNum%10 == 0 {
+			n.log.Info("Received PrePrepare for current view %d (equal views) seq %d but currently in view change, ignoring and for view is %d", preprepareMsg.View, preprepareMsg.SeqNum, n.forView)
+		}
+
 	}
+
 	if preprepareMsg.View != view {
+		return
+	}
+
+	if preprepareMsg.SeqNum < n.consensusLog.low {
+		n.log.Info("Received PrePrepare for seq %d which is below low watermark %d, ignoring", preprepareMsg.SeqNum, n.consensusLog.low)
+		return
+	}
+	if preprepareMsg.SeqNum > n.consensusLog.high {
+		n.log.Info("Received PrePrepare for seq %d which is above high watermark %d, ignoring", preprepareMsg.SeqNum, n.consensusLog.high)
 		return
 	}
 
@@ -463,11 +507,36 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 
 func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 	view := n.GetView()
-	if prepareMsg.View > view {
-		//buffer
+	if n.viewChangeRunning {
+		if prepareMsg.View > view {
+			n.bufferConsensusMessage(bufferedConsensusMessage{
+				kind:      bufferedPrepare,
+				view:      prepareMsg.View,
+				prepare:   prepareMsg,
+				signature: append([]byte(nil), signature...),
+			})
+			// n.log.Info("Buffered Prepare for future view %d seq %d while current view is %d", prepareMsg.View, prepareMsg.SeqNum, view)
+			return
+		} else if prepareMsg.View < view {
+			n.log.Info("Received Prepare for past view %d seq %d while current view is %d, ignoring and for view is %d", prepareMsg.View, prepareMsg.SeqNum, view, n.forView)
+		} else if prepareMsg.SeqNum%10 == 0 {
+			n.log.Info("Received Prepare for current view %d (equal views) seq %d but currently in view change, ignoring and for view is %d", prepareMsg.View, prepareMsg.SeqNum, n.forView)
+		}
+		// n.viewMu.RUnlock()
+
+		return
 	}
 
 	if prepareMsg.View != view {
+		return
+	}
+
+	if prepareMsg.SeqNum < n.consensusLog.low {
+		n.log.Info("Received Prepare for seq %d which is below low watermark %d, ignoring", prepareMsg.SeqNum, n.consensusLog.low)
+		return
+	}
+	if prepareMsg.SeqNum > n.consensusLog.high {
+		n.log.Info("Received Prepare for seq %d which is above high watermark %d, ignoring", prepareMsg.SeqNum, n.consensusLog.high)
 		return
 	}
 
@@ -523,11 +592,35 @@ func (n *Node) tryAdvancePrepare(slot *LogEntry) {
 
 func (n *Node) HandleCommit(commitMsg core.CommitMsg) {
 	view := n.GetView()
-	if commitMsg.View > view {
-		//buffer
+	if n.viewChangeRunning {
+		if commitMsg.View > view {
+			n.bufferConsensusMessage(bufferedConsensusMessage{
+				kind:   bufferedCommit,
+				view:   commitMsg.View,
+				commit: commitMsg,
+			})
+			// n.log.Info("Buffered Commit for future view %d seq %d while current view is %d", commitMsg.View, commitMsg.SeqNum, view)
+			return
+		} else if commitMsg.View < view {
+			n.log.Info("Received Commit for past view %d seq %d while current view is %d, ignoring", commitMsg.View, commitMsg.SeqNum, n.forView)
+		} else if commitMsg.SeqNum%10 == 0 {
+			n.log.Info("Received Commit for current view %d (equal views) seq %d but currently in view change, ignoring and for view is %d", commitMsg.View, commitMsg.SeqNum, n.forView)
+		}
+		// n.viewMu.RUnlock()
+
+		return
 	}
 
 	if commitMsg.View != view {
+		return
+	}
+
+	if commitMsg.SeqNum < n.consensusLog.low {
+		n.log.Info("Received Commit for seq %d which is below low watermark %d, ignoring", commitMsg.SeqNum, n.consensusLog.low)
+		return
+	}
+	if commitMsg.SeqNum > n.consensusLog.high {
+		n.log.Info("Received Commit for seq %d which is above high watermark %d, ignoring", commitMsg.SeqNum, n.consensusLog.high)
 		return
 	}
 
@@ -672,6 +765,16 @@ func (n *Node) asyncBroadCast(msgType string, msg interface{}, signature []byte)
 		go n.messageHub.Send(msgType, othersIp, msg, signature)
 	}
 }
+func (n *Node) sendLeaderIdUpdate(newLeaderID int, view int64) {
+	leaderUpdateMsg := core.LeaderIdUpdate{
+		From:        n.GetAddr(),
+		To:          config.ClientAddr,
+		NewLeaderId: newLeaderID,
+		View:        view,
+	}
+	// time.Sleep(1000 * time.Millisecond) // add delay to ensure client receives view change messages before leader update, can remove when client can handle out of order messages
+	n.messageHub.Send(core.MsgLeaderIdUpdateMessage, config.ClientAddr, leaderUpdateMsg, nil)
+}
 
 func (n *Node) asyncBroadcastCommit(view, seq int64, digest [32]byte) {
 	msg := core.CommitMsg{
@@ -700,4 +803,11 @@ func (n *Node) asyncBroadcastCommit(view, seq int64, digest [32]byte) {
 
 func (n *Node) QuorumSize() int {
 	return 2*n.fNodes + 1
+}
+
+func (n *Node) assert(condition bool, format string, args ...interface{}) {
+	message := fmt.Sprintf(format, args...)
+	if !condition {
+		n.log.Error("Assertion failed: %s", message)
+	}
 }

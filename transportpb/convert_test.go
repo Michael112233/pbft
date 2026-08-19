@@ -108,18 +108,20 @@ func TestPreprepareMsgSigRoundTripIncludesActualMsg(t *testing.T) {
 			DigestIndividualClientMsgs: [][32]byte{{4, 5, 6}, {7, 8, 9}},
 		},
 		Signature: []byte{9, 8, 7},
-		ActualMsg: core.ClientMsgSignature{
-			Data: core.ClientMsg{
-				Id:         99,
-				Timestamp:  testTimestamp,
-				ClientName: "client-a",
-				Txn: core.Transaction{
-					Sender:   "alice",
-					Receiver: "bob",
-					Amount:   big.NewInt(50),
+		ActualMsg: []core.ClientMsgSignature{
+			{
+				Data: core.ClientMsg{
+					Id:         99,
+					Timestamp:  testTimestamp,
+					ClientName: "client-a",
+					Txn: core.Transaction{
+						Sender:   "alice",
+						Receiver: "bob",
+						Amount:   big.NewInt(50),
+					},
 				},
+				Signature: []byte{4, 5, 6},
 			},
-			Signature: []byte{4, 5, 6},
 		},
 	}
 
@@ -272,5 +274,211 @@ func TestVCRunningStatusRoundTrip(t *testing.T) {
 		if !reflect.DeepEqual(out, in) {
 			t.Fatalf("round trip mismatch:\n got: %+v\nwant: %+v", out, in)
 		}
+	}
+}
+
+func TestCheckpointMsgRoundTrip(t *testing.T) {
+	in := core.CheckpointMsg{
+		SeqNum: 250,
+		Digest: [32]byte{1, 2, 3},
+		From:   4,
+	}
+
+	out, err := CheckpointFromPB(CheckpointToPB(in))
+	if err != nil {
+		t.Fatalf("CheckpointFromPB returned error: %v", err)
+	}
+	if out != in {
+		t.Fatalf("round trip mismatch:\n got: %+v\nwant: %+v", out, in)
+	}
+}
+
+func TestCheckpointFromPBRejectsInvalidDigest(t *testing.T) {
+	msg := CheckpointToPB(core.CheckpointMsg{Digest: [32]byte{1}})
+	msg.Digest = []byte{1}
+
+	if _, err := CheckpointFromPB(msg); err == nil {
+		t.Fatal("CheckpointFromPB accepted an invalid digest length")
+	}
+}
+
+func TestCheckpointMsgSigRoundTrip(t *testing.T) {
+	in := core.CheckpointMsgSig{
+		CheckpointMsg: core.CheckpointMsg{
+			SeqNum: 500,
+			Digest: [32]byte{4, 5, 6},
+			From:   2,
+		},
+		Signature: []byte{7, 8, 9},
+	}
+
+	out, err := CheckpointMsgSigFromPB(CheckpointMsgSigToPB(in))
+	if err != nil {
+		t.Fatalf("CheckpointMsgSigFromPB returned error: %v", err)
+	}
+	if !reflect.DeepEqual(out, in) {
+		t.Fatalf("round trip mismatch:\n got: %+v\nwant: %+v", out, in)
+	}
+}
+
+func TestViewChangeMsgSigRoundTrip(t *testing.T) {
+	in := core.ViewChangeMsgSig{
+		ViewChangeMsg: core.ViewChangeMsg{
+			ViewNumber:          8,
+			CheckpointSeqNumber: 250,
+			CheckpointDigest:    [32]byte{1, 2, 3},
+			CheckpointProof: []core.CheckpointMsgSig{
+				{
+					CheckpointMsg: core.CheckpointMsg{
+						SeqNum: 250,
+						Digest: [32]byte{1, 2, 3},
+						From:   1,
+					},
+					Signature: []byte{4, 5, 6},
+				},
+			},
+			CheckpointBalances: map[string]*big.Int{
+				"alice": big.NewInt(100),
+				"bob":   nil,
+			},
+			From: 2,
+			PreparedCerts: map[int64]*core.PreparedCert{
+				251: {
+					PreprepareMsg: core.PreprepareMsgSig{
+						PreprepareMsgMini: core.PreprepareMsgMini{
+							View:                       7,
+							SeqNum:                     251,
+							DigestClientMsg:            [32]byte{7, 8, 9},
+							DigestIndividualClientMsgs: [][32]byte{{10, 11, 12}},
+						},
+						Signature: []byte{13, 14, 15},
+						ActualMsg: []core.ClientMsgSignature{
+							{
+								Data: core.ClientMsg{
+									Id:         99,
+									Timestamp:  testTimestamp,
+									ClientName: "client-a",
+									Txn: core.Transaction{
+										Sender:   "alice",
+										Receiver: "bob",
+										Amount:   big.NewInt(10),
+									},
+								},
+								Signature: []byte{16, 17, 18},
+							},
+						},
+					},
+					PrepareLog: map[int]core.PrepareMsgSig{
+						3: {
+							PrepareMsg: core.PrepareMsg{
+								View:   7,
+								SeqNum: 251,
+								Digest: [32]byte{7, 8, 9},
+								From:   3,
+							},
+							Signature: []byte{19, 20, 21},
+						},
+					},
+				},
+			},
+			Type: core.VCTypeRoundRobin,
+			RoundRobinData: &core.RoundRobinVCData{
+				GrantVote: true,
+			},
+		},
+		Signature: []byte{22, 23, 24},
+	}
+
+	out, err := ViewChangeMsgSigFromPB(ViewChangeMsgSigToPB(in))
+	if err != nil {
+		t.Fatalf("ViewChangeMsgSigFromPB returned error: %v", err)
+	}
+	if !reflect.DeepEqual(out, in) {
+		t.Fatalf("round trip mismatch:\n got: %+v\nwant: %+v", out, in)
+	}
+}
+
+func TestViewChangeFromPBRejectsInvalidCheckpointBalance(t *testing.T) {
+	msg := ViewChangeToPB(core.ViewChangeMsg{
+		CheckpointDigest: [32]byte{1},
+		Type:             core.VCTypeRoundRobin,
+	})
+	msg.CheckpointBalances = map[string]string{"alice": "not-an-integer"}
+
+	if _, err := ViewChangeFromPB(msg); err == nil {
+		t.Fatal("ViewChangeFromPB accepted an invalid checkpoint balance")
+	}
+}
+
+func TestViewChangeFromPBRejectsMismatchedVCData(t *testing.T) {
+	msg := ViewChangeToPB(core.ViewChangeMsg{
+		CheckpointDigest: [32]byte{1},
+		Type:             core.VCTypeRoundRobin,
+	})
+	msg.VcData = &ViewChangeMsg_Election{Election: &ElectionVCData{ReqVote: true}}
+
+	if _, err := ViewChangeFromPB(msg); err == nil {
+		t.Fatal("ViewChangeFromPB accepted VC data that does not match its type")
+	}
+}
+
+func TestNewViewMsgSigRoundTrip(t *testing.T) {
+	in := core.NewViewMsgSig{
+		NewViewMsg: core.NewViewMsg{
+			PreprepareLog: []core.PreprepareMsgSig{
+				{
+					PreprepareMsgMini: core.PreprepareMsgMini{
+						View:                       8,
+						SeqNum:                     251,
+						DigestClientMsg:            [32]byte{1, 2, 3},
+						DigestIndividualClientMsgs: [][32]byte{{4, 5, 6}},
+					},
+					Signature: []byte{7, 8, 9},
+					ActualMsg: []core.ClientMsgSignature{
+						{
+							Data: core.ClientMsg{
+								Id:         42,
+								Timestamp:  testTimestamp,
+								ClientName: "client-a",
+								Txn: core.Transaction{
+									Sender:   "alice",
+									Receiver: "bob",
+									Amount:   big.NewInt(10),
+								},
+							},
+							Signature: []byte{10, 11, 12},
+						},
+					},
+				},
+			},
+			ViewChangeLog: []*core.ViewChangeMsgSig{
+				{
+					ViewChangeMsg: core.ViewChangeMsg{
+						ViewNumber:          8,
+						CheckpointSeqNumber: 250,
+						CheckpointDigest:    [32]byte{13, 14, 15},
+						CheckpointProof:     []core.CheckpointMsgSig{},
+						CheckpointBalances:  map[string]*big.Int{},
+						From:                2,
+						PreparedCerts:       map[int64]*core.PreparedCert{},
+						Type:                core.VCTypeRoundRobin,
+						RoundRobinData:      &core.RoundRobinVCData{GrantVote: true},
+					},
+					Signature: []byte{16, 17, 18},
+				},
+			},
+			NewViewNumber: 8,
+			Throughput:    1234.5,
+			From:          1,
+		},
+		Signature: []byte{19, 20, 21},
+	}
+
+	out, err := NewViewMsgSigFromPB(NewViewMsgSigToPB(in))
+	if err != nil {
+		t.Fatalf("NewViewMsgSigFromPB returned error: %v", err)
+	}
+	if !reflect.DeepEqual(out, in) {
+		t.Fatalf("round trip mismatch:\n got: %+v\nwant: %+v", out, in)
 	}
 }

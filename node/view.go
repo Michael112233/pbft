@@ -1,0 +1,729 @@
+package node
+
+import (
+	"bytes"
+	"math/big"
+
+	"github.com/michael112233/pbft/core"
+	"github.com/michael112233/pbft/crypto"
+	"github.com/michael112233/pbft/transportpb"
+)
+
+func (n *Node) enterViewChange() {
+	n.viewChangeRunning = true
+	n.forView = n.forView + 1
+
+	n.roundRobinVC()
+}
+
+func (n *Node) createVCContent(stableCheckpointSeq int64) map[int64]*core.PreparedCert {
+	preparedCerts := make(map[int64]*core.PreparedCert)
+	lastStableCheckpointSeq := n.GetLastStableCheckpointSeq()
+	// can keep highest prepared to iterate even les
+	iterations := 0
+	for seq := lastStableCheckpointSeq + 1; seq <= n.consensusLog.maxSeqNum; seq++ {
+		slot, exists := n.consensusLog.GetLogEntry(seq)
+		if !exists {
+			n.log.Error("Log entry for seq %d does not exist in createVCContent", seq)
+			continue
+		}
+		if slot.preprepare == nil || !slot.commitSent {
+			continue
+		}
+		if slot.preprepare.View < n.GetView() {
+			n.log.Error("Preprepare message for seq %d has view %d which is less than current view %d in createVCContent and forView is %d", seq, slot.preprepare.View, n.view, n.forView)
+			continue
+		}
+		preprepareV := core.PreprepareMsgSig{}
+		if n.cfg.CarryState {
+			actualReqs, exists := n.pool.GetBatch(slot.preprepare.DigestIndividualClientMsgs)
+			if !exists {
+				n.log.Error("Actual requests for seq %d do not exist in pool in createVCContent", seq)
+				continue
+			}
+			preprepareV = core.PreprepareMsgSig{
+
+				PreprepareMsgMini: core.PreprepareMsgMini{
+					View:                       slot.preprepare.View,
+					SeqNum:                     slot.preprepare.SeqNum,
+					DigestClientMsg:            slot.preprepare.DigestClientMsg,
+					DigestIndividualClientMsgs: slot.preprepare.DigestIndividualClientMsgs,
+				},
+				Signature: append([]byte(nil), slot.preprepareSignature...),
+				ActualMsg: actualReqs,
+			}
+
+		} else {
+			preprepareV = core.PreprepareMsgSig{
+
+				PreprepareMsgMini: core.PreprepareMsgMini{
+					View:                       slot.preprepare.View,
+					SeqNum:                     slot.preprepare.SeqNum,
+					DigestClientMsg:            slot.preprepare.DigestClientMsg,
+					DigestIndividualClientMsgs: slot.preprepare.DigestIndividualClientMsgs,
+				},
+				Signature: append([]byte(nil), slot.preprepareSignature...),
+				// ActualMsg: actualReqs,
+			}
+
+		}
+		prepareLog := make(map[int]core.PrepareMsgSig, len(slot.prepares))
+		for from, prepare := range slot.prepares {
+			prepareCopy := core.PrepareMsgSig{
+				PrepareMsg: core.PrepareMsg{
+					View:   prepare.PrepareMsg.View,
+					SeqNum: prepare.PrepareMsg.SeqNum,
+					Digest: prepare.PrepareMsg.Digest,
+					From:   prepare.PrepareMsg.From,
+				},
+			}
+			prepareCopy.Signature = append([]byte(nil), prepare.Signature...)
+			prepareLog[from] = prepareCopy
+		}
+
+		preparedCerts[seq] = &core.PreparedCert{
+			PreprepareMsg: preprepareV,
+			PrepareLog:    prepareLog,
+		}
+		iterations++
+	}
+	n.log.Info("number of slots iterated %d and forview is %d and n.view is %d", iterations, n.forView, n.view)
+	return preparedCerts
+}
+
+func (n *Node) verifyVC(vc core.ViewChangeMsg) bool {
+	verifiedPreparedCerts := n.verifyPreparedCerts(vc.PreparedCerts)
+	// Additional checks can be added here, such as verifying the signature of the ViewChangeMsg itself.
+	return verifiedPreparedCerts
+}
+
+func (n *Node) verifyPrepareLog(prepareLog map[int]core.PrepareMsgSig, view, seq int64, digest [32]byte) bool {
+	required := n.QuorumSize() - 1
+	if required <= 0 {
+		return true
+	}
+	if len(prepareLog) < required {
+		return false
+	}
+
+	validCount := 0
+	for from, prepareMsgSig := range prepareLog {
+		if prepareMsgSig.PrepareMsg == (core.PrepareMsg{}) {
+			continue
+		}
+
+		prepareMsg := prepareMsgSig.PrepareMsg
+		if prepareMsg.View != view || prepareMsg.SeqNum != seq || prepareMsg.Digest != digest {
+			continue
+		}
+		if prepareMsg.From != from {
+			n.log.Error("prepare sender mismatch: map key=%d payload from=%d", from, prepareMsg.From)
+			continue
+		}
+
+		senderPubKey, exists := n.encryptionKeyStore.GetPublicKey(from)
+		if !exists {
+			n.log.Error("public key not found for prepare sender node ID: %d", from)
+			continue
+		}
+
+		payloadBytes, err := marshalDeterministic(transportpb.PrepareToPB(prepareMsg))
+		if err != nil {
+			n.log.Error("prepare payload marshal failed: err=%v", err)
+			continue
+		}
+		if !crypto.VerifySignatureEd25519(payloadBytes, prepareMsgSig.Signature, senderPubKey) {
+			n.log.Error("prepare signature verification failed for node ID: %d", from)
+			continue
+		}
+
+		validCount++
+		if validCount >= required {
+			return true
+		}
+	}
+
+	n.log.Error("not enough valid prepare messages: valid=%d required=%d view=%d seq=%d", validCount, required, view, seq)
+	return false
+}
+
+func (n *Node) verifyPreparedCerts(preparedCerts map[int64]*core.PreparedCert) bool {
+	for certSeq, cert := range preparedCerts {
+		if cert == nil {
+			return false
+		}
+		ok, view, seq, digest := n.verifyPreprepare(cert.PreprepareMsg)
+		if !ok {
+			return false
+		}
+		if seq != certSeq {
+			n.log.Error("prepared cert seq mismatch: map key=%d preprepare seq=%d", certSeq, seq)
+			return false
+		}
+		if !n.verifyPrepareLog(cert.PrepareLog, view, seq, digest) {
+			return false
+		}
+	}
+	return true
+}
+
+func (n *Node) verifyPreprepare(preprepareMsg core.PreprepareMsgSig) (bool, int64, int64, [32]byte) {
+	view := preprepareMsg.PreprepareMsgMini.View
+	seq := preprepareMsg.PreprepareMsgMini.SeqNum
+	digest := preprepareMsg.PreprepareMsgMini.DigestClientMsg
+
+	from := n.leaderForView(view)
+	if from == 0 {
+		n.log.Error("leader not found for preprepare verification: view=%d", view)
+		return false, 0, 0, [32]byte{}
+	}
+
+	senderPubKey, exists := n.encryptionKeyStore.GetPublicKey(from)
+	if !exists {
+		n.log.Error("public key not found for preprepare sender node ID: %d", from)
+		return false, 0, 0, [32]byte{}
+	}
+	payload := preprepareSignPayload(preprepareMsg.PreprepareMsgMini.View, preprepareMsg.PreprepareMsgMini.SeqNum, preprepareMsg.PreprepareMsgMini.DigestClientMsg[:])
+	// payload := &transportpb.PreprepareSignPayload{
+	// 	View:            view,
+	// 	SeqNum:          seq,
+	// 	DigestClientMsg: digest[:],
+	// }
+	payloadBytes, err := marshalDeterministic(payload)
+	if err != nil {
+		n.log.Error("preprepare payload marshal failed: err=%v", err)
+		return false, 0, 0, [32]byte{}
+	}
+
+	if !crypto.VerifySignatureEd25519(payloadBytes, preprepareMsg.Signature, senderPubKey) {
+		n.log.Error("preprepare signature verification failed for node ID: %d", from)
+		return false, 0, 0, [32]byte{}
+	}
+	return true, view, seq, digest
+}
+
+func (n *Node) verifyNewView(newViewMsg core.NewViewMsg) bool {
+	seenFrom := make(map[int]struct{}, len(newViewMsg.ViewChangeLog))
+	viewChangeMsgsCached := n.viewChangeMsgsLog[newViewMsg.NewViewNumber]
+	for _, vcMsgSig := range newViewMsg.ViewChangeLog {
+		if vcMsgSig == nil {
+			n.log.Error("nil view change message in new view message log for view %d", newViewMsg.NewViewNumber)
+			return false
+		}
+		if _, exists := seenFrom[vcMsgSig.ViewChangeMsg.From]; exists {
+			continue
+		}
+
+		foundInCache := false
+		for _, cachedMsg := range viewChangeMsgsCached {
+			if cachedMsg == nil {
+				continue
+			}
+			if cachedMsg.ViewChangeMsg.From == vcMsgSig.ViewChangeMsg.From {
+				cachedPayloadBytes, err := marshalDeterministic(transportpb.ViewChangeToPB(cachedMsg.ViewChangeMsg))
+				if err != nil {
+					n.log.Error("failed to marshal cached view change message for view %d from node %d: %v", newViewMsg.NewViewNumber, cachedMsg.ViewChangeMsg.From, err)
+					continue
+				}
+				incomingPayloadBytes, err := marshalDeterministic(transportpb.ViewChangeToPB(vcMsgSig.ViewChangeMsg))
+				if err != nil {
+					n.log.Error("failed to marshal incoming view change message for view %d from node %d: %v", newViewMsg.NewViewNumber, vcMsgSig.ViewChangeMsg.From, err)
+					continue
+				}
+				if !bytes.Equal(cachedPayloadBytes, incomingPayloadBytes) {
+					n.log.Error("cached view change payload mismatch for view %d from node %d", newViewMsg.NewViewNumber, vcMsgSig.ViewChangeMsg.From)
+					continue
+				}
+				foundInCache = true
+				break
+			}
+		}
+		if !foundInCache {
+			payloadBytes, err := marshalDeterministic(transportpb.ViewChangeToPB(vcMsgSig.ViewChangeMsg))
+			if err != nil {
+				n.log.Error("failed to marshal view change message for view %d from node %d: %v", newViewMsg.NewViewNumber, vcMsgSig.ViewChangeMsg.From, err)
+				continue
+			}
+			senderPubKey, exists := n.encryptionKeyStore.GetPublicKey(vcMsgSig.ViewChangeMsg.From)
+			if !exists {
+				n.log.Error("public key not found for view change sender node ID: %d", vcMsgSig.ViewChangeMsg.From)
+				continue
+			}
+			if !crypto.VerifySignatureEd25519(payloadBytes, vcMsgSig.Signature, senderPubKey) {
+				n.log.Error("signature verification failed for view change message for view %d from node %d", newViewMsg.NewViewNumber, vcMsgSig.ViewChangeMsg.From)
+				continue
+			}
+			n.log.Info("verifying VC in new newview")
+			verifiedVC := n.verifyVC(vcMsgSig.ViewChangeMsg)
+			if verifiedVC {
+				seenFrom[vcMsgSig.ViewChangeMsg.From] = struct{}{}
+			}
+		} else {
+			seenFrom[vcMsgSig.ViewChangeMsg.From] = struct{}{}
+		}
+	}
+
+	if len(seenFrom) >= 2*n.fNodes+1 {
+		return true
+	} else {
+		n.log.Error("not enough unique view change messages in new view message log for view %d: unique=%d required=%d", newViewMsg.NewViewNumber, len(seenFrom), 2*n.fNodes+1)
+		return false
+	}
+}
+
+func verifyOSet(Ocreated map[int64]core.PreprepareMsgSig, Oreceived []core.PreprepareMsgSig) bool {
+	for _, preprepareMsgSig := range Oreceived {
+		if o, exists := Ocreated[preprepareMsgSig.PreprepareMsgMini.SeqNum]; !exists {
+			return false
+		} else {
+			if o.PreprepareMsgMini.View != preprepareMsgSig.PreprepareMsgMini.View ||
+				o.PreprepareMsgMini.SeqNum != preprepareMsgSig.PreprepareMsgMini.SeqNum ||
+				o.PreprepareMsgMini.DigestClientMsg != preprepareMsgSig.PreprepareMsgMini.DigestClientMsg {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func (n *Node) leaderForView(view int64) int {
+	if view <= 0 {
+		return 0
+	}
+	if leaderID, exists := n.leaderIdForView[view]; exists {
+		return leaderID
+	}
+	if n.vcType == core.VCTypeRoundRobin {
+		return n.primaryForView(view, -1)
+	}
+	return 0
+}
+
+func (n *Node) primaryForView(forView int64, currView int64) int {
+	if n.cfg == nil || n.cfg.NodeNum <= 0 || forView <= 0 {
+		return 0
+	}
+	// if n.cfg.ActiveL {
+	// 	if leaderID := n.primaryFromStableCheckpointVotes(); leaderID != 0 {
+	// 		return leaderID
+	// 	}
+	// }
+	// if n.vcType == core.VCTypeWRR {
+	// 	if leaderId := n.scoreboard.GetLeader(forView, currView); leaderId != 0 {
+
+	// 		return leaderId
+	// 	} else {
+	// 		n.log.Error("WRR enabled but no leader found in scoreboard for n.view %d (forView %d)", currView, forView)
+	// 	}
+
+	// }
+	return int((forView-1)%n.cfg.NodeNum) + 1
+}
+
+func (n *Node) newview() {
+	oldView := n.view
+	n.view = n.forView
+	n.leaderId = n.GetNodeID()
+	n.leaderIdForView[n.view] = n.leaderId
+	n.viewChangeRunning = false
+	n.log.Info("Became leader for new view %d and my id is %d", n.view, n.GetNodeID())
+
+	O, maxSeq, latestStableCheckpoint, checkpointProof, checkpointBalances := n.createO(n.viewChangeMsgsLog[n.view], n.view, oldView)
+	mylatestStableCheckpointSeq := n.GetLastStableCheckpointSeq()
+	if latestStableCheckpoint.seq > mylatestStableCheckpointSeq {
+		n.log.Debug("stable checkpoint %d ahead of my last stable checkpoint%d will be stabalising checkpoint at new view primary")
+		n.fastPathStablizeCheckpointviaVC(latestStableCheckpoint, checkpointProof, checkpointBalances, "primary")
+
+	} else if latestStableCheckpoint.seq < mylatestStableCheckpointSeq {
+		n.log.Debug("my stable checkpoint %d is ahead of the latest stable checkpoint %d in new view primary", mylatestStableCheckpointSeq, latestStableCheckpoint.seq)
+		// if maxSeq < mylatestStableCheckpointSeq {
+		// 	n.log.Error("my stable checkpoint %d is ahead of the latest stable checkpoint %d and maxSeq %d is less than my stable checkpoint in new view primary", mylatestStableCheckpointSeq, latestStableCheckpoint.seq, maxSeq)
+		// }
+		n.assert(maxSeq >= mylatestStableCheckpointSeq, "maxseq %d is less than my stable checkpoint %d in new view primary", maxSeq, mylatestStableCheckpointSeq)
+		// if maxseq eq lateststable checkpoint then no change needed to log
+	}
+	n.assert(n.consensusLog.low == n.GetLastStableCheckpointSeq()+1, "consensus log low %d is not equal to last stable checkpoint seq + 1 %d in new view primary", n.consensusLog.low, n.GetLastStableCheckpointSeq()+1)
+	n.assert(maxSeq <= n.consensusLog.high, "maxseq %d is greater than consensus log high %d in new view primary", maxSeq, n.consensusLog.high)
+	for _, preprepareMsg := range O {
+		if preprepareMsg.PreprepareMsgMini.SeqNum < n.consensusLog.low {
+			n.log.Debug("preprepare seq %d is less than consensus log low %d, skipping", preprepareMsg.PreprepareMsgMini.SeqNum, n.consensusLog.low)
+			continue
+		}
+		slot := n.consensusLog.CreateEntry(preprepareMsg.PreprepareMsgMini.SeqNum)
+		n.slotPreprepare(slot, &preprepareMsg.PreprepareMsgMini, preprepareMsg.Signature, true)
+		slot.view = n.view
+		// check if after all the flow if order of actual message same as digest of individual client messages in preprepare message
+		n.pool.AddBatch(preprepareMsg.ActualMsg, preprepareMsg.PreprepareMsgMini.DigestIndividualClientMsgs, preprepareMsg.PreprepareMsgMini.SeqNum, n.view)
+
+	}
+	// if kept track of highest prepared this loop can be smaller like vc content
+	n.consensusLog.RemoveLogEntriesAboveSeq(maxSeq)
+	// max seq number in log is prepareseq number in all nodes
+	n.sequenceNumber = maxSeq
+
+	newViewMsg := core.NewViewMsg{
+		NewViewNumber: n.view,
+		From:          n.GetNodeID(),
+		PreprepareLog: O,
+		ViewChangeLog: n.viewChangeMsgsLog[n.view],
+		Throughput:    0,
+	}
+	pbMsg := transportpb.NewViewToPB(newViewMsg)
+	payloadBytes, err := marshalDeterministic(pbMsg)
+	if err != nil {
+		n.log.Error("Failed to marshal NewView message for signing: %v", err)
+		return
+	}
+	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+	n.asyncBroadCast(core.MsgNewViewMessage, newViewMsg, signature)
+	// shouldnt have anything to replay as not released event loop
+	if n.cfg.Performance {
+		n.throughputPerf.throughputIntervalStartSeq = maxSeq + THROUGHPUTINTERVAL_DELAY
+		n.log.Info("Throughput interval start seq set to %d for new view %d", n.throughputPerf.throughputIntervalStartSeq, n.view)
+		n.throughputPerf.throughputObservationStarted = false
+	}
+	n.replayBufferedMessagesForView(n.view)
+
+	// maxseq == ladtStableCheckpoint.seq means no suffix, O len zero
+
+	// loss in this queue is fine ig
+	n.pendingRequests.Reset()
+}
+
+func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
+	if newViewMsg.NewViewNumber < n.view {
+
+		return
+	}
+	if newViewMsg.NewViewNumber < n.forView {
+
+		n.log.Error("Received new view message for view %d which is less than my for view %d, ignoring", newViewMsg.NewViewNumber, n.forView)
+		return
+	}
+	verifiedNewView := n.verifyNewView(newViewMsg)
+	if !verifiedNewView {
+		n.log.Error("Failed to verify new view message for view %d, ignoring at replica", newViewMsg.NewViewNumber)
+		return
+	}
+
+	Oset, maxSeq, latestStableCheckpoint, checkpointProof, checkpointBalances := n.createOReplica(newViewMsg.ViewChangeLog, newViewMsg.NewViewNumber)
+
+	verifiedOsets := verifyOSet(Oset, newViewMsg.PreprepareLog)
+	if !verifiedOsets {
+		n.log.Error("O set verification failed for new view message for view %d at replica", newViewMsg.NewViewNumber)
+
+		return
+	}
+
+	// oldView := n.view
+	n.view = newViewMsg.NewViewNumber
+	n.forView = newViewMsg.NewViewNumber
+	n.leaderId = newViewMsg.From
+	n.leaderIdForView[newViewMsg.NewViewNumber] = newViewMsg.From
+	n.viewChangeRunning = false
+
+	mylatestStableCheckpointSeq := n.GetLastStableCheckpointSeq()
+	if latestStableCheckpoint.seq > mylatestStableCheckpointSeq {
+		n.log.Debug("stable checkpoint %d ahead of my last stable checkpoint%d will be stabalising checkpoint at new view replica", latestStableCheckpoint.seq, mylatestStableCheckpointSeq)
+		n.fastPathStablizeCheckpointviaVC(latestStableCheckpoint, checkpointProof, checkpointBalances, "replica")
+
+	} else if latestStableCheckpoint.seq < mylatestStableCheckpointSeq {
+		n.log.Debug("my stable checkpoint %d is ahead of the latest stable checkpoint %d in new view replica", mylatestStableCheckpointSeq, latestStableCheckpoint.seq)
+		// if maxSeq < mylatestStableCheckpointSeq {
+		// 	n.log.Error("my stable checkpoint %d is ahead of the latest stable checkpoint %d and maxSeq %d is less than my stable checkpoint in new view primary", mylatestStableCheckpointSeq, latestStableCheckpoint.seq, maxSeq)
+		// }
+		n.assert(maxSeq >= mylatestStableCheckpointSeq, "maxseq %d is less than my stable checkpoint %d in new view replica", maxSeq, mylatestStableCheckpointSeq)
+		// if maxseq eq lateststable checkpoint then no change needed to log
+	}
+	n.assert(n.consensusLog.low == n.GetLastStableCheckpointSeq()+1, "consensus log low %d is not equal to last stable checkpoint seq + 1 %d in new view replica", n.consensusLog.low, n.GetLastStableCheckpointSeq()+1)
+	n.assert(maxSeq <= n.consensusLog.high, "maxseq %d is greater than consensus log high %d in new view replica", maxSeq, n.consensusLog.high)
+
+	for _, preprepareMsg := range newViewMsg.PreprepareLog {
+		if preprepareMsg.PreprepareMsgMini.SeqNum < n.consensusLog.low {
+			n.log.Debug("preprepare seq %d is less than consensus log low %d, skipping", preprepareMsg.PreprepareMsgMini.SeqNum, n.consensusLog.low)
+			continue
+		}
+		slot := n.consensusLog.CreateEntry(preprepareMsg.PreprepareMsgMini.SeqNum)
+		n.slotPreprepare(slot, &preprepareMsg.PreprepareMsgMini, preprepareMsg.Signature, true)
+		slot.view = n.view
+
+		msg := core.PrepareMsg{
+			View:   n.view,
+			SeqNum: preprepareMsg.PreprepareMsgMini.SeqNum,
+			Digest: preprepareMsg.PreprepareMsgMini.DigestClientMsg,
+			From:   n.GetNodeID(),
+		}
+		pbMsg := transportpb.PrepareToPB(msg)
+		payloadBytes, err := marshalDeterministic(pbMsg)
+		if err != nil {
+			n.log.Error("Failed to marshal Prepare message for signing: %v", err)
+			// to be decided
+		}
+		signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+		msgForLog := core.PrepareMsgSig{
+			PrepareMsg: msg,
+			Signature:  signature,
+		}
+		slot.prepareSent = true
+
+		slot.prepares[n.GetNodeID()] = msgForLog
+		n.asyncBroadCast(core.MsgPrepareMessage, msg, signature)
+
+		// check if after all the flow if order of actual message same as digest of individual client messages in preprepare message
+		n.pool.AddBatch(preprepareMsg.ActualMsg, preprepareMsg.PreprepareMsgMini.DigestIndividualClientMsgs, preprepareMsg.PreprepareMsgMini.SeqNum, n.view)
+
+	}
+	n.consensusLog.RemoveLogEntriesAboveSeq(maxSeq)
+	if n.cfg.Performance {
+		n.throughputPerf.throughputIntervalStartSeq = maxSeq + THROUGHPUTINTERVAL_DELAY
+		n.log.Info("Throughput interval start seq set to %d for new view %d", n.throughputPerf.throughputIntervalStartSeq, n.view)
+		n.throughputPerf.throughputObservationStarted = false
+	}
+	n.sequenceNumber = maxSeq
+	n.pendingRequests.Reset()
+	// here we may have buffer
+	n.replayBufferedMessagesForView(n.view)
+	go n.sendLeaderIdUpdate(n.leaderId, n.view)
+
+}
+
+func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView int64) ([]core.PreprepareMsgSig, int64, checkpoint, []core.CheckpointMsgSig, map[string]*big.Int) {
+	O := make([]core.PreprepareMsgSig, 0)
+	preprepareLog := make(map[int64]core.PreprepareMsgSig)
+	// n.checkpointMu.Lock()
+	// minS := n.lastStableCheckpoint.seq + 1
+	minS := vcMsgSigs[0].ViewChangeMsg.CheckpointSeqNumber + 1
+	// myStableCheckpoint := n.lastStableCheckpoint
+	latestStableCheckpoint := checkpoint{
+		seq:    vcMsgSigs[0].ViewChangeMsg.CheckpointSeqNumber,
+		digest: vcMsgSigs[0].ViewChangeMsg.CheckpointDigest,
+	}
+	// will be nil if laststable is 0
+	checkpointProof := vcMsgSigs[0].ViewChangeMsg.CheckpointProof
+	checkpointBalances := vcMsgSigs[0].ViewChangeMsg.CheckpointBalances
+	// checkpointNeedsSync := false
+	for _, vcMsgSig := range vcMsgSigs {
+		if vcMsgSig.ViewChangeMsg.CheckpointSeqNumber > latestStableCheckpoint.seq {
+			// n.log.Error("missing the latest stable checkpoint at o primary") // would need to pass digest and application state in vc message for sync
+			// n.lastStableCheckpoint = checkpoint{
+			// 	seq: vcMsgSig.ViewChangeMsg.CheckpointSeqNumber,
+			// }
+			latestStableCheckpoint = checkpoint{
+				seq:    vcMsgSig.ViewChangeMsg.CheckpointSeqNumber,
+				digest: vcMsgSig.ViewChangeMsg.CheckpointDigest,
+			}
+			checkpointProof = vcMsgSig.ViewChangeMsg.CheckpointProof
+			checkpointBalances = vcMsgSig.ViewChangeMsg.CheckpointBalances
+			minS = latestStableCheckpoint.seq + 1
+
+		}
+	}
+	// n.fastPathStablizeCheckpointviaVC(latestStableCheckpoint, checkpointProof, "primary")
+
+	// if latestStableCheckpoint.seq > n.lastExecuted {
+	// 	// n.lastExecuted = latestStableCheckpoint.seq // unsafe checkpoint forwarding
+	// 	// n.log.Error("updating last executed to stable checkpoint seq %d", n.lastExecuted)
+
+	// } else if latestStableCheckpoint.seq < n.lastExecuted {
+	// 	n.log.Debug("my stable checkpoint seq %d is less than my last executed %d, this should not happen", latestStableCheckpoint.seq, n.lastExecuted)
+	// }
+
+	maxS := minS - 1
+	for _, viewChangeMsg := range vcMsgSigs {
+		for seqNumber, pm := range viewChangeMsg.ViewChangeMsg.PreparedCerts {
+			if pm == nil || seqNumber < minS {
+				continue
+			}
+			candidate := pm.PreprepareMsg
+			candidateView := candidate.PreprepareMsgMini.View
+
+			if candidateView >= view {
+				n.log.Error(
+					"prepared cert seq %d has view %d ahead of my new view %d in createO at Primary",
+					seqNumber, candidateView, view,
+				)
+				continue
+			}
+
+			if seqNumber > maxS {
+				maxS = seqNumber
+
+			}
+			existing, exists := preprepareLog[seqNumber]
+			if !exists ||
+				candidateView > existing.PreprepareMsgMini.View {
+				preprepareLog[seqNumber] = candidate
+			}
+			// if pm.PreprepareMsg.PreprepareMsgMini.View < oldView {
+			// 	n.log.Error("preprepare message has an older view number createO at Primary")
+			// }
+			// preprepareLog[seqNumber] = pm.PreprepareMsg
+
+		}
+	}
+
+	if maxS < minS {
+		n.log.Debug("no suffix at o primary")
+		return O, minS - 1, latestStableCheckpoint, checkpointProof, checkpointBalances
+	}
+	for seq := minS; seq <= maxS; seq++ {
+		if preprepare, exists := preprepareLog[seq]; exists {
+			preprepare.PreprepareMsgMini.View = view
+			// pbMsg := transportpb.PreprepareMiniToPB2(preprepare.PreprepareMsgMini)
+			payloadBytes, err := marshalDeterministic(preprepareSignPayload(preprepare.PreprepareMsgMini.View, preprepare.PreprepareMsgMini.SeqNum, preprepare.PreprepareMsgMini.DigestClientMsg[:]))
+			if err != nil {
+				// handle error, maybe skip this preprepare
+				continue
+			}
+			signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+			if n.cfg.CarryState {
+				O = append(O, core.PreprepareMsgSig{
+					PreprepareMsgMini: preprepare.PreprepareMsgMini,
+					Signature:         signature,
+					ActualMsg:         preprepare.ActualMsg,
+				})
+			} else {
+				O = append(O, core.PreprepareMsgSig{
+					PreprepareMsgMini: preprepare.PreprepareMsgMini,
+					Signature:         signature,
+				})
+			}
+
+		} else {
+			n.log.Info("No prepared cert for seq %d in view change messages, creating dummy preprepare the min and max seq are %d and %d", seq, minS, maxS)
+			dummyPreprepare := core.PreprepareMsgMini{
+				View:            view,
+				SeqNum:          seq,
+				DigestClientMsg: [32]byte{},
+			}
+			// pbMsg := transportpb.PreprepareMiniToPB2(dummyPreprepare)
+			payloadBytes, err := marshalDeterministic(preprepareSignPayload(dummyPreprepare.View, dummyPreprepare.SeqNum, dummyPreprepare.DigestClientMsg[:]))
+			if err != nil {
+				// handle error, maybe skip this preprepare
+				continue
+			}
+			signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+			O = append(O, core.PreprepareMsgSig{
+				PreprepareMsgMini: dummyPreprepare,
+				Signature:         signature,
+			})
+		}
+	}
+	return O, maxS, latestStableCheckpoint, checkpointProof, checkpointBalances
+
+}
+
+func (n *Node) createOReplica(vcMsgSigs []*core.ViewChangeMsgSig, view int64) (map[int64]core.PreprepareMsgSig, int64, checkpoint, []core.CheckpointMsgSig, map[string]*big.Int) {
+
+	preprepareLog := make(map[int64]core.PreprepareMsgSig)
+	// n.checkpointMu.Lock()
+	// minS := n.lastStableCheckpoint.seq + 1
+	minS := vcMsgSigs[0].ViewChangeMsg.CheckpointSeqNumber + 1
+	// myStableCheckpoint := n.lastStableCheckpoint
+	latestStableCheckpoint := checkpoint{
+		seq:    vcMsgSigs[0].ViewChangeMsg.CheckpointSeqNumber,
+		digest: vcMsgSigs[0].ViewChangeMsg.CheckpointDigest,
+	}
+	// will be nil if laststable is 0
+	checkpointProof := vcMsgSigs[0].ViewChangeMsg.CheckpointProof
+	checkpointBalances := vcMsgSigs[0].ViewChangeMsg.CheckpointBalances
+	// checkpointNeedsSync := false
+	for _, vcMsgSig := range vcMsgSigs {
+		if vcMsgSig.ViewChangeMsg.CheckpointSeqNumber > latestStableCheckpoint.seq {
+			// n.log.Error("missing the latest stable checkpoint at o primary") // would need to pass digest and application state in vc message for sync
+			// n.lastStableCheckpoint = checkpoint{
+			// 	seq: vcMsgSig.ViewChangeMsg.CheckpointSeqNumber,
+			// }
+			latestStableCheckpoint = checkpoint{
+				seq:    vcMsgSig.ViewChangeMsg.CheckpointSeqNumber,
+				digest: vcMsgSig.ViewChangeMsg.CheckpointDigest,
+			}
+			checkpointProof = vcMsgSig.ViewChangeMsg.CheckpointProof
+			checkpointBalances = vcMsgSig.ViewChangeMsg.CheckpointBalances
+			minS = latestStableCheckpoint.seq + 1
+
+		}
+	}
+	// n.fastPathStablizeCheckpointviaVC(latestStableCheckpoint, checkpointProof, "primary")
+
+	// if latestStableCheckpoint.seq > n.lastExecuted {
+	// 	// n.lastExecuted = latestStableCheckpoint.seq // unsafe checkpoint forwarding
+	// 	// n.log.Error("updating last executed to stable checkpoint seq %d", n.lastExecuted)
+
+	// } else if latestStableCheckpoint.seq < n.lastExecuted {
+	// 	n.log.Debug("my stable checkpoint seq %d is less than my last executed %d, this should not happen", latestStableCheckpoint.seq, n.lastExecuted)
+	// }
+
+	maxS := minS - 1
+	for _, viewChangeMsg := range vcMsgSigs {
+		for seqNumber, pm := range viewChangeMsg.ViewChangeMsg.PreparedCerts {
+			if pm == nil || seqNumber < minS {
+				continue
+			}
+			candidate := pm.PreprepareMsg
+			candidateView := candidate.PreprepareMsgMini.View
+
+			if candidateView >= view {
+				n.log.Error(
+					"prepared cert seq %d has view %d ahead of my new view %d in createO at Replica",
+					seqNumber, candidateView, view,
+				)
+				continue
+			}
+
+			if seqNumber > maxS {
+				maxS = seqNumber
+
+			}
+			existing, exists := preprepareLog[seqNumber]
+			if !exists ||
+				candidateView > existing.PreprepareMsgMini.View {
+				preprepareLog[seqNumber] = candidate
+			}
+			// if pm.PreprepareMsg.PreprepareMsgMini.View < oldView {
+			// 	n.log.Error("preprepare message has an older view number createO at Primary")
+			// }
+			// preprepareLog[seqNumber] = pm.PreprepareMsg
+
+		}
+	}
+
+	if maxS < minS {
+		n.log.Debug("no suffix at o replica")
+		return preprepareLog, minS - 1, latestStableCheckpoint, checkpointProof, checkpointBalances
+	}
+	for seq := minS; seq <= maxS; seq++ {
+		if preprepare, exists := preprepareLog[seq]; exists {
+			preprepare.PreprepareMsgMini.View = view
+			// // pbMsg := transportpb.PreprepareMiniToPB2(preprepare.PreprepareMsgMini)
+			// payloadBytes, err := marshalDeterministic(preprepareSignPayload(preprepare.PreprepareMsgMini.View, preprepare.PreprepareMsgMini.SeqNum, preprepare.PreprepareMsgMini.DigestClientMsg[:]))
+			// if err != nil {
+			// 	// handle error, maybe skip this preprepare
+			// 	continue
+			// }
+			// signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+			preprepareLog[seq] = preprepare
+
+		} else {
+
+			dummyPreprepare := core.PreprepareMsgMini{
+				View:            view,
+				SeqNum:          seq,
+				DigestClientMsg: [32]byte{},
+			}
+			// pbMsg := transportpb.PreprepareMiniToPB2(dummyPreprepare)
+			// payloadBytes, err := marshalDeterministic(preprepareSignPayload(dummyPreprepare.View, dummyPreprepare.SeqNum, dummyPreprepare.DigestClientMsg[:]))
+			// if err != nil {
+			// 	// handle error, maybe skip this preprepare
+			// 	continue
+			// }
+			// signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+			preprepareLog[seq] = core.PreprepareMsgSig{
+				PreprepareMsgMini: dummyPreprepare,
+				Signature:         nil,
+			}
+		}
+	}
+	return preprepareLog, maxS, latestStableCheckpoint, checkpointProof, checkpointBalances
+
+}

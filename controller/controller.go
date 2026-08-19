@@ -51,25 +51,25 @@ func runNode(nodeID int64, cfg *config.Config) {
 			// 		fmt.Println("Invalid number:", parts[1])
 			// 	}
 			// }
+
+			// } else if input[0] == 'i' {
+
+			// 	Node.PrintDetails() // no number provided, use default
+
+			// } else if input[0] == 'd' {
+			// 	Node.Dead()
+			// } else if input[0] == 'e' {
+			// 	Node.PrintExecutedSlots()
+			// } else if input[0] == 'c' {
+			// 	Node.PrintCommitSentSummary()
+			// } else if input[0] == 'l' {
+			// 	Node.TimesLeader()
+			// } else if input[0] == 'a' {
+			// 	Node.PrintAccountBalances()
+
+		} else if input[0] == 'x' {
+			Node.PrintLatencySummary()
 		}
-		// } else if input[0] == 'i' {
-
-		// 	Node.PrintDetails() // no number provided, use default
-
-		// } else if input[0] == 'd' {
-		// 	Node.Dead()
-		// } else if input[0] == 'e' {
-		// 	Node.PrintExecutedSlots()
-		// } else if input[0] == 'c' {
-		// 	Node.PrintCommitSentSummary()
-		// } else if input[0] == 'l' {
-		// 	Node.TimesLeader()
-		// } else if input[0] == 'a' {
-		// 	Node.PrintAccountBalances()
-
-		// } else if input[0] == 'x' {
-		// 	// Node.PrintLatencySummary()
-		// }
 
 	}
 }

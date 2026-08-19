@@ -32,6 +32,13 @@ func (q *RequestQueue) Full() bool {
 	return q.size == len(q.requests)
 }
 
+// Reset removes all queued requests while preserving the queue's capacity.
+func (q *RequestQueue) Reset() {
+	clear(q.requests)
+	q.head = 0
+	q.size = 0
+}
+
 // Enqueue returns false when the queue is full. The event loop should avoid
 // receiving from the client channel while Full reports true, so this is an
 // invariant check rather than a request-dropping policy.

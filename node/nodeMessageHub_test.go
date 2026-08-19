@@ -2,6 +2,8 @@ package node
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"net"
 	"sync"
 	"testing"
@@ -13,7 +15,110 @@ import (
 	"github.com/michael112233/pbft/transportpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/proto"
 )
+
+func TestBuildEnvelopeAndDeliverViewProtocolMessages(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate signing key: %v", err)
+	}
+
+	receiverNode := &Node{
+		NodeID:             2,
+		log:                logger.NewLogger(2, "node"),
+		encryptionKeyStore: &KeyStore{publicKeys: map[int]ed25519.PublicKey{1: publicKey}},
+		consensusMsgChan:   make(chan ConsensusMsg, 1),
+		viewChangeMsgChan:  make(chan ViewChangeMsg, 1),
+		checkpointMsgChan:  make(chan CheckpointMsg, 1),
+		newViewMsgChan:     make(chan NewViewMsg, 20),
+	}
+	receiverHub := &NodeMessageHub{node_ref: receiverNode, log: receiverNode.log}
+	senderHub := &NodeMessageHub{node_ref: &Node{NodeID: 1}}
+
+	tests := []struct {
+		name       string
+		msgType    string
+		msg        interface{}
+		payload    func(*transportpb.Envelope) proto.Message
+		assertSent func(*testing.T)
+	}{
+		{
+			name:    "view change",
+			msgType: core.MsgViewChangeMessage,
+			msg: core.ViewChangeMsg{
+				ViewNumber:     2,
+				From:           1,
+				Type:           core.VCTypeRoundRobin,
+				RoundRobinData: &core.RoundRobinVCData{},
+			},
+			payload: func(env *transportpb.Envelope) proto.Message { return env.GetViewChange() },
+			assertSent: func(t *testing.T) {
+				delivered := <-receiverNode.viewChangeMsgChan
+				msg, ok := delivered.Msg.(core.ViewChangeMsg)
+				if !ok || msg.ViewNumber != 2 || msg.From != 1 {
+					t.Fatalf("delivered view-change = %#v", delivered.Msg)
+				}
+			},
+		},
+		{
+			name:    "checkpoint",
+			msgType: core.MsgCheckpointMessage,
+			msg: core.CheckpointMsg{
+				SeqNum: 100,
+				Digest: [32]byte{1, 2, 3},
+				From:   1,
+			},
+			payload: func(env *transportpb.Envelope) proto.Message { return env.GetCheckpoint() },
+			assertSent: func(t *testing.T) {
+				delivered := <-receiverNode.checkpointMsgChan
+				msg, ok := delivered.Msg.(core.CheckpointMsg)
+				if !ok || msg.SeqNum != 100 || msg.From != 1 {
+					t.Fatalf("delivered checkpoint = %#v", delivered.Msg)
+				}
+			},
+		},
+		{
+			name:    "new view",
+			msgType: core.MsgNewViewMessage,
+			msg: core.NewViewMsg{
+				NewViewNumber: 2,
+				From:          1,
+			},
+			payload: func(env *transportpb.Envelope) proto.Message { return env.GetNewView() },
+			assertSent: func(t *testing.T) {
+				delivered := <-receiverNode.newViewMsgChan
+				msg, ok := delivered.Msg.(core.NewViewMsg)
+				if !ok || msg.NewViewNumber != 2 || msg.From != 1 {
+					t.Fatalf("delivered new-view = %#v", delivered.Msg)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env, err := senderHub.buildEnvelope(tt.msgType, tt.msg, nil)
+			if err != nil {
+				t.Fatalf("buildEnvelope returned error: %v", err)
+			}
+			payloadBytes, err := marshalDeterministic(tt.payload(env))
+			if err != nil {
+				t.Fatalf("marshal signing payload: %v", err)
+			}
+			env.Signature = ed25519.Sign(privateKey, payloadBytes)
+
+			ack, err := receiverHub.Deliver(context.Background(), env)
+			if err != nil {
+				t.Fatalf("Deliver returned error: %v", err)
+			}
+			if !ack.Ok {
+				t.Fatalf("Deliver rejected message: %s", ack.Error)
+			}
+			tt.assertSent(t)
+		})
+	}
+}
 
 func TestBuildEnvelopeLeaderIdUpdate(t *testing.T) {
 	hub := &NodeMessageHub{

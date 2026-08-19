@@ -41,6 +41,24 @@ type ConsensusMsg struct {
 	Signature []byte
 }
 
+type ViewChangeMsg struct {
+	MsgType   string
+	Msg       interface{}
+	Signature []byte
+}
+
+type CheckpointMsg struct {
+	MsgType   string
+	Msg       interface{}
+	Signature []byte
+}
+
+type NewViewMsg struct {
+	MsgType   string
+	Msg       interface{}
+	Signature []byte
+}
+
 type NodeMessageHub struct {
 	transportpb.UnimplementedPBFTTransportServer
 
@@ -381,6 +399,72 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		}
 		return &transportpb.Ack{Ok: true}, nil
 
+	case core.MsgViewChangeMessage:
+		viewChange := env.GetViewChange()
+		if viewChange == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing view-change body"}, nil
+		}
+		if int(env.From) != int(viewChange.From) {
+			return &transportpb.Ack{Ok: false, Error: "view-change sender mismatch"}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, viewChange) {
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.ViewChangeFromPB(viewChange)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		hub.node_ref.viewChangeMsgChan <- ViewChangeMsg{
+			MsgType:   core.MsgViewChangeMessage,
+			Msg:       data,
+			Signature: env.Signature,
+		}
+		return &transportpb.Ack{Ok: true}, nil
+
+	case core.MsgCheckpointMessage:
+		checkpoint := env.GetCheckpoint()
+		if checkpoint == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing checkpoint body"}, nil
+		}
+		if int(env.From) != int(checkpoint.From) {
+			return &transportpb.Ack{Ok: false, Error: "checkpoint sender mismatch"}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, checkpoint) {
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.CheckpointFromPB(checkpoint)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		hub.node_ref.checkpointMsgChan <- CheckpointMsg{
+			MsgType:   core.MsgCheckpointMessage,
+			Msg:       data,
+			Signature: env.Signature,
+		}
+		return &transportpb.Ack{Ok: true}, nil
+
+	case core.MsgNewViewMessage:
+		newView := env.GetNewView()
+		if newView == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing new-view body"}, nil
+		}
+		if int(env.From) != int(newView.From) {
+			return &transportpb.Ack{Ok: false, Error: "new-view sender mismatch"}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, newView) {
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.NewViewFromPB(newView)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		hub.node_ref.newViewMsgChan <- NewViewMsg{
+			MsgType:   core.MsgNewViewMessage,
+			Msg:       data,
+			Signature: env.Signature,
+		}
+		return &transportpb.Ack{Ok: true}, nil
+
 	case core.MsgCloseMessage:
 		_ = env.GetClose()
 		return &transportpb.Ack{Ok: true}, nil
@@ -550,6 +634,30 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}, signat
 		env.Body = &transportpb.Envelope_Commit{Commit: pbMsg}
 		env.From = int32(hub.node_ref.GetNodeID())
 		// env.Signature = crypto.SignMessageEd25519(payloadBytes, hub.node_ref.encryptionKeyStore.GetPrivateKey())
+
+	case core.MsgViewChangeMessage:
+		viewChange, ok := msg.(core.ViewChangeMsg)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_ViewChange{ViewChange: transportpb.ViewChangeToPB(viewChange)}
+		env.From = int32(hub.node_ref.GetNodeID())
+
+	case core.MsgCheckpointMessage:
+		checkpoint, ok := msg.(core.CheckpointMsg)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_Checkpoint{Checkpoint: transportpb.CheckpointToPB(checkpoint)}
+		env.From = int32(hub.node_ref.GetNodeID())
+
+	case core.MsgNewViewMessage:
+		newView, ok := msg.(core.NewViewMsg)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_NewView{NewView: transportpb.NewViewToPB(newView)}
+		env.From = int32(hub.node_ref.GetNodeID())
 
 	case core.MsgReplyMessage:
 		reply, ok := msg.(core.ReplyMessage)

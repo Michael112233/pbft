@@ -1,6 +1,7 @@
 package node
 
 import (
+	"math/big"
 	"time"
 
 	"github.com/michael112233/pbft/core"
@@ -82,4 +83,9 @@ func (n *Node) postActions(actions []executionPostAction) {
 
 		}
 	}
+}
+
+func (n *Node) PushExecutionMachine(balances map[string]*big.Int, seq int64) {
+	n.lastExecuted = seq
+	n.executionMachine.RestoreCheckpoint(balances)
 }
