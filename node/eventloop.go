@@ -24,6 +24,7 @@ func (n *Node) startEventLoop() {
 func (n *Node) run() {
 	defer close(n.eventLoopDoneCh)
 	defer n.StopBatchTimer()
+	defer n.stopViewTimers()
 
 	for {
 		clientRequestCh := n.receiveVerifiedClientRequestCh
@@ -66,6 +67,10 @@ func (n *Node) run() {
 			n.HandleCheckpoint(checkpointMsg.Msg.(core.CheckpointMsg), checkpointMsg.Signature)
 		case newViewMsg := <-n.newViewMsgChan:
 			n.HandleNewView(newViewMsg.Msg.(core.NewViewMsg), newViewMsg.Signature)
+		case <-n.leaderProgressTimerCh:
+			n.handleLeaderProgressTimeout()
+		case <-n.newViewTimerCh:
+			n.handleNewViewTimeout()
 
 		case <-n.eventLoopStopCh:
 			return

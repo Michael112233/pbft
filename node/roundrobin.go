@@ -41,18 +41,8 @@ func (n *Node) roundRobinVC() {
 		Signature:     signature,
 	}
 	n.asyncBroadCast(core.MsgViewChangeMessage, vcPayload, signature)
-	n.viewChangeMsgsLog[n.forView] = append(n.viewChangeMsgsLog[n.forView], vcMsg)
-
-	if len(n.viewChangeMsgsLog[n.forView]) == n.QuorumSize() {
-		// this path shouldnt run with f+1 path
-		n.log.Warn("Starting new view timer from roundrobin vc %d", n.forView)
-		expectedLeader := n.primaryForView(n.forView, n.view)
-		if expectedLeader == n.GetNodeID() {
-			n.log.Info("I am the new leader for view %d in round robin vc, starting new view immediately (leader=%d) from timeout dummy", n.forView, expectedLeader)
-			n.newview()
-		}
-
-	}
+	n.appendViewChangeIfNew(vcMsg)
+	n.maybeHandleViewChangeQuorum(n.forView, "round-robin-VC")
 }
 
 func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signature []byte) {
@@ -66,31 +56,23 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 		return
 	}
 
-	n.viewChangeMsgsLog[viewChange.ViewNumber] = append(n.viewChangeMsgsLog[viewChange.ViewNumber],
-		&core.ViewChangeMsgSig{
-			ViewChangeMsg: viewChange,
-			Signature:     signature,
-		})
+	if !n.appendViewChangeIfNew(&core.ViewChangeMsgSig{
+		ViewChangeMsg: viewChange,
+		Signature:     signature,
+	}) {
+		n.log.Debug("Ignoring duplicate view change from node %d for view %d", viewChange.From, viewChange.ViewNumber)
+		return
+	}
+
+	viewChangeCount := n.uniqueViewChangeCount(viewChange.ViewNumber)
 
 	if n.forView == viewChange.ViewNumber {
-		if len(n.viewChangeMsgsLog[viewChange.ViewNumber]) == n.QuorumSize() {
-
-			n.log.Info("Starting new view timer for view CHANGE %d", viewChange.ViewNumber)
-
-		}
-		expectedLeader := n.primaryForView(n.forView, -1)
-		if len(n.viewChangeMsgsLog[viewChange.ViewNumber]) == n.QuorumSize() && expectedLeader == n.GetNodeID() {
-			n.log.Info("Node %d is the round robin leader for view %d; starting new view immediately from handle view change", expectedLeader, n.forView)
-
-			n.newview()
-
-		}
+		n.maybeHandleViewChangeQuorum(viewChange.ViewNumber, "round-robin-HandleVC")
 
 	} else if n.forView < viewChange.ViewNumber {
 		n.log.Info("Received view change for view %d which is higher than my for view %d, ", viewChange.ViewNumber, n.forView)
-		if viewChange.ViewNumber == n.forView+1 && ((n.cfg.PerformanceTrigger && len(n.viewChangeMsgsLog[viewChange.ViewNumber]) == 1) || (!n.cfg.PerformanceTrigger && len(n.viewChangeMsgsLog[viewChange.ViewNumber]) == n.fNodes+1)) {
-			// timers
-			n.log.Info(" Round Robin Triggering view-change timout dummy due to receiving higher view change message for view %d and my for view %d", viewChange.ViewNumber, n.forView)
+		if viewChange.ViewNumber == n.forView+1 && viewChangeCount == n.fNodes+1 {
+			n.log.Info("Entering view change after receiving f+1 view-change messages for view %d", viewChange.ViewNumber)
 			n.enterViewChange()
 		}
 	} else {
@@ -98,4 +80,40 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 		n.log.Error("Received view change for view %d which is lower than my for view %d, just adding to log", viewChange.ViewNumber, n.forView)
 	}
 
+}
+
+func (n *Node) appendViewChangeIfNew(viewChange *core.ViewChangeMsgSig) bool {
+	view := viewChange.ViewChangeMsg.ViewNumber
+	// from := viewChange.ViewChangeMsg.From
+	// for _, existing := range n.viewChangeMsgsLog[view] {
+	// 	if existing != nil && existing.ViewChangeMsg.From == from {
+	// 		return false
+	// 	}
+	// }
+
+	n.viewChangeMsgsLog[view] = append(n.viewChangeMsgsLog[view], viewChange)
+	return true
+}
+
+func (n *Node) uniqueViewChangeCount(view int64) int {
+
+	return len(n.viewChangeMsgsLog[view])
+}
+
+func (n *Node) maybeHandleViewChangeQuorum(view int64, path string) {
+	// if n.newViewTimerCh != nil {
+
+	// 	return
+	// }
+	if n.uniqueViewChangeCount(view) == n.QuorumSize() {
+
+		n.log.Info("Received 2f+1 view-change messages for view %d; starting new view timer in %s", view, path)
+		n.startNewViewTimer()
+
+		expectedLeader := n.primaryForView(view, n.view)
+		if expectedLeader == n.GetNodeID() {
+			n.log.Info("Node %d is the round robin leader for view %d; starting new view in %s", expectedLeader, view, path)
+			n.newview()
+		}
+	}
 }

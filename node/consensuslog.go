@@ -92,7 +92,7 @@ func (l *Log) GCLog(stableCheckpointSeq int64) {
 		// here can delete entries from pool referencing this seq number as well if needed
 	}
 	l.low = stableCheckpointSeq + 1
-	l.high = l.low + 2*CHECKPOINT_INTERVAL
+	l.high = l.low + 2*CHECKPOINT_INTERVAL - 1
 }
 
 func (l *Log) RemoveLogEntriesAboveSeq(seqNum int64) {

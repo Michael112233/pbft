@@ -55,6 +55,10 @@ type Node struct {
 	eventLoopStopOnce              sync.Once
 	pendingRequests                RequestQueue
 	batchLogic                     Batcher
+	leaderProgressTimer            *time.Timer
+	leaderProgressTimerCh          <-chan time.Time
+	newViewTimer                   *time.Timer
+	newViewTimerCh                 <-chan time.Time
 	pool                           *Pool
 	consensusLog                   *Log
 	checkpointManager              *CheckpointManager
@@ -411,6 +415,13 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 			n.log.Info("Received PrePrepare for current view %d (equal views) seq %d but currently in view change, ignoring and for view is %d", preprepareMsg.View, preprepareMsg.SeqNum, n.forView)
 		}
 
+		return
+
+	}
+
+	if !n.viewChangeRunning && preprepareMsg.View > view {
+		n.log.Warn("Interesting case: Received PrePrepare for future view %d seq %d while current view is %d, ignoring and for view is %d", preprepareMsg.View, preprepareMsg.SeqNum, view, n.forView)
+		return
 	}
 
 	if preprepareMsg.View != view {
@@ -527,6 +538,11 @@ func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 		return
 	}
 
+	if !n.viewChangeRunning && prepareMsg.View > view {
+		n.log.Warn("Interesting case: Received Prepare for future view %d seq %d while current view is %d, ignoring and for view is %d", prepareMsg.View, prepareMsg.SeqNum, view, n.forView)
+		return
+	}
+
 	if prepareMsg.View != view {
 		return
 	}
@@ -608,6 +624,11 @@ func (n *Node) HandleCommit(commitMsg core.CommitMsg) {
 		}
 		// n.viewMu.RUnlock()
 
+		return
+	}
+
+	if !n.viewChangeRunning && commitMsg.View > view {
+		n.log.Warn("Interesting case: Received Commit for future view %d seq %d while current view is %d, ignoring and for view is %d", commitMsg.View, commitMsg.SeqNum, view, n.forView)
 		return
 	}
 

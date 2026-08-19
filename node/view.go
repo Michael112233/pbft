@@ -10,6 +10,7 @@ import (
 )
 
 func (n *Node) enterViewChange() {
+	n.stopViewTimers()
 	n.viewChangeRunning = true
 	n.forView = n.forView + 1
 
@@ -331,7 +332,7 @@ func (n *Node) newview() {
 	O, maxSeq, latestStableCheckpoint, checkpointProof, checkpointBalances := n.createO(n.viewChangeMsgsLog[n.view], n.view, oldView)
 	mylatestStableCheckpointSeq := n.GetLastStableCheckpointSeq()
 	if latestStableCheckpoint.seq > mylatestStableCheckpointSeq {
-		n.log.Debug("stable checkpoint %d ahead of my last stable checkpoint%d will be stabalising checkpoint at new view primary")
+		n.log.Debug("stable checkpoint %d ahead of my last stable checkpoint %d; stabilizing checkpoint at new-view primary", latestStableCheckpoint.seq, mylatestStableCheckpointSeq)
 		n.fastPathStablizeCheckpointviaVC(latestStableCheckpoint, checkpointProof, checkpointBalances, "primary")
 
 	} else if latestStableCheckpoint.seq < mylatestStableCheckpointSeq {
@@ -376,6 +377,7 @@ func (n *Node) newview() {
 	}
 	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
 	n.asyncBroadCast(core.MsgNewViewMessage, newViewMsg, signature)
+	n.acceptNewViewTimers()
 	// shouldnt have anything to replay as not released event loop
 	if n.cfg.Performance {
 		n.throughputPerf.throughputIntervalStartSeq = maxSeq + THROUGHPUTINTERVAL_DELAY
@@ -484,6 +486,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	// here we may have buffer
 	n.replayBufferedMessagesForView(n.view)
 	go n.sendLeaderIdUpdate(n.leaderId, n.view)
+	n.acceptNewViewTimers()
 
 }
 

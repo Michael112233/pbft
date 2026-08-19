@@ -12,7 +12,8 @@ func TestNodeEventLoopStopsOnSignal(t *testing.T) {
 		eventLoopStopCh:                make(chan struct{}),
 		eventLoopDoneCh:                make(chan struct{}),
 		receiveVerifiedClientRequestCh: make(chan core.ClientMsgSignature),
-		pendingRequests:                NewRequestQueue(1),
+		pendingRequests:                NewRequestQueue(2),
+		batchLogic:                     Batcher{maxBatchSize: 2},
 	}
 
 	n.startEventLoop()

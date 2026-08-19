@@ -58,12 +58,18 @@ func (n *Node) exeLoop() {
 
 		slot.executed = true
 		n.lastExecuted++
+		n.resetLeaderProgressTimer()
 		if n.cfg.Performance {
 			_ = n.observeExecutedSlotForThroughput(n.lastExecuted, time.Now(), view, leaderId)
 			// if performanceTriggert {
 			// 	performanceTrigger += 1
 			// }
 		}
+		if n.lastExecuted%CHECKPOINT_INTERVAL == 0 {
+			copyOfBalances := n.executionMachine.CheckpointSnapshot()
+			n.HandleLocalCheckpoint(copyOfBalances, n.lastExecuted)
+		}
+
 		// of full batch
 		n.RecordEndTime(slot.preprepare.DigestClientMsg, time.Now())
 	}
