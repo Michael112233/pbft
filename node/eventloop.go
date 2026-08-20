@@ -31,7 +31,7 @@ func (n *Node) run() {
 		if n.pendingRequests.Full() {
 			// A nil channel disables this select case. The caller will block and
 			// naturally apply backpressure until proposal progress frees space.
-			n.log.Debug("node event loop pending request queue is full, blocking client request channel")
+			n.log.Error("node event loop pending request queue is full, blocking client request channel")
 			clientRequestCh = nil
 		}
 
