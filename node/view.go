@@ -11,6 +11,10 @@ import (
 
 func (n *Node) enterViewChange() {
 	n.stopViewTimers()
+	// if n.lastExecuted >= 11500 {
+	// 	n.log.Info("Node %d has executed %d requests, stopping further view changes", n.GetNodeID(), n.lastExecuted)
+	// 	return
+	// }
 	n.viewChangeRunning = true
 	n.forView = n.forView + 1
 

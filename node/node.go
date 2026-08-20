@@ -28,7 +28,7 @@ const (
 	targetThroughputMaxFactor          = 0.90
 	ALPHA                              = 1 / float64(10) // for exponential moving average calculation of throughput
 	D                                  = 3
-	THROUGHPUTINTERVAL_DELAY           = 100
+	THROUGHPUTINTERVAL_DELAY           = 10
 )
 
 type clientRequestKey struct {
@@ -343,12 +343,12 @@ func (n *Node) tryPropose(fullBatch bool) {
 		return
 	}
 	if n.pendingRequests.Len() < n.GetBatchSize() {
-		n.log.Debug("Not enough pending requests to propose a batch: %d < %d", n.pendingRequests.Len(), n.GetBatchSize())
+		// n.log.Debug("Not enough pending requests to propose a batch: %d < %d", n.pendingRequests.Len(), n.GetBatchSize())
 		return
 	}
 	inflight := n.CurrentSequenceNumber() - n.GetLastExecuted()
 	if inflight >= n.AllowedMaxInFlight() {
-		n.log.Debug("Cannot propose: inflight %d >= allowed max inflight %d", inflight, n.AllowedMaxInFlight())
+		// n.log.Debug("Cannot propose: inflight %d >= allowed max inflight %d", inflight, n.AllowedMaxInFlight())
 		return
 	}
 	if n.CurrentSequenceNumber()+1 > n.consensusLog.high {

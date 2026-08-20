@@ -3,9 +3,11 @@ package node
 import "time"
 
 const (
-	leaderProgressTimeout = 100 * time.Millisecond
-	newViewTimeout        = 100 * time.Millisecond
+	leaderProgressTimeout = 7 * time.Second
+	newViewTimeout        = 7 * time.Second
 )
+
+// was 90
 
 // resetOneShotTimer starts a timer or moves its deadline forward. All timer
 // operations are performed by the node event loop, so no additional locking
@@ -40,6 +42,8 @@ func stopOneShotTimer(timer *time.Timer) {
 
 // resetLeaderProgressTimer is called after every executed sequence number and
 // when a new view is accepted. Its first call starts the timer.
+
+// keeps reseeting after expiry
 func (n *Node) resetLeaderProgressTimer() {
 	if !n.cfg.Fixed {
 		return
