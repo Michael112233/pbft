@@ -420,6 +420,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 
 		return
 	}
+	n.log.Info("Received and accepted new view message for view %d and from node %d at replica", newViewMsg.NewViewNumber, newViewMsg.From)
 
 	// oldView := n.view
 	n.view = newViewMsg.NewViewNumber
