@@ -19,10 +19,11 @@ import (
 )
 
 const (
-	clientDialTimeout   = 3 * time.Second
-	streamRetryInterval = 500 * time.Millisecond
-	sendWaitTimeout     = 5 * time.Second
-	maxGRPCMsgBytes     = 256 * 1024 * 1024
+	clientDialTimeout         = 3 * time.Second
+	streamRetryInterval       = 500 * time.Millisecond
+	sendWaitTimeout           = 5 * time.Second
+	maxGRPCMsgBytes           = 256 * 1024 * 1024
+	grpcFlowControlWindowSize = 8 * 1024 * 1024
 )
 
 type nodeStreamState struct {
@@ -130,6 +131,8 @@ func (hub *ClientMessageHub) openNodeStream(addr string) (*nodeStreamState, erro
 	conn, err := grpc.NewClient(
 		addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithInitialWindowSize(grpcFlowControlWindowSize),
+		grpc.WithInitialConnWindowSize(grpcFlowControlWindowSize),
 		grpc.WithContextDialer(func(ctx context.Context, target string) (net.Conn, error) {
 			conn, err := dialer.DialContext(ctx, "tcp", target)
 			if err == nil {

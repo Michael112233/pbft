@@ -21,7 +21,8 @@ import (
 )
 
 const (
-	maxGRPCMsgBytes = 1000 * 1024 * 1024
+	maxGRPCMsgBytes           = 1000 * 1024 * 1024
+	grpcFlowControlWindowSize = 8 * 1024 * 1024
 )
 
 type clientStreamState struct {
@@ -101,6 +102,8 @@ func (hub *NodeMessageHub) Start(node *Node, wg *sync.WaitGroup) {
 	hub.mu.Lock()
 	hub.listener = lis
 	hub.grpcSrv = grpc.NewServer(
+		grpc.InitialWindowSize(grpcFlowControlWindowSize),
+		grpc.InitialConnWindowSize(grpcFlowControlWindowSize),
 		grpc.MaxRecvMsgSize(maxGRPCMsgBytes),
 		grpc.MaxSendMsgSize(maxGRPCMsgBytes),
 	)
@@ -414,6 +417,14 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		if err != nil {
 			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
 		}
+		sizeBytes := proto.Size(env)
+		hub.node_ref.log.Info(
+			"HUB: Received ViewChange message from node %d for view %d. size_bytes=%d size_mib=%.3f",
+			env.From,
+			data.ViewNumber,
+			sizeBytes,
+			float64(sizeBytes)/(1024*1024),
+		)
 		hub.node_ref.viewChangeMsgChan <- ViewChangeMsg{
 			MsgType:   core.MsgViewChangeMessage,
 			Msg:       data,
@@ -458,6 +469,14 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		if err != nil {
 			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
 		}
+		sizeBytes := proto.Size(env)
+		hub.node_ref.log.Info(
+			"HUB: Received NewView message from node %d for view %d. size_bytes=%d size_mib=%.3f",
+			env.From,
+			data.NewViewNumber,
+			sizeBytes,
+			float64(sizeBytes)/(1024*1024),
+		)
 		hub.node_ref.newViewMsgChan <- NewViewMsg{
 			MsgType:   core.MsgNewViewMessage,
 			Msg:       data,
@@ -511,6 +530,8 @@ func (hub *NodeMessageHub) getOrCreatePeerStream(addr string) (*peerStreamState,
 		addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithContextDialer(dialContext),
+		grpc.WithInitialWindowSize(grpcFlowControlWindowSize),
+		grpc.WithInitialConnWindowSize(grpcFlowControlWindowSize),
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(maxGRPCMsgBytes),
 			grpc.MaxCallSendMsgSize(maxGRPCMsgBytes),
@@ -728,9 +749,26 @@ func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, sign
 	}
 
 	hub.injectArtificialLatency(msgType, ip)
+	timeStart := time.Now()
+	sizeBytes := 0
+	if msgType == core.MsgNewViewMessage || msgType == core.MsgViewChangeMessage {
+		sizeBytes = proto.Size(env)
+	}
 
 	if err := hub.sendEnvelopeOverPeerStream(ip, env); err != nil {
 		hub.log.Error("node stream send failed. msgType=%s target=%s err=%v", msgType, ip, err)
+	}
+	if msgType == core.MsgNewViewMessage || msgType == core.MsgViewChangeMessage {
+		timeElapsed := time.Since(timeStart)
+		hub.node_ref.log.Info(
+			"HUB: node stream send for %s took %s. msgType=%s target=%s size_bytes=%d size_mib=%.3f",
+			msgType,
+			timeElapsed,
+			msgType,
+			ip,
+			sizeBytes,
+			float64(sizeBytes)/(1024*1024),
+		)
 	}
 
 }

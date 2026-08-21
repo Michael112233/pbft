@@ -52,8 +52,9 @@ func (n *Node) drainBufferedMessagesForView(view int64) []bufferedConsensusMessa
 			continue
 		} else if msg.view < view {
 			n.log.Warn("buffer have lower view msgs")
+		} else if msg.view > view {
+			remaining = append(remaining, msg)
 		}
-		remaining = append(remaining, msg)
 	}
 	if len(remaining) > 0 {
 		n.log.Info("Still have %d buffered consensus messages for future views after draining for view %d", len(remaining), view)
