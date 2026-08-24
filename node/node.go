@@ -51,18 +51,24 @@ type Node struct {
 	viewChangeMsgChan              chan ViewChangeMsg
 	checkpointMsgChan              chan CheckpointMsg
 	newViewMsgChan                 chan NewViewMsg
-	eventLoopStarted               atomic.Bool
-	eventLoopStopOnce              sync.Once
-	pendingRequests                RequestQueue
-	batchLogic                     Batcher
-	leaderProgressTimer            *time.Timer
-	leaderProgressTimerCh          <-chan time.Time
-	newViewTimer                   *time.Timer
-	newViewTimerCh                 <-chan time.Time
-	pool                           *Pool
-	consensusLog                   *Log
-	checkpointManager              *CheckpointManager
-	bufferedMsgs                   []bufferedConsensusMessage
+	electionMsgChan                chan ElectionMsg
+
+	electionVDFResultCh chan electionVDFResult
+	eventLoopStarted    atomic.Bool
+	eventLoopStopOnce   sync.Once
+	// electionVDFWorkers             sync.WaitGroup
+
+	pendingRequests       RequestQueue
+	batchLogic            Batcher
+	leaderProgressTimer   *time.Timer
+	leaderProgressTimerCh <-chan time.Time
+	newViewTimer          *time.Timer
+	newViewTimerCh        <-chan time.Time
+	pool                  *Pool
+	consensusLog          *Log
+	checkpointManager     *CheckpointManager
+	bufferedMsgs          []bufferedConsensusMessage
+	electionManager       *ElectionManager
 
 	////
 
@@ -138,6 +144,7 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		consensusLog:       NewLog(),
 		executionMachine:   execution.NewAccountStateMachine(),
 		bufferedMsgs:       make([]bufferedConsensusMessage, 0),
+		electionManager:    NewElectionManager(),
 		// checkpointManager:  NewCheckpointManager(log),
 
 		eventLoopStopCh:                make(chan struct{}),
@@ -147,18 +154,21 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		viewChangeMsgChan:              make(chan ViewChangeMsg, 100),
 		checkpointMsgChan:              make(chan CheckpointMsg, 100),
 		newViewMsgChan:                 make(chan NewViewMsg, 20),
-		pendingRequests:                NewRequestQueue(cfg.PendingQueueCapacity),
-		clientReceiveRateStop:          make(chan struct{}),
-		clientReceiveRateDone:          make(chan struct{}),
-		leaderPreprepareRateStop:       make(chan struct{}),
-		leaderPreprepareRateDone:       make(chan struct{}),
-		memoryLoggerStop:               make(chan struct{}),
-		memoryLoggerDone:               make(chan struct{}),
-		shareLoggerStop:                make(chan struct{}),
-		shareLoggerDone:                make(chan struct{}),
-		throughputMeasurementsChan:     make(chan throughputMeasurement, throughputMeasurementBufferSize),
-		throughputMeasurementsStop:     make(chan struct{}),
-		throughputMeasurementsDone:     make(chan struct{}),
+		electionMsgChan:                make(chan ElectionMsg, 100),
+		electionVDFResultCh:            make(chan electionVDFResult, 1),
+
+		pendingRequests:            NewRequestQueue(cfg.PendingQueueCapacity),
+		clientReceiveRateStop:      make(chan struct{}),
+		clientReceiveRateDone:      make(chan struct{}),
+		leaderPreprepareRateStop:   make(chan struct{}),
+		leaderPreprepareRateDone:   make(chan struct{}),
+		memoryLoggerStop:           make(chan struct{}),
+		memoryLoggerDone:           make(chan struct{}),
+		shareLoggerStop:            make(chan struct{}),
+		shareLoggerDone:            make(chan struct{}),
+		throughputMeasurementsChan: make(chan throughputMeasurement, throughputMeasurementBufferSize),
+		throughputMeasurementsStop: make(chan struct{}),
+		throughputMeasurementsDone: make(chan struct{}),
 
 		batchLogic: Batcher{
 			maxBatchSize:     cfg.MaxBatchSize,
@@ -775,6 +785,14 @@ func (n *Node) AllowedMaxInFlight() int64 {
 
 func (n *Node) GetLastExecuted() int64 {
 	return n.lastExecuted
+}
+
+func (n *Node) MinVDFDelay() int {
+	return n.cfg.MinVDFDelay
+}
+
+func (n *Node) MaxVDFDelay() int {
+	return n.cfg.MaxVDFDelay
 }
 
 func (n *Node) asyncBroadCast(msgType string, msg interface{}, signature []byte) {

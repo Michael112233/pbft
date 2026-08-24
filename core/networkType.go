@@ -15,4 +15,6 @@ const (
 	MsgRequestStateTransfer   string = "MsgRequestStateTransfer"
 	MsgStateTransfer          string = "MsgStateTransfer"
 	MsgNewViewMessage         string = "MsgNewViewMessage"
+	MsgRequestVoteMessage     string = "MsgRequestVoteMessage"
+	MsgGrantVoteMessage       string = "MsgGrantVoteMessage"
 )

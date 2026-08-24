@@ -200,6 +200,31 @@ message NewViewMsgSig {
   bytes signature = 2;
 }
 
+message RequestVoteMsg {
+  int32 from = 1;
+  int64 view_number = 2;
+  bytes seed = 3;
+  uint64 delay_steps = 4;
+  bytes y = 5;
+  bytes vdf_proof = 6;
+  bytes vrf_proof = 7;
+}
+
+message RequestVoteMsgSig {
+  RequestVoteMsg request_vote_msg = 1;
+  bytes signature = 2;
+}
+
+message GrantVoteMsg {
+  int32 from = 1;
+  int64 view_number = 2;
+}
+
+message GrantVoteMsgSig {
+  GrantVoteMsg grant_vote_msg = 1;
+  bytes signature = 2;
+}
+
 message Envelope {
   string msg_type = 1;
   int32 from = 2;
@@ -218,6 +243,8 @@ message Envelope {
     CommitTps commit_tps = 20;
     LeaderIdUpdate leader_id_update = 21;
     VCRunningStatus vc_running_status = 22;
+    RequestVoteMsg request_vote = 23;
+    GrantVoteMsg grant_vote = 24;
   }
 }
 

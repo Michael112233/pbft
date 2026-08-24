@@ -6,12 +6,25 @@ import (
 	"github.com/michael112233/pbft/transportpb"
 )
 
-func (n *Node) roundRobinVC() {
+func (n *Node) PathString() string {
+	path := ""
+	if n.vcType == core.VCTypeElection {
+		path = "election-VC"
+	} else if n.vcType == core.VCTypeRoundRobin {
+		path = "round-robin-VC"
+	}
+	return path
+}
+
+func (n *Node) VC() {
 	checkpoint, proof, balances := n.GetLastStableCheckpointwithProofandBalances()
-	n.log.Info("Stable checkpoint which will be used for round robin vc is seq %d", checkpoint.seq)
+	path := n.PathString()
+
+	n.log.Info("Stable checkpoint which will be used for %s vc is seq %d", path, checkpoint.seq)
 	// Do something with the stable checkpoint and its proof
 	preparedCerts := n.createVCContent(checkpoint.seq)
 	grantVote := false
+
 	vcPayload := core.ViewChangeMsg{
 		ViewNumber:          n.forView,
 		CheckpointSeqNumber: checkpoint.seq,
@@ -20,7 +33,7 @@ func (n *Node) roundRobinVC() {
 		CheckpointBalances:  balances,
 		From:                n.GetNodeID(),
 		PreparedCerts:       preparedCerts,
-		Type:                core.VCTypeRoundRobin,
+		Type:                n.vcType,
 		RoundRobinData: &core.RoundRobinVCData{
 			GrantVote: grantVote,
 		},
@@ -42,14 +55,20 @@ func (n *Node) roundRobinVC() {
 	}
 	n.asyncBroadCast(core.MsgViewChangeMessage, vcPayload, signature)
 	n.appendViewChangeIfNew(vcMsg)
-	n.maybeHandleViewChangeQuorum(n.forView, "round-robin-VC")
+	// when ente here due to f+1 then can hit 2f+1 by adding ours
+	if n.vcType == core.VCTypeRoundRobin {
+		n.maybeHandleViewChangeQuorum(n.forView, "round-robin-VC")
+	} else if n.vcType == core.VCTypeElection {
+		n.ElectionLogic(n.forView)
+	}
 }
 
 func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signature []byte) {
 	if viewChange.ViewNumber <= n.GetView() {
 		return
 	}
-	n.log.Info("received vc as round robin type from node %d for view %d", viewChange.From, viewChange.ViewNumber)
+	path := n.PathString()
+	n.log.Info("received vc as %s from node %d for view %d", path, viewChange.From, viewChange.ViewNumber)
 	verifiedVC := n.verifyVC(viewChange)
 	if !verifiedVC {
 		n.log.Error("Failed to verify view change message from node %d for view %d", viewChange.From, viewChange.ViewNumber)
@@ -67,7 +86,11 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 	viewChangeCount := n.uniqueViewChangeCount(viewChange.ViewNumber)
 
 	if n.forView == viewChange.ViewNumber {
-		n.maybeHandleViewChangeQuorum(viewChange.ViewNumber, "round-robin-HandleVC")
+		if viewChange.Type == core.VCTypeRoundRobin {
+			n.maybeHandleViewChangeQuorum(viewChange.ViewNumber, "round-robin-HandleVC")
+		} else if viewChange.Type == core.VCTypeElection {
+			n.ElectionLogic(viewChange.ViewNumber)
+		}
 
 	} else if n.forView < viewChange.ViewNumber {
 		n.log.Info("Received view change for view %d which is higher than my for view %d, ", viewChange.ViewNumber, n.forView)
@@ -108,6 +131,9 @@ func (n *Node) maybeHandleViewChangeQuorum(view int64, path string) {
 	if n.uniqueViewChangeCount(view) == n.QuorumSize() {
 
 		n.log.Info("Received 2f+1 view-change messages for view %d; starting new view timer in %s", view, path)
+		// if path == "round-robin-VC" {
+		// 	n.log.Warn("This path shouldnt happen 2f+1 shouldnt be from round robin vc")
+		// }
 		n.startNewViewTimer()
 
 		expectedLeader := n.primaryForView(view, n.view)

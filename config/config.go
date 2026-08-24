@@ -45,6 +45,8 @@ type Config struct {
 	MaxBatchSize       int   `json:"max_batch_size"`
 	MaxBatchDelay      int   `json:"max_batch_delay"`
 	ConsensusChanSize  int   `json:"consensus_chan_size"`
+	MinVDFDelay        int   `json:"min_vdf_delay"`
+	MaxVDFDelay        int   `json:"max_vdf_delay"`
 }
 
 func ReadCfg(filename string) *Config {

@@ -94,6 +94,31 @@ func TestBuildEnvelopeAndDeliverViewProtocolMessages(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:    "request vote",
+			msgType: core.MsgRequestVoteMessage,
+			msg: core.RequestVoteMsg{
+				From:       1,
+				ViewNumber: 2,
+				Seed:       []byte("view-2"),
+				DelaySteps: 500,
+				Y:          []byte{1, 2, 3},
+				VDFProof:   []byte{4, 5, 6},
+				VRFProof:   []byte{7, 8, 9},
+			},
+			payload:    func(env *transportpb.Envelope) proto.Message { return env.GetRequestVote() },
+			assertSent: func(*testing.T) {}, // Event-loop delivery is intentionally not wired yet.
+		},
+		{
+			name:    "grant vote",
+			msgType: core.MsgGrantVoteMessage,
+			msg: core.GrantVoteMsg{
+				From:       1,
+				ViewNumber: 2,
+			},
+			payload:    func(env *transportpb.Envelope) proto.Message { return env.GetGrantVote() },
+			assertSent: func(*testing.T) {}, // Event-loop delivery is intentionally not wired yet.
+		},
 	}
 
 	for _, tt := range tests {

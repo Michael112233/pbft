@@ -198,8 +198,8 @@ done
 sleep 5
 # setup_netem
 # Optional: start client in another window
-tmux new-window -t "$SESSION" -n "client" \
-    "cd \"$CURRENT_DIR\" && ./pbft_main -r client -m loopbackip; status=\$?; echo; echo \"client exited with status \$status\"; exec bash"
+# tmux new-window -t "$SESSION" -n "client" \
+#     "cd \"$CURRENT_DIR\" && ./pbft_main -r client -m loopbackip; status=\$?; echo; echo \"client exited with status \$status\"; exec bash"
 
 # sleep 2
 # start_repeating_netem_spikes

@@ -67,10 +67,23 @@ func (n *Node) run() {
 			n.HandleCheckpoint(checkpointMsg.Msg.(core.CheckpointMsg), checkpointMsg.Signature)
 		case newViewMsg := <-n.newViewMsgChan:
 			n.HandleNewView(newViewMsg.Msg.(core.NewViewMsg), newViewMsg.Signature)
+		case result := <-n.electionVDFResultCh:
+			n.handleElectionVDFResult(result)
 		case <-n.leaderProgressTimerCh:
 			n.handleLeaderProgressTimeout()
 		case <-n.newViewTimerCh:
 			n.handleNewViewTimeout()
+		case electionMsg := <-n.electionMsgChan:
+			switch electionMsg.MsgType {
+			case core.MsgRequestVoteMessage:
+				msg := electionMsg.Msg.(core.RequestVoteMsg)
+				n.HandleRequestVoteMsg(msg, electionMsg.Signature, "event-loop")
+			case core.MsgGrantVoteMessage:
+				msg := electionMsg.Msg.(core.GrantVoteMsg)
+				n.HandleGrantVoteMsg(msg, electionMsg.Signature)
+			default:
+				n.log.Error("Unknown election message type: %v", electionMsg.MsgType)
+			}
 
 		case <-n.eventLoopStopCh:
 			return
@@ -90,6 +103,9 @@ func (n *Node) stopEventLoop() {
 	})
 
 	<-n.eventLoopDoneCh
+	if n.electionManager != nil {
+		n.electionManager.electionVDFWorkers.Wait()
+	}
 }
 
 // last few req left in queue may stall as exe only try once

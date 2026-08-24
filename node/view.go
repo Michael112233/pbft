@@ -18,7 +18,7 @@ func (n *Node) enterViewChange() {
 	n.viewChangeRunning = true
 	n.forView = n.forView + 1
 
-	n.roundRobinVC()
+	n.VC()
 }
 
 func (n *Node) createVCContent(stableCheckpointSeq int64) map[int64]*core.PreparedCert {
@@ -397,7 +397,7 @@ func (n *Node) newview() {
 }
 
 func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
-	if newViewMsg.NewViewNumber < n.view {
+	if newViewMsg.NewViewNumber <= n.view {
 
 		return
 	}

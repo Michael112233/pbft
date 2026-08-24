@@ -40,6 +40,47 @@ func TestRequestMessageRoundTripIncludesMsgType(t *testing.T) {
 	}
 }
 
+func TestRequestVoteMsgSigRoundTrip(t *testing.T) {
+	in := core.RequestVoteMsgSig{
+		RequestVoteMsg: core.RequestVoteMsg{
+			From:       3,
+			ViewNumber: 9,
+			Seed:       []byte("view-9"),
+			DelaySteps: 123456,
+			Y:          []byte{1, 2, 3},
+			VDFProof:   []byte{4, 5, 6},
+			VRFProof:   []byte{7, 8, 9},
+		},
+		Signature: []byte{10, 11, 12},
+	}
+
+	out, err := RequestVoteMsgSigFromPB(RequestVoteMsgSigToPB(in))
+	if err != nil {
+		t.Fatalf("RequestVoteMsgSigFromPB returned error: %v", err)
+	}
+	if !reflect.DeepEqual(out, in) {
+		t.Fatalf("round trip mismatch:\n got: %+v\nwant: %+v", out, in)
+	}
+}
+
+func TestGrantVoteMsgSigRoundTrip(t *testing.T) {
+	in := core.GrantVoteMsgSig{
+		GrantVoteMsg: core.GrantVoteMsg{
+			From:       4,
+			ViewNumber: 11,
+		},
+		Signature: []byte{1, 2, 3},
+	}
+
+	out, err := GrantVoteMsgSigFromPB(GrantVoteMsgSigToPB(in))
+	if err != nil {
+		t.Fatalf("GrantVoteMsgSigFromPB returned error: %v", err)
+	}
+	if !reflect.DeepEqual(out, in) {
+		t.Fatalf("round trip mismatch:\n got: %+v\nwant: %+v", out, in)
+	}
+}
+
 func TestCommitTpsRoundTrip(t *testing.T) {
 	in := core.CommitTps{
 		To:   "client-1",

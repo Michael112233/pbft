@@ -60,6 +60,12 @@ type NewViewMsg struct {
 	Signature []byte
 }
 
+type ElectionMsg struct {
+	MsgType   string
+	Msg       interface{}
+	Signature []byte
+}
+
 type NodeMessageHub struct {
 	transportpb.UnimplementedPBFTTransportServer
 
@@ -484,6 +490,64 @@ func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope)
 		}
 		return &transportpb.Ack{Ok: true}, nil
 
+	case core.MsgRequestVoteMessage:
+		requestVote := env.GetRequestVote()
+		if requestVote == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing request-vote body"}, nil
+		}
+		if int(env.From) != int(requestVote.From) {
+			return &transportpb.Ack{Ok: false, Error: "request-vote sender mismatch"}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, requestVote) {
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.RequestVoteFromPB(requestVote)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		hub.node_ref.log.Info(
+			"HUB: Received RequestVote message from node %d for view %d",
+			data.From,
+			data.ViewNumber,
+		)
+
+		// TODO: Deliver the verified request vote to the node event loop.
+		hub.node_ref.electionMsgChan <- ElectionMsg{
+			MsgType:   core.MsgRequestVoteMessage,
+			Msg:       data,
+			Signature: env.Signature,
+		}
+		return &transportpb.Ack{Ok: true}, nil
+
+	case core.MsgGrantVoteMessage:
+		grantVote := env.GetGrantVote()
+		if grantVote == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing grant-vote body"}, nil
+		}
+		if int(env.From) != int(grantVote.From) {
+			return &transportpb.Ack{Ok: false, Error: "grant-vote sender mismatch"}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, grantVote) {
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.GrantVoteFromPB(grantVote)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		hub.node_ref.log.Info(
+			"HUB: Received GrantVote message from node %d for view %d",
+			data.From,
+			data.ViewNumber,
+		)
+
+		// TODO: Deliver the verified grant vote to the node event loop.
+		hub.node_ref.electionMsgChan <- ElectionMsg{
+			MsgType:   core.MsgGrantVoteMessage,
+			Msg:       data,
+			Signature: env.Signature,
+		}
+		return &transportpb.Ack{Ok: true}, nil
+
 	case core.MsgCloseMessage:
 		_ = env.GetClose()
 		return &transportpb.Ack{Ok: true}, nil
@@ -678,6 +742,22 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}, signat
 			return nil, errInvalidPayloadType(msgType, msg)
 		}
 		env.Body = &transportpb.Envelope_NewView{NewView: transportpb.NewViewToPB(newView)}
+		env.From = int32(hub.node_ref.GetNodeID())
+
+	case core.MsgRequestVoteMessage:
+		requestVote, ok := msg.(core.RequestVoteMsg)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_RequestVote{RequestVote: transportpb.RequestVoteToPB(requestVote)}
+		env.From = int32(hub.node_ref.GetNodeID())
+
+	case core.MsgGrantVoteMessage:
+		grantVote, ok := msg.(core.GrantVoteMsg)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_GrantVote{GrantVote: transportpb.GrantVoteToPB(grantVote)}
 		env.From = int32(hub.node_ref.GetNodeID())
 
 	case core.MsgReplyMessage:

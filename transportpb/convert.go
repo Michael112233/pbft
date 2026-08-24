@@ -899,3 +899,95 @@ func NewViewMsgSigFromPB(msg *NewViewMsgSig) (core.NewViewMsgSig, error) {
 		Signature:  append([]byte(nil), msg.Signature...),
 	}, nil
 }
+
+func RequestVoteToPB(msg core.RequestVoteMsg) *RequestVoteMsg {
+	return &RequestVoteMsg{
+		From:       int32(msg.From),
+		ViewNumber: msg.ViewNumber,
+		Seed:       append([]byte(nil), msg.Seed...),
+		DelaySteps: msg.DelaySteps,
+		Y:          append([]byte(nil), msg.Y...),
+		VdfProof:   append([]byte(nil), msg.VDFProof...),
+		VrfProof:   append([]byte(nil), msg.VRFProof...),
+	}
+}
+
+func RequestVoteFromPB(msg *RequestVoteMsg) (core.RequestVoteMsg, error) {
+	if msg == nil {
+		return core.RequestVoteMsg{}, nil
+	}
+
+	return core.RequestVoteMsg{
+		From:       int(msg.From),
+		ViewNumber: msg.ViewNumber,
+		Seed:       append([]byte(nil), msg.Seed...),
+		DelaySteps: msg.DelaySteps,
+		Y:          append([]byte(nil), msg.Y...),
+		VDFProof:   append([]byte(nil), msg.VdfProof...),
+		VRFProof:   append([]byte(nil), msg.VrfProof...),
+	}, nil
+}
+
+func RequestVoteMsgSigToPB(msg core.RequestVoteMsgSig) *RequestVoteMsgSig {
+	return &RequestVoteMsgSig{
+		RequestVoteMsg: RequestVoteToPB(msg.RequestVoteMsg),
+		Signature:      append([]byte(nil), msg.Signature...),
+	}
+}
+
+func RequestVoteMsgSigFromPB(msg *RequestVoteMsgSig) (core.RequestVoteMsgSig, error) {
+	if msg == nil {
+		return core.RequestVoteMsgSig{}, nil
+	}
+
+	requestVoteMsg, err := RequestVoteFromPB(msg.RequestVoteMsg)
+	if err != nil {
+		return core.RequestVoteMsgSig{}, err
+	}
+
+	return core.RequestVoteMsgSig{
+		RequestVoteMsg: requestVoteMsg,
+		Signature:      append([]byte(nil), msg.Signature...),
+	}, nil
+}
+
+func GrantVoteToPB(msg core.GrantVoteMsg) *GrantVoteMsg {
+	return &GrantVoteMsg{
+		From:       int32(msg.From),
+		ViewNumber: msg.ViewNumber,
+	}
+}
+
+func GrantVoteFromPB(msg *GrantVoteMsg) (core.GrantVoteMsg, error) {
+	if msg == nil {
+		return core.GrantVoteMsg{}, nil
+	}
+
+	return core.GrantVoteMsg{
+		From:       int(msg.From),
+		ViewNumber: msg.ViewNumber,
+	}, nil
+}
+
+func GrantVoteMsgSigToPB(msg core.GrantVoteMsgSig) *GrantVoteMsgSig {
+	return &GrantVoteMsgSig{
+		GrantVoteMsg: GrantVoteToPB(msg.GrantVoteMsg),
+		Signature:    append([]byte(nil), msg.Signature...),
+	}
+}
+
+func GrantVoteMsgSigFromPB(msg *GrantVoteMsgSig) (core.GrantVoteMsgSig, error) {
+	if msg == nil {
+		return core.GrantVoteMsgSig{}, nil
+	}
+
+	grantVoteMsg, err := GrantVoteFromPB(msg.GrantVoteMsg)
+	if err != nil {
+		return core.GrantVoteMsgSig{}, err
+	}
+
+	return core.GrantVoteMsgSig{
+		GrantVoteMsg: grantVoteMsg,
+		Signature:    append([]byte(nil), msg.Signature...),
+	}, nil
+}

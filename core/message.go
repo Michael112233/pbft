@@ -173,3 +173,28 @@ type NewViewMsgSig struct {
 	NewViewMsg NewViewMsg
 	Signature  []byte
 }
+
+type RequestVoteMsg struct {
+	From       int
+	ViewNumber int64
+	Seed       []byte
+	DelaySteps uint64
+	Y          []byte
+	VDFProof   []byte
+	VRFProof   []byte
+}
+
+type RequestVoteMsgSig struct {
+	RequestVoteMsg RequestVoteMsg
+	Signature      []byte
+}
+
+type GrantVoteMsg struct {
+	From       int
+	ViewNumber int64
+}
+
+type GrantVoteMsgSig struct {
+	GrantVoteMsg GrantVoteMsg
+	Signature    []byte
+}

@@ -37,7 +37,7 @@ func main() {
 	for i := 1; i <= nodeNum; i++ {
 		pubKey, privKey, err := crypto.GenerateEd25519Keypair()
 		if err != nil {
-			fmt.Printf("Error generating keypair for node %d: %v\n", i, err)
+			fmt.Printf("Error generating ed25519 keypair for node %d: %v\n", i, err)
 			continue
 		}
 		pubKeyPath := fmt.Sprintf("keys/node%d_pub.pem", i)
@@ -45,17 +45,38 @@ func main() {
 
 		err = crypto.SavePublicKey(pubKeyPath, pubKey)
 		if err != nil {
-			fmt.Printf("Error saving public key for node %d: %v\n", i, err)
+			fmt.Printf("Error saving ed25519 public key for node %d: %v\n", i, err)
 			continue
 		}
 
 		err = crypto.SavePrivateKey(privKeyPath, privKey)
 		if err != nil {
-			fmt.Printf("Error saving private key for node %d: %v\n", i, err)
+			fmt.Printf("Error saving ed25519 private key for node %d: %v\n", i, err)
 			continue
 		}
 
-		fmt.Printf("Generated and saved keypair for node %d\n", i)
+		fmt.Printf("Generated and saved ed25519 keypair for node %d\n", i)
+
+		vrfPrivateKey, err := crypto.GenerateP256Key()
+		if err != nil {
+			fmt.Printf("Error generating P-256 key for node %d: %v\n", i, err)
+			continue
+		}
+
+		vrfPubKeyPath := fmt.Sprintf("keys/node%d_vrf_pub.pem", i)
+		vrfPrivKeyPath := fmt.Sprintf("keys/node%d_vrf_priv.pem", i)
+
+		if err := crypto.SaveECDSAPublicKey(vrfPubKeyPath, &vrfPrivateKey.PublicKey); err != nil {
+			fmt.Printf("Error saving P-256 public key for node %d: %v\n", i, err)
+			continue
+		}
+
+		if err := crypto.SaveECDSAPrivateKey(vrfPrivKeyPath, vrfPrivateKey); err != nil {
+			fmt.Printf("Error saving P-256 private key for node %d: %v\n", i, err)
+			continue
+		}
+
+		fmt.Printf("Generated and saved P-256 keypair for node %d\n", i)
 
 	}
 
