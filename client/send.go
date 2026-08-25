@@ -14,8 +14,8 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const clientSendInterval = 22 * time.Millisecond
-
+const clientSendInterval = 33 * time.Millisecond
+// 1000/clientsned * injectspeed = rate
 const (
 	normalRequestMessageType = "RequestMessage"
 	retryRequestMessageType  = "RetryRequestMessage"

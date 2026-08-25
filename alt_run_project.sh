@@ -67,34 +67,34 @@ start_netem_schedule() {
         sleep 3
 
         sudo -n tc qdisc change dev "$NETEM_INTERFACE" parent 1:3 handle 30: \
-            netem limit "$NETEM_LIMIT" delay 150ms
-        echo "$(date --iso-8601=ns) delay=150ms"
-        sleep 0.15
-        sudo -n tc qdisc change dev "$NETEM_INTERFACE" parent 1:3 handle 30: \
-            netem limit "$NETEM_LIMIT" delay 0ms
-        echo "$(date --iso-8601=ns) delay=0ms"
-
-        sleep 3
-
-        sudo -n tc qdisc change dev "$NETEM_INTERFACE" parent 1:3 handle 30: \
             netem limit "$NETEM_LIMIT" delay 100ms
         echo "$(date --iso-8601=ns) delay=100ms"
-        sleep 0.1
-
+        sleep 20
         sudo -n tc qdisc change dev "$NETEM_INTERFACE" parent 1:3 handle 30: \
             netem limit "$NETEM_LIMIT" delay 0ms
         echo "$(date --iso-8601=ns) delay=0ms"
 
-        sleep 3
+        # sleep 3
 
-        sudo -n tc qdisc change dev "$NETEM_INTERFACE" parent 1:3 handle 30: \
-            netem limit "$NETEM_LIMIT" delay 100ms
-        echo "$(date --iso-8601=ns) delay=100ms"
-        sleep 0.1
+        # sudo -n tc qdisc change dev "$NETEM_INTERFACE" parent 1:3 handle 30: \
+        #     netem limit "$NETEM_LIMIT" delay 100ms
+        # echo "$(date --iso-8601=ns) delay=100ms"
+        # sleep 0.1
 
-        sudo -n tc qdisc change dev "$NETEM_INTERFACE" parent 1:3 handle 30: \
-            netem limit "$NETEM_LIMIT" delay 0ms
-        echo "$(date --iso-8601=ns) delay=0ms"
+        # sudo -n tc qdisc change dev "$NETEM_INTERFACE" parent 1:3 handle 30: \
+        #     netem limit "$NETEM_LIMIT" delay 0ms
+        # echo "$(date --iso-8601=ns) delay=0ms"
+
+        # sleep 3
+
+        # sudo -n tc qdisc change dev "$NETEM_INTERFACE" parent 1:3 handle 30: \
+        #     netem limit "$NETEM_LIMIT" delay 100ms
+        # echo "$(date --iso-8601=ns) delay=100ms"
+        # sleep 0.1
+
+        # sudo -n tc qdisc change dev "$NETEM_INTERFACE" parent 1:3 handle 30: \
+        #     netem limit "$NETEM_LIMIT" delay 0ms
+        # echo "$(date --iso-8601=ns) delay=0ms"
 
 
 
@@ -196,14 +196,14 @@ for i in $(seq 1 "$NODE_COUNT"); do
 done
 
 sleep 5
-# setup_netem
+setup_netem
 # Optional: start client in another window
-# tmux new-window -t "$SESSION" -n "client" \
-#     "cd \"$CURRENT_DIR\" && ./pbft_main -r client -m loopbackip; status=\$?; echo; echo \"client exited with status \$status\"; exec bash"
+tmux new-window -t "$SESSION" -n "client" \
+    "cd \"$CURRENT_DIR\" && ./pbft_main -r client -m loopbackip; status=\$?; echo; echo \"client exited with status \$status\"; exec bash"
 
 # sleep 2
 # start_repeating_netem_spikes
-# start_netem_schedule
+start_netem_schedule
 
 echo "All nodes started."
 echo "Attaching to tmux session: $SESSION"

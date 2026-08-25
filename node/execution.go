@@ -58,9 +58,9 @@ func (n *Node) exeLoop() {
 
 		slot.executed = true
 		n.lastExecuted++
-		if n.lastExecuted == 1 {
-			// n.resetLeaderProgressTimer()
-		}
+		// if n.lastExecuted == 1 {
+		// 	n.resetLeaderProgressTimer()
+		// }
 		n.resetLeaderProgressTimer()
 		if n.cfg.Performance {
 			_ = n.observeExecutedSlotForThroughput(n.lastExecuted, time.Now(), view, leaderId)

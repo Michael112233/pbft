@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/big"
 	"sync"
+	"time"
 
 	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
@@ -98,8 +99,10 @@ func (n *Node) evalElectionVDF(
 	beta []byte,
 ) {
 	defer n.electionManager.electionVDFWorkers.Done()
-
+	timeStart := time.Now()
 	y, vdfProof, err := vr.EvalVDF(seed, modulus, delaySteps)
+	timeElapsed := time.Since(timeStart)
+	n.log.Debug("VDF evaluation for view %d completed in %s", view, timeElapsed)
 	result := electionVDFResult{
 		view:       view,
 		seed:       append([]byte(nil), seed...),

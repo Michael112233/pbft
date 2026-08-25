@@ -31,14 +31,14 @@ func (n *Node) run() {
 		if n.pendingRequests.Full() {
 			// A nil channel disables this select case. The caller will block and
 			// naturally apply backpressure until proposal progress frees space.
-			n.log.Error("node event loop pending request queue is full, blocking client request channel")
+			// n.log.Error("node event loop pending request queue is full, blocking client request channel")
 			clientRequestCh = nil
 		}
 
 		select {
 		case req := <-clientRequestCh:
 			if n.viewChangeRunning || n.leaderId != n.GetNodeID() {
-				n.log.Info("Node %d is not the leader or view change is running, ignoring client request", n.GetNodeID())
+				// n.log.Info("Node %d is not the leader or view change is running, ignoring client request", n.GetNodeID())
 				continue
 			}
 			// cheap check to ignore client req
