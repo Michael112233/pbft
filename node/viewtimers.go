@@ -3,8 +3,8 @@ package node
 import "time"
 
 const (
-	leaderProgressTimeout = 90 * time.Millisecond
-	newViewTimeout        = 90 * time.Millisecond
+	leaderProgressTimeout = 8 * time.Second
+	newViewTimeout        = 8 * time.Second
 )
 
 // was 90

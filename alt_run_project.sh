@@ -69,7 +69,7 @@ start_netem_schedule() {
         sudo -n tc qdisc change dev "$NETEM_INTERFACE" parent 1:3 handle 30: \
             netem limit "$NETEM_LIMIT" delay 100ms
         echo "$(date --iso-8601=ns) delay=100ms"
-        sleep 20
+        sleep 30
         sudo -n tc qdisc change dev "$NETEM_INTERFACE" parent 1:3 handle 30: \
             netem limit "$NETEM_LIMIT" delay 0ms
         echo "$(date --iso-8601=ns) delay=0ms"

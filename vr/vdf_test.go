@@ -78,6 +78,7 @@ func BenchmarkEvalVDFLargeModulus(b *testing.B) {
 	}
 }
 
+// go test ./vr -run '^TestTimeEvalVDFLargeModulus$' -v -count=1 -timeout 10m
 // go test ./verifiablerandomness -bench BenchmarkEvalVDFLargeModulus -run '^$' -benchmem -benchtime=10s
 
 func TestEvalVDFDeterministic(t *testing.T) {
