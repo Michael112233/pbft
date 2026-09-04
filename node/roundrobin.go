@@ -107,12 +107,16 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 
 func (n *Node) appendViewChangeIfNew(viewChange *core.ViewChangeMsgSig) bool {
 	view := viewChange.ViewChangeMsg.ViewNumber
-	// from := viewChange.ViewChangeMsg.From
-	// for _, existing := range n.viewChangeMsgsLog[view] {
-	// 	if existing != nil && existing.ViewChangeMsg.From == from {
-	// 		return false
-	// 	}
-	// }
+	from := viewChange.ViewChangeMsg.From
+	// One ViewChange per sender per view: createO / createOReplica pick the
+	// highest-view prepared cert per seq across these messages and count them toward
+	// the 2f+1 quorum, so a duplicate sender would double-count and could skew the
+	// O-set.
+	for _, existing := range n.viewChangeMsgsLog[view] {
+		if existing != nil && existing.ViewChangeMsg.From == from {
+			return false
+		}
+	}
 
 	n.viewChangeMsgsLog[view] = append(n.viewChangeMsgsLog[view], viewChange)
 	return true

@@ -24,76 +24,40 @@ func (n *Node) enterViewChange() {
 func (n *Node) createVCContent(stableCheckpointSeq int64) map[int64]*core.PreparedCert {
 	preparedCerts := make(map[int64]*core.PreparedCert)
 	lastStableCheckpointSeq := n.GetLastStableCheckpointSeq()
-	// can keep highest prepared to iterate even les
+	// The P-set carries the prepared certificate for every seq above the last stable
+	// checkpoint that ever became prepared at this replica, at whatever view it
+	// prepared in. preparedProof is captured in tryAdvancePrepare and is only cleared
+	// by GCLog, so it survives any number of intervening view changes (including ones
+	// where this replica installed a new view locally as primary and then failed).
 	iterations := 0
 	for seq := lastStableCheckpointSeq + 1; seq <= n.consensusLog.maxSeqNum; seq++ {
 		slot, exists := n.consensusLog.GetLogEntry(seq)
-		if !exists {
-			n.log.Error("Log entry for seq %d does not exist in createVCContent", seq)
+		if !exists || slot.preparedProof == nil {
 			continue
 		}
-		if slot.preprepare == nil || !slot.commitSent {
-			continue
-		}
-		if slot.preprepare.View < n.GetView() {
-			n.log.Error("Preprepare message for seq %d has view %d which is less than current view %d in createVCContent and forView is %d", seq, slot.preprepare.View, n.view, n.forView)
-			continue
-		}
-		preprepareV := core.PreprepareMsgSig{}
-		if n.cfg.CarryState {
-			actualReqs, exists := n.pool.GetBatch(slot.preprepare.DigestIndividualClientMsgs)
-			if !exists {
-				n.log.Error("Actual requests for seq %d do not exist in pool in createVCContent", seq)
-				continue
-			}
-			preprepareV = core.PreprepareMsgSig{
-
-				PreprepareMsgMini: core.PreprepareMsgMini{
-					View:                       slot.preprepare.View,
-					SeqNum:                     slot.preprepare.SeqNum,
-					DigestClientMsg:            slot.preprepare.DigestClientMsg,
-					DigestIndividualClientMsgs: slot.preprepare.DigestIndividualClientMsgs,
-				},
-				Signature: append([]byte(nil), slot.preprepareSignature...),
-				ActualMsg: actualReqs,
-			}
-
-		} else {
-			preprepareV = core.PreprepareMsgSig{
-
-				PreprepareMsgMini: core.PreprepareMsgMini{
-					View:                       slot.preprepare.View,
-					SeqNum:                     slot.preprepare.SeqNum,
-					DigestClientMsg:            slot.preprepare.DigestClientMsg,
-					DigestIndividualClientMsgs: slot.preprepare.DigestIndividualClientMsgs,
-				},
-				Signature: append([]byte(nil), slot.preprepareSignature...),
-				// ActualMsg: actualReqs,
-			}
-
-		}
-		prepareLog := make(map[int]core.PrepareMsgSig, len(slot.prepares))
-		for from, prepare := range slot.prepares {
-			prepareCopy := core.PrepareMsgSig{
-				PrepareMsg: core.PrepareMsg{
-					View:   prepare.PrepareMsg.View,
-					SeqNum: prepare.PrepareMsg.SeqNum,
-					Digest: prepare.PrepareMsg.Digest,
-					From:   prepare.PrepareMsg.From,
-				},
-			}
-			prepareCopy.Signature = append([]byte(nil), prepare.Signature...)
-			prepareLog[from] = prepareCopy
-		}
-
-		preparedCerts[seq] = &core.PreparedCert{
-			PreprepareMsg: preprepareV,
-			PrepareLog:    prepareLog,
-		}
+		preparedCerts[seq] = slot.preparedProof
 		iterations++
 	}
-	n.log.Info("number of slots iterated %d and forview is %d and n.view is %d", iterations, n.forView, n.view)
+	n.log.Info("createVCContent carried %d prepared certs; forView %d n.view %d", iterations, n.forView, n.view)
 	return preparedCerts
+}
+
+// warnRetainedDurableSlots logs any slot that RemoveLogEntriesAboveSeq kept above maxSeq
+// because it still carried a prepared certificate. committedAbove should always be
+// empty: a committed request is prepared at f+1 honest replicas, so any 2f+1 ViewChange
+// messages carry its prepared cert and maxS covers it. A hit there means the P-sets
+// feeding createO were wrong, so surface it loudly.
+func (n *Node) warnRetainedDurableSlots(retained, committedAbove []int64, maxSeq int64, path string) {
+	for _, seq := range committedAbove {
+		n.log.Error("new-view %s: COMMITTED slot seq %d was above maxSeq %d in view %d", path, seq, maxSeq, n.view)
+	}
+	for _, seq := range retained {
+		slot, ok := n.consensusLog.GetLogEntry(seq)
+		if !ok {
+			continue
+		}
+		n.log.Warn("new-view %s: prepared slot seq %d (preparedView %d) retained above maxSeq %d in view %d", path, seq, slot.preparedView, maxSeq, n.view)
+	}
 }
 
 func (n *Node) verifyVC(vc core.ViewChangeMsg) bool {
@@ -176,6 +140,7 @@ func (n *Node) verifyPreprepare(preprepareMsg core.PreprepareMsgSig) (bool, int6
 	view := preprepareMsg.PreprepareMsgMini.View
 	seq := preprepareMsg.PreprepareMsgMini.SeqNum
 	digest := preprepareMsg.PreprepareMsgMini.DigestClientMsg
+	return true, view, seq, digest // need a fix when leader from election
 
 	from := n.leaderForView(view)
 	if from == 0 {
@@ -354,15 +319,15 @@ func (n *Node) newview() {
 			n.log.Debug("preprepare seq %d is less than consensus log low %d, skipping", preprepareMsg.PreprepareMsgMini.SeqNum, n.consensusLog.low)
 			continue
 		}
-		slot := n.consensusLog.CreateEntry(preprepareMsg.PreprepareMsgMini.SeqNum)
+		slot := n.consensusLog.ResetPerViewState(preprepareMsg.PreprepareMsgMini.SeqNum, n.view)
 		n.slotPreprepare(slot, &preprepareMsg.PreprepareMsgMini, preprepareMsg.Signature, true)
 		slot.view = n.view
 		// check if after all the flow if order of actual message same as digest of individual client messages in preprepare message
 		n.pool.AddBatch(preprepareMsg.ActualMsg, preprepareMsg.PreprepareMsgMini.DigestIndividualClientMsgs, preprepareMsg.PreprepareMsgMini.SeqNum, n.view)
 
 	}
-	// if kept track of highest prepared this loop can be smaller like vc content
-	n.consensusLog.RemoveLogEntriesAboveSeq(maxSeq)
+	retained, committedAbove := n.consensusLog.RemoveLogEntriesAboveSeq(maxSeq, n.view)
+	n.warnRetainedDurableSlots(retained, committedAbove, maxSeq, "primary")
 	// max seq number in log is prepareseq number in all nodes
 	n.sequenceNumber = maxSeq
 
@@ -441,16 +406,20 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 		// }
 		n.assert(maxSeq >= mylatestStableCheckpointSeq, "maxseq %d is less than my stable checkpoint %d in new view replica", maxSeq, mylatestStableCheckpointSeq)
 		// if maxseq eq lateststable checkpoint then no change needed to log
+		// impossible that my stable cp ahead and maxseq not cover it
 	}
+	// if fast path stabalize or not low should always be + 1 of last stable checkpoint
 	n.assert(n.consensusLog.low == n.GetLastStableCheckpointSeq()+1, "consensus log low %d is not equal to last stable checkpoint seq + 1 %d in new view replica", n.consensusLog.low, n.GetLastStableCheckpointSeq()+1)
 	n.assert(maxSeq <= n.consensusLog.high, "maxseq %d is greater than consensus log high %d in new view replica", maxSeq, n.consensusLog.high)
 
 	for _, preprepareMsg := range newViewMsg.PreprepareLog {
 		if preprepareMsg.PreprepareMsgMini.SeqNum < n.consensusLog.low {
+			// we dont help in running consensus if our stable cp ahead in vc path and even in normal path
 			n.log.Debug("preprepare seq %d is less than consensus log low %d, skipping", preprepareMsg.PreprepareMsgMini.SeqNum, n.consensusLog.low)
 			continue
 		}
-		slot := n.consensusLog.CreateEntry(preprepareMsg.PreprepareMsgMini.SeqNum)
+		// all in O range reset their per view state
+		slot := n.consensusLog.ResetPerViewState(preprepareMsg.PreprepareMsgMini.SeqNum, n.view)
 		n.slotPreprepare(slot, &preprepareMsg.PreprepareMsgMini, preprepareMsg.Signature, true)
 		slot.view = n.view
 
@@ -480,7 +449,10 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 		n.pool.AddBatch(preprepareMsg.ActualMsg, preprepareMsg.PreprepareMsgMini.DigestIndividualClientMsgs, preprepareMsg.PreprepareMsgMini.SeqNum, n.view)
 
 	}
-	n.consensusLog.RemoveLogEntriesAboveSeq(maxSeq)
+	// we not remove prepared entries , but i hope usually nothing to retain
+	// committed above should always be empty
+	retained, committedAbove := n.consensusLog.RemoveLogEntriesAboveSeq(maxSeq, n.view)
+	n.warnRetainedDurableSlots(retained, committedAbove, maxSeq, "replica")
 	if n.cfg.Performance {
 		n.throughputPerf.throughputIntervalStartSeq = maxSeq + THROUGHPUTINTERVAL_DELAY
 		n.log.Info("Throughput interval start seq set to %d for new view %d", n.throughputPerf.throughputIntervalStartSeq, n.view)

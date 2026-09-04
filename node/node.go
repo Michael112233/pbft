@@ -472,6 +472,7 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 		return
 	}
 	slot, exists := n.consensusLog.GetorCreateEntry(preprepareMsg.SeqNum, preprepareMsg.View)
+	// slots above masSeq of O only survive if prepared and even for those view aligned at new view, so can raise error if view greater or less
 	if exists {
 		if slot.view != preprepareMsg.View {
 			if slot.view < preprepareMsg.View {
@@ -567,6 +568,7 @@ func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 	}
 
 	slot, exists := n.consensusLog.GetorCreateEntry(prepareMsg.SeqNum, prepareMsg.View)
+	// slots above masSeq of O only survive if prepared and even for those view aligned at new view, so can raise error if view greater or less
 	if exists {
 		if slot.view != prepareMsg.View {
 			if slot.view < prepareMsg.View {
@@ -591,6 +593,7 @@ func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 		Signature:  signature,
 	}
 	// we may already have it from same node
+	// or may receive prepare before preprepare
 	slot.prepares[prepareMsg.From] = msgForLog
 	slot.view = prepareMsg.View // if already exist then view is already set but if not then set it
 	n.tryAdvancePrepare(slot)
@@ -608,12 +611,59 @@ func (n *Node) tryAdvancePrepare(slot *LogEntry) {
 
 		return
 	}
+	// Snapshot the prepared certificate now, keyed by the view it prepared in. It must
+	// survive every later view change until a stable checkpoint passes this seq, so it
+	// can be replayed in the ViewChange P-set (Castro-Liskov 2.3.2).
+	slot.recordPreparedIfHigher(slot.view, n.buildPreparedCert(slot))
 	slot.commitSent = true
 	commitDigest := slot.preprepare.DigestClientMsg
 	slot.commits[n.GetNodeID()] = commitDigest
 	go n.asyncBroadcastCommit(slot.view, slot.preprepare.SeqNum, commitDigest)
 	n.tryExecute(slot)
 
+}
+
+// performance could be optimised
+// buildPreparedCert snapshots the slot's current-view pre-prepare together with the 2f
+// matching prepares into a self-contained certificate for a future ViewChange P-set.
+// The returned value shares nothing mutable with the live slot.
+func (n *Node) buildPreparedCert(slot *LogEntry) *core.PreparedCert {
+	if slot.preprepare == nil {
+		return nil
+	}
+	preprepareV := core.PreprepareMsgSig{
+		PreprepareMsgMini: core.PreprepareMsgMini{
+			View:                       slot.preprepare.View,
+			SeqNum:                     slot.preprepare.SeqNum,
+			DigestClientMsg:            slot.preprepare.DigestClientMsg,
+			DigestIndividualClientMsgs: slot.preprepare.DigestIndividualClientMsgs,
+		},
+		Signature: append([]byte(nil), slot.preprepareSignature...),
+	}
+	// only heavy part
+	if n.cfg.CarryState {
+		if actualReqs, ok := n.pool.GetBatch(slot.preprepare.DigestIndividualClientMsgs); ok {
+			preprepareV.ActualMsg = actualReqs
+		} else {
+			n.log.Error("buildPreparedCert: actual requests for seq %d not in pool", slot.preprepare.SeqNum)
+		}
+	}
+	prepareLog := make(map[int]core.PrepareMsgSig, len(slot.prepares))
+	for from, prepare := range slot.prepares {
+		if prepare.PrepareMsg.Digest != slot.preprepare.DigestClientMsg {
+			continue
+		}
+		prepareLog[from] = core.PrepareMsgSig{
+			PrepareMsg: core.PrepareMsg{
+				View:   prepare.PrepareMsg.View,
+				SeqNum: prepare.PrepareMsg.SeqNum,
+				Digest: prepare.PrepareMsg.Digest,
+				From:   prepare.PrepareMsg.From,
+			},
+			Signature: append([]byte(nil), prepare.Signature...),
+		}
+	}
+	return &core.PreparedCert{PreprepareMsg: preprepareV, PrepareLog: prepareLog}
 }
 
 func (n *Node) HandleCommit(commitMsg core.CommitMsg) {
@@ -688,8 +738,9 @@ func (n *Node) tryExecute(slot *LogEntry) {
 	if slot.commitSent == false {
 		return
 	}
+	// every view change this will hit as executed survive across view and Oset reproposes all thing above last stable
 	if slot.executed {
-		n.log.Error("should not be executed")
+		n.log.Debug("should not be executed")
 		return
 	}
 	if len(slot.commits) < n.QuorumSize() || matchingVotesC(slot.commits, slot.preprepare.DigestClientMsg) < n.QuorumSize() {
