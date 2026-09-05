@@ -20,6 +20,7 @@ func (n *Node) exeLoop() {
 	view := n.GetView()
 	leaderId := n.GetLeaderId()
 	previousExecuted := n.GetLastExecuted()
+	performanceTrigger := 0
 	for {
 		slot, exists := n.consensusLog.GetLogEntry(n.lastExecuted + 1)
 		if !exists || !slot.committed {
@@ -63,10 +64,10 @@ func (n *Node) exeLoop() {
 		}
 		// n.resetLeaderProgressTimer()
 		if n.cfg.Performance {
-			_ = n.observeExecutedSlotForThroughput(n.lastExecuted, time.Now(), view, leaderId)
-			// if performanceTriggert {
-			// 	performanceTrigger += 1
-			// }
+			perfTrigger := n.observeExecutedSlotForThroughput(n.lastExecuted, time.Now(), view, leaderId)
+			if perfTrigger {
+				performanceTrigger++
+			}
 		}
 		if n.lastExecuted%CHECKPOINT_INTERVAL == 0 {
 			copyOfBalances := n.executionMachine.CheckpointSnapshot()
@@ -76,10 +77,17 @@ func (n *Node) exeLoop() {
 		// of full batch
 		n.RecordEndTime(slot.preprepare.DigestClientMsg, time.Now())
 	}
+
+	// exe thread only runs when view chnage is not running so
+	go n.postActions(postActions)
+	if performanceTrigger > 1 {
+		n.log.Info("Multiple performance triggers for seq %d, performanceTrigger count %d", n.lastExecuted, performanceTrigger)
+		n.perfVC()
+		return // probably no point in propose once vc called
+	}
 	if n.GetLastExecuted() > previousExecuted {
 		n.tryPropose(true)
 	}
-	go n.postActions(postActions)
 
 }
 

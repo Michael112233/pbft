@@ -192,6 +192,7 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 			throughputIntervalStartSeq:   THROUGHPUTINTERVAL_DELAY,
 			throughputIntervalStart:      time.Time{},
 			throughputObservationStarted: false,
+			viewThroughputs:              make(map[int64]float64),
 		},
 		lm: NewLatencyMonitor(),
 

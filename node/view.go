@@ -296,6 +296,7 @@ func (n *Node) newview() {
 	n.leaderId = n.GetNodeID()
 	n.leaderIdForView[n.view] = n.leaderId
 	n.viewChangeRunning = false
+
 	n.log.Info("Became leader for new view %d and my id is %d", n.view, n.GetNodeID())
 
 	O, maxSeq, latestStableCheckpoint, checkpointProof, checkpointBalances := n.createO(n.viewChangeMsgsLog[n.view], n.view, oldView)
@@ -331,12 +332,14 @@ func (n *Node) newview() {
 	// max seq number in log is prepareseq number in all nodes
 	n.sequenceNumber = maxSeq
 
+	maxRecentThroughput := n.newviewUpdatePerf(maxSeq, n.view)
+
 	newViewMsg := core.NewViewMsg{
 		NewViewNumber: n.view,
 		From:          n.GetNodeID(),
 		PreprepareLog: O,
 		ViewChangeLog: n.viewChangeMsgsLog[n.view],
-		Throughput:    0,
+		Throughput:    maxRecentThroughput,
 	}
 	pbMsg := transportpb.NewViewToPB(newViewMsg)
 	payloadBytes, err := marshalDeterministic(pbMsg)
@@ -346,7 +349,7 @@ func (n *Node) newview() {
 	}
 	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
 	n.asyncBroadCast(core.MsgNewViewMessage, newViewMsg, signature)
-	n.acceptNewViewTimers()
+	// n.acceptNewViewTimers()
 	// shouldnt have anything to replay as not released event loop
 	if n.cfg.Performance {
 		n.throughputPerf.throughputIntervalStartSeq = maxSeq + THROUGHPUTINTERVAL_DELAY
@@ -358,6 +361,7 @@ func (n *Node) newview() {
 	// maxseq == ladtStableCheckpoint.seq means no suffix, O len zero
 
 	// loss in this queue is fine ig
+	n.acceptNewViewTimers()
 	n.pendingRequests.Reset()
 }
 
@@ -459,6 +463,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 		n.throughputPerf.throughputObservationStarted = false
 	}
 	n.sequenceNumber = maxSeq
+	n.handleNewViewUpdatePerf(maxSeq, n.view, newViewMsg.Throughput)
 	n.pendingRequests.Reset()
 	// here we may have buffer
 	n.replayBufferedMessagesForView(n.view)

@@ -97,6 +97,8 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 		if viewChange.ViewNumber == n.forView+1 && viewChangeCount == n.fNodes+1 {
 			n.log.Info("Entering view change after receiving f+1 view-change messages for view %d", viewChange.ViewNumber)
 			n.enterViewChange()
+		} else if viewChange.ViewNumber > n.forView+1 {
+			n.log.Warn("Received view change for view %d which is more than one ahead of my for view %d", viewChange.ViewNumber, n.forView)
 		}
 	} else {
 
@@ -107,16 +109,16 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 
 func (n *Node) appendViewChangeIfNew(viewChange *core.ViewChangeMsgSig) bool {
 	view := viewChange.ViewChangeMsg.ViewNumber
-	from := viewChange.ViewChangeMsg.From
+	// from := viewChange.ViewChangeMsg.From
 	// One ViewChange per sender per view: createO / createOReplica pick the
 	// highest-view prepared cert per seq across these messages and count them toward
 	// the 2f+1 quorum, so a duplicate sender would double-count and could skew the
 	// O-set.
-	for _, existing := range n.viewChangeMsgsLog[view] {
-		if existing != nil && existing.ViewChangeMsg.From == from {
-			return false
-		}
-	}
+	// for _, existing := range n.viewChangeMsgsLog[view] {
+	// 	if existing != nil && existing.ViewChangeMsg.From == from {
+	// 		return false
+	// 	}
+	// }
 
 	n.viewChangeMsgsLog[view] = append(n.viewChangeMsgsLog[view], viewChange)
 	return true
