@@ -47,6 +47,7 @@ func (n *Node) run() {
 			}
 			// cheap check to see leader befor propose
 			if n.pendingRequests.Len() >= n.batchLogic.maxBatchSize {
+
 				n.tryPropose(true)
 			}
 		case consensusMsg := <-n.consensusMsgChan:

@@ -3,6 +3,7 @@ package node
 import (
 	"crypto/sha256"
 	"fmt"
+	"runtime"
 	"strconv"
 
 	"sync"
@@ -24,17 +25,12 @@ const (
 	defaultPBFTRequestTimeout          = 5 * time.Second
 	defaultPBFTRequestTimeoutJitterMax = 500 * time.Millisecond
 	CHECKPOINT_INTERVAL                = 250
-	defaultTargetThroughput            = 0.90 * 1400
+	defaultTargetThroughput            = 0.90 * 265
 	targetThroughputMaxFactor          = 0.90
 	ALPHA                              = 1 / float64(10) // for exponential moving average calculation of throughput
 	D                                  = 3
-	THROUGHPUTINTERVAL_DELAY           = 10
+	THROUGHPUTINTERVAL_DELAY           = 5
 )
-
-type clientRequestKey struct {
-	clientName string
-	id         int64
-}
 
 type Node struct {
 	NodeID int
@@ -366,6 +362,10 @@ func (n *Node) tryPropose(fullBatch bool) {
 		n.log.Debug("Cannot propose: next sequence number %d would exceed the high watermark %d", n.CurrentSequenceNumber()+1, n.consensusLog.high)
 		return
 	}
+	if n.ProposalDelayEnabled() {
+		time.Sleep(10 * time.Millisecond)
+	}
+
 	reqs := n.pendingRequests.Dequeue(n.GetBatchSize())
 	digestBatch, requestDigests, err := ComputeBatchDigest(reqs)
 	if err != nil {
@@ -449,29 +449,21 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 	}
 
 	// can skip or optimise it later
-	for _, clientmsg := range preprepareMsg.ClientMsg {
-		clientMsgBytes, err := marshalDeterministic(transportpb.ClientMsgToPB(clientmsg.Data))
-		if err != nil {
-			n.log.Error("Failed to marshal client message for verification: %v", err)
-			return
-		}
-		verified := crypto.VerifySignatureEd25519(clientMsgBytes, clientmsg.Signature, n.encryptionKeyStore.clientKey)
-		if !verified {
-			n.log.Error("Failed to verify client message signature")
-			return
-		}
-	}
-	// can use optimization and dont use same func as indv digest already there in preprepare
-	digestBatch, _, err := ComputeBatchDigest(preprepareMsg.ClientMsg)
-	if err != nil {
-		n.log.Error("Failed to compute batch digest: %v", err)
+	if !n.verifyPreprepareClientMessages(preprepareMsg.ClientMsg) {
 		return
 	}
+	// digest check turned off , can turn them on or parallelise them
+	// // can use optimization and dont use same func as indv digest already there in preprepare
+	// digestBatch, _, err := ComputeBatchDigest(preprepareMsg.ClientMsg)
+	// if err != nil {
+	// 	n.log.Error("Failed to compute batch digest: %v", err)
+	// 	return
+	// }
 
-	if digestBatch != preprepareMsg.DigestClientMsg {
-		n.log.Error("Batch digest mismatch")
-		return
-	}
+	// if digestBatch != preprepareMsg.DigestClientMsg {
+	// 	n.log.Error("Batch digest mismatch")
+	// 	return
+	// }
 	slot, exists := n.consensusLog.GetorCreateEntry(preprepareMsg.SeqNum, preprepareMsg.View)
 	// slots above masSeq of O only survive if prepared and even for those view aligned at new view, so can raise error if view greater or less
 	if exists {
@@ -526,6 +518,65 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 	n.asyncBroadCast(core.MsgPrepareMessage, msg, signaturePrepare)
 	n.tryAdvancePrepare(slot)
 
+}
+
+// verifyPreprepareClientMessages verifies every client message signature in a
+// preprepare's batch across a worker pool. Verification is a pure function of
+// message bytes and the (immutable) client public key, so it is safe to run
+// concurrently as long as no worker touches node state. Returns false as soon
+// as any signature fails to verify or fails to marshal, matching the
+// reject-the-whole-batch semantics of the original serial loop.
+func (n *Node) verifyPreprepareClientMessages(clientMsgs []core.ClientMsgSignature) bool {
+	if len(clientMsgs) == 0 {
+		return true
+	}
+
+	workers := runtime.NumCPU()
+	if workers > len(clientMsgs) {
+		workers = len(clientMsgs)
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	chunkSize := (len(clientMsgs) + workers - 1) / workers
+
+	var wg sync.WaitGroup
+	var failed atomic.Bool
+	var reportOnce sync.Once
+
+	for start := 0; start < len(clientMsgs); start += chunkSize {
+		end := start + chunkSize
+		if end > len(clientMsgs) {
+			end = len(clientMsgs)
+		}
+		wg.Add(1)
+		go func(chunk []core.ClientMsgSignature) {
+			defer wg.Done()
+			for _, clientmsg := range chunk {
+				if failed.Load() {
+					return
+				}
+				clientMsgBytes, err := marshalDeterministic(transportpb.ClientMsgToPB(clientmsg.Data))
+				if err != nil {
+					failed.Store(true)
+					reportOnce.Do(func() {
+						n.log.Error("Failed to marshal client message for verification: %v", err)
+					})
+					return
+				}
+				if !crypto.VerifySignatureEd25519(clientMsgBytes, clientmsg.Signature, n.encryptionKeyStore.clientKey) {
+					failed.Store(true)
+					reportOnce.Do(func() {
+						n.log.Error("Failed to verify client message signature")
+					})
+					return
+				}
+			}
+		}(clientMsgs[start:end])
+	}
+	wg.Wait()
+
+	return !failed.Load()
 }
 
 func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
@@ -894,6 +945,10 @@ func (n *Node) asyncBroadcastCommit(view, seq int64, digest [32]byte) {
 
 func (n *Node) QuorumSize() int {
 	return 2*n.fNodes + 1
+}
+
+func (n *Node) ProposalDelayEnabled() bool {
+	return n.proposalDelay
 }
 
 func (n *Node) assert(condition bool, format string, args ...interface{}) {

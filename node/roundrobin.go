@@ -67,8 +67,8 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 	if viewChange.ViewNumber <= n.GetView() {
 		return
 	}
-	path := n.PathString()
-	n.log.Info("received vc as %s from node %d for view %d", path, viewChange.From, viewChange.ViewNumber)
+	// path := n.PathString()
+	// n.log.Info("received vc as %s from node %d for view %d", path, viewChange.From, viewChange.ViewNumber)
 	verifiedVC := n.verifyVC(viewChange)
 	if !verifiedVC {
 		n.log.Error("Failed to verify view change message from node %d for view %d", viewChange.From, viewChange.ViewNumber)

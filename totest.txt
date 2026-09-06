@@ -1,0 +1,20 @@
+see how perf trigger react to casacade with floor as 10mms
+what ahhpen to leader not having pass tput to select from because we dont use local instead rely on leader maybe send this info in vc
+
+
+
+marshal detreministic also take time if 250 prepared certs
+
+probablly drop individual diget from all msgs and only carry in one
+
+unsfae compute batch digest turned off in preprepare
+
+and verification of new view sig and creation of new view signature turned off
+
+
+90 ms timer 
+newview timer paused by true clause
+progress timer on
+perf trigger 
+handlenewview can be sped up by ignoring verification and ignoring cache vc marshal
+send newview from primary still take 30ms

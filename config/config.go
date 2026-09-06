@@ -47,6 +47,7 @@ type Config struct {
 	ConsensusChanSize  int   `json:"consensus_chan_size"`
 	MinVDFDelay        int   `json:"min_vdf_delay"`
 	MaxVDFDelay        int   `json:"max_vdf_delay"`
+	ParallelWorkers    bool  `json:"parallel_workers"`
 }
 
 func ReadCfg(filename string) *Config {

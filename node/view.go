@@ -1,8 +1,12 @@
 package node
 
 import (
-	"bytes"
+	// "bytes"
 	"math/big"
+	"runtime"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/crypto"
@@ -61,7 +65,13 @@ func (n *Node) warnRetainedDurableSlots(retained, committedAbove []int64, maxSeq
 }
 
 func (n *Node) verifyVC(vc core.ViewChangeMsg) bool {
-	verifiedPreparedCerts := n.verifyPreparedCerts(vc.PreparedCerts)
+	verifiedPreparedCerts := false
+	if n.cfg.ParallelWorkers {
+		verifiedPreparedCerts = n.verifyPreparedCertsParallel(vc.PreparedCerts)
+	} else {
+		verifiedPreparedCerts = n.verifyPreparedCerts(vc.PreparedCerts)
+	}
+	// verifiedPreparedCerts := n.verifyPreparedCerts(vc.PreparedCerts)
 	// Additional checks can be added here, such as verifying the signature of the ViewChangeMsg itself.
 	return verifiedPreparedCerts
 }
@@ -136,6 +146,79 @@ func (n *Node) verifyPreparedCerts(preparedCerts map[int64]*core.PreparedCert) b
 	return true
 }
 
+// verifyPreparedCertsParallel is the parallel counterpart to verifyPreparedCerts.
+// Each cert's verification (verifyPreprepare + verifyPrepareLog) only reads
+// immutable/read-only node state (encryption keys, leader-for-view lookups) plus
+// pure crypto verification and logging, both safe for concurrent use, so it is
+// safe to fan the map out across a worker pool. Not wired to any call site yet.
+func (n *Node) verifyPreparedCertsParallel(preparedCerts map[int64]*core.PreparedCert) bool {
+	if len(preparedCerts) == 0 {
+		return true
+	}
+
+	type certEntry struct {
+		seq  int64
+		cert *core.PreparedCert
+	}
+	// cant index map like slices with [start:end] and keep these sliding windows sorted so thats why convert to slice
+	entries := make([]certEntry, 0, len(preparedCerts))
+	for certSeq, cert := range preparedCerts {
+		entries = append(entries, certEntry{seq: certSeq, cert: cert})
+	}
+
+	workers := runtime.NumCPU()
+	if workers > len(entries) {
+		workers = len(entries)
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	chunkSize := (len(entries) + workers - 1) / workers
+	// ceil(a/b) = (a + b - 1) / b
+	// 10/3 gives 3 but we want 4
+	// if a evenly divides by b then adding b-1 doesnt change quotient
+
+	var wg sync.WaitGroup
+	var failed atomic.Bool
+
+	for start := 0; start < len(entries); start += chunkSize {
+		end := start + chunkSize
+		if end > len(entries) {
+			end = len(entries)
+		}
+		wg.Add(1)
+		go func(chunk []certEntry) {
+			defer wg.Done()
+			for _, e := range chunk {
+				if failed.Load() {
+					return
+				}
+				if e.cert == nil {
+					failed.Store(true)
+					return
+				}
+				ok, view, seq, digest := n.verifyPreprepare(e.cert.PreprepareMsg)
+				if !ok {
+					failed.Store(true)
+					return
+				}
+				if seq != e.seq {
+					n.log.Error("prepared cert seq mismatch: map key=%d preprepare seq=%d", e.seq, seq)
+					failed.Store(true)
+					return
+				}
+				if !n.verifyPrepareLog(e.cert.PrepareLog, view, seq, digest) {
+					failed.Store(true)
+					return
+				}
+			}
+		}(entries[start:end])
+	}
+	wg.Wait()
+
+	return !failed.Load()
+}
+
 func (n *Node) verifyPreprepare(preprepareMsg core.PreprepareMsgSig) (bool, int64, int64, [32]byte) {
 	view := preprepareMsg.PreprepareMsgMini.View
 	seq := preprepareMsg.PreprepareMsgMini.SeqNum
@@ -190,20 +273,20 @@ func (n *Node) verifyNewView(newViewMsg core.NewViewMsg) bool {
 				continue
 			}
 			if cachedMsg.ViewChangeMsg.From == vcMsgSig.ViewChangeMsg.From {
-				cachedPayloadBytes, err := marshalDeterministic(transportpb.ViewChangeToPB(cachedMsg.ViewChangeMsg))
-				if err != nil {
-					n.log.Error("failed to marshal cached view change message for view %d from node %d: %v", newViewMsg.NewViewNumber, cachedMsg.ViewChangeMsg.From, err)
-					continue
-				}
-				incomingPayloadBytes, err := marshalDeterministic(transportpb.ViewChangeToPB(vcMsgSig.ViewChangeMsg))
-				if err != nil {
-					n.log.Error("failed to marshal incoming view change message for view %d from node %d: %v", newViewMsg.NewViewNumber, vcMsgSig.ViewChangeMsg.From, err)
-					continue
-				}
-				if !bytes.Equal(cachedPayloadBytes, incomingPayloadBytes) {
-					n.log.Error("cached view change payload mismatch for view %d from node %d", newViewMsg.NewViewNumber, vcMsgSig.ViewChangeMsg.From)
-					continue
-				}
+				// cachedPayloadBytes, err := marshalDeterministic(transportpb.ViewChangeToPB(cachedMsg.ViewChangeMsg))
+				// if err != nil {
+				// 	n.log.Error("failed to marshal cached view change message for view %d from node %d: %v", newViewMsg.NewViewNumber, cachedMsg.ViewChangeMsg.From, err)
+				// 	continue
+				// }
+				// incomingPayloadBytes, err := marshalDeterministic(transportpb.ViewChangeToPB(vcMsgSig.ViewChangeMsg))
+				// if err != nil {
+				// 	n.log.Error("failed to marshal incoming view change message for view %d from node %d: %v", newViewMsg.NewViewNumber, vcMsgSig.ViewChangeMsg.From, err)
+				// 	continue
+				// }
+				// if !bytes.Equal(cachedPayloadBytes, incomingPayloadBytes) {
+				// 	n.log.Error("cached view change payload mismatch for view %d from node %d", newViewMsg.NewViewNumber, vcMsgSig.ViewChangeMsg.From)
+				// 	continue
+				// }
 				foundInCache = true
 				break
 			}
@@ -317,7 +400,7 @@ func (n *Node) newview() {
 	n.assert(maxSeq <= n.consensusLog.high, "maxseq %d is greater than consensus log high %d in new view primary", maxSeq, n.consensusLog.high)
 	for _, preprepareMsg := range O {
 		if preprepareMsg.PreprepareMsgMini.SeqNum < n.consensusLog.low {
-			n.log.Debug("preprepare seq %d is less than consensus log low %d, skipping", preprepareMsg.PreprepareMsgMini.SeqNum, n.consensusLog.low)
+			// n.log.Debug("preprepare seq %d is less than consensus log low %d, skipping", preprepareMsg.PreprepareMsgMini.SeqNum, n.consensusLog.low)
 			continue
 		}
 		slot := n.consensusLog.ResetPerViewState(preprepareMsg.PreprepareMsgMini.SeqNum, n.view)
@@ -341,21 +424,17 @@ func (n *Node) newview() {
 		ViewChangeLog: n.viewChangeMsgsLog[n.view],
 		Throughput:    maxRecentThroughput,
 	}
-	pbMsg := transportpb.NewViewToPB(newViewMsg)
-	payloadBytes, err := marshalDeterministic(pbMsg)
-	if err != nil {
-		n.log.Error("Failed to marshal NewView message for signing: %v", err)
-		return
-	}
-	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
-	n.asyncBroadCast(core.MsgNewViewMessage, newViewMsg, signature)
+	// pbMsg := transportpb.NewViewToPB(newViewMsg)
+	// payloadBytes, err := marshalDeterministic(pbMsg)
+	// if err != nil {
+	// 	n.log.Error("Failed to marshal NewView message for signing: %v", err)
+	// 	return
+	// }
+	// signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+	n.asyncBroadCast(core.MsgNewViewMessage, newViewMsg, nil)
 	// n.acceptNewViewTimers()
 	// shouldnt have anything to replay as not released event loop
-	if n.cfg.Performance {
-		n.throughputPerf.throughputIntervalStartSeq = maxSeq + THROUGHPUTINTERVAL_DELAY
-		n.log.Info("Throughput interval start seq set to %d for new view %d", n.throughputPerf.throughputIntervalStartSeq, n.view)
-		n.throughputPerf.throughputObservationStarted = false
-	}
+
 	n.replayBufferedMessagesForView(n.view)
 
 	// maxseq == ladtStableCheckpoint.seq means no suffix, O len zero
@@ -365,7 +444,68 @@ func (n *Node) newview() {
 	n.pendingRequests.Reset()
 }
 
+// buildPrepareMsgsForNewView pre-computes and signs the Prepare message for
+// every entry in a NewView's PreprepareLog, in parallel, ahead of the
+// serialized per-slot loop in HandleNewView (that loop must stay single-
+// threaded: it mutates consensusLog, pool, and broadcasts). Each entry only
+// depends on the fixed view, this node's own id, and the read-only private
+// key, so it's safe to compute concurrently. Returns one core.PrepareMsgSig
+// per entry at the same index as preprepareLog, so the caller can index in
+// directly instead of building+signing inline.
+func (n *Node) buildPrepareMsgsForNewView(preprepareLog []core.PreprepareMsgSig, view int64) []core.PrepareMsgSig {
+	if len(preprepareLog) == 0 {
+		return nil
+	}
+
+	results := make([]core.PrepareMsgSig, len(preprepareLog))
+
+	workers := runtime.NumCPU()
+	if workers > len(preprepareLog) {
+		workers = len(preprepareLog)
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	chunkSize := (len(preprepareLog) + workers - 1) / workers
+
+	var wg sync.WaitGroup
+	for start := 0; start < len(preprepareLog); start += chunkSize {
+		end := start + chunkSize
+		if end > len(preprepareLog) {
+			end = len(preprepareLog)
+		}
+		wg.Add(1)
+		go func(lo, hi int) {
+			defer wg.Done()
+			for i := lo; i < hi; i++ {
+				preprepareMsg := preprepareLog[i]
+				msg := core.PrepareMsg{
+					View:   view,
+					SeqNum: preprepareMsg.PreprepareMsgMini.SeqNum,
+					Digest: preprepareMsg.PreprepareMsgMini.DigestClientMsg,
+					From:   n.GetNodeID(),
+				}
+				pbMsg := transportpb.PrepareToPB(msg)
+				payloadBytes, err := marshalDeterministic(pbMsg)
+				if err != nil {
+					n.log.Error("Failed to marshal Prepare message for signing: %v", err)
+					// to be decided
+				}
+				signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+				results[i] = core.PrepareMsgSig{
+					PrepareMsg: msg,
+					Signature:  signature,
+				}
+			}
+		}(start, end)
+	}
+	wg.Wait()
+
+	return results
+}
+
 func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
+	timestart := time.Now()
 	if newViewMsg.NewViewNumber <= n.view {
 
 		return
@@ -416,10 +556,11 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	n.assert(n.consensusLog.low == n.GetLastStableCheckpointSeq()+1, "consensus log low %d is not equal to last stable checkpoint seq + 1 %d in new view replica", n.consensusLog.low, n.GetLastStableCheckpointSeq()+1)
 	n.assert(maxSeq <= n.consensusLog.high, "maxseq %d is greater than consensus log high %d in new view replica", maxSeq, n.consensusLog.high)
 
-	for _, preprepareMsg := range newViewMsg.PreprepareLog {
+	prepareMsgs := n.buildPrepareMsgsForNewView(newViewMsg.PreprepareLog, n.view)
+	for i, preprepareMsg := range newViewMsg.PreprepareLog {
 		if preprepareMsg.PreprepareMsgMini.SeqNum < n.consensusLog.low {
 			// we dont help in running consensus if our stable cp ahead in vc path and even in normal path
-			n.log.Debug("preprepare seq %d is less than consensus log low %d, skipping", preprepareMsg.PreprepareMsgMini.SeqNum, n.consensusLog.low)
+			// n.log.Debug("preprepare seq %d is less than consensus log low %d, skipping", preprepareMsg.PreprepareMsgMini.SeqNum, n.consensusLog.low)
 			continue
 		}
 		// all in O range reset their per view state
@@ -427,23 +568,10 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 		n.slotPreprepare(slot, &preprepareMsg.PreprepareMsgMini, preprepareMsg.Signature, true)
 		slot.view = n.view
 
-		msg := core.PrepareMsg{
-			View:   n.view,
-			SeqNum: preprepareMsg.PreprepareMsgMini.SeqNum,
-			Digest: preprepareMsg.PreprepareMsgMini.DigestClientMsg,
-			From:   n.GetNodeID(),
-		}
-		pbMsg := transportpb.PrepareToPB(msg)
-		payloadBytes, err := marshalDeterministic(pbMsg)
-		if err != nil {
-			n.log.Error("Failed to marshal Prepare message for signing: %v", err)
-			// to be decided
-		}
-		signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
-		msgForLog := core.PrepareMsgSig{
-			PrepareMsg: msg,
-			Signature:  signature,
-		}
+		// signing already done in parallel above; just use the precomputed result
+		msgForLog := prepareMsgs[i]
+		msg := msgForLog.PrepareMsg
+		signature := msgForLog.Signature
 		slot.prepareSent = true
 
 		slot.prepares[n.GetNodeID()] = msgForLog
@@ -466,8 +594,11 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	n.handleNewViewUpdatePerf(maxSeq, n.view, newViewMsg.Throughput)
 	n.pendingRequests.Reset()
 	// here we may have buffer
+	// buffer probably emptied to channel
 	n.replayBufferedMessagesForView(n.view)
 	go n.sendLeaderIdUpdate(n.leaderId, n.view)
+	duration := time.Since(timestart)
+	n.log.Info("New view %d processing completed in %v", n.view, duration)
 	n.acceptNewViewTimers()
 
 }
@@ -551,6 +682,23 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView i
 		n.log.Debug("no suffix at o primary")
 		return O, minS - 1, latestStableCheckpoint, checkpointProof, checkpointBalances
 	}
+	if n.cfg.ParallelWorkers {
+		O = n.buildOSetParallel(minS, maxS, view, preprepareLog)
+	} else {
+		O = n.buildOSet(minS, maxS, view, preprepareLog)
+	}
+	// O = n.buildOSet(minS, maxS, view, preprepareLog)
+	return O, maxS, latestStableCheckpoint, checkpointProof, checkpointBalances
+
+}
+
+// buildOSet constructs the O-set for a NewView message: one freshly-signed
+// preprepare per sequence number from minS..maxS, reusing the prepared cert
+// carried in preprepareLog when one exists for that seq, and a signed no-op
+// ("dummy") preprepare when none does (Castro-Liskov O-set rule). Extracted
+// from createO for clean separation.
+func (n *Node) buildOSet(minS, maxS, view int64, preprepareLog map[int64]core.PreprepareMsgSig) []core.PreprepareMsgSig {
+	O := make([]core.PreprepareMsgSig, 0, maxS-minS+1)
 	for seq := minS; seq <= maxS; seq++ {
 		if preprepare, exists := preprepareLog[seq]; exists {
 			preprepare.PreprepareMsgMini.View = view
@@ -594,8 +742,99 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView i
 			})
 		}
 	}
-	return O, maxS, latestStableCheckpoint, checkpointProof, checkpointBalances
+	return O
+}
 
+// buildOSetParallel is the parallel counterpart to buildOSet, independent of
+// it so both can be swapped in interchangeably behind cfg.ParallelWorkers.
+// Each seq's entry only touches per-item local data plus the read-only
+// private key, so it's safe to build concurrently. Each worker appends to its
+// OWN local slice for its contiguous seq range rather than a shared O
+// (concurrent append into one shared slice would race); the chunk slices are
+// concatenated afterward, in increasing-seq-range order, reproducing the same
+// seq-ascending order buildOSet produces. Not wired to any call site yet.
+func (n *Node) buildOSetParallel(minS, maxS, view int64, preprepareLog map[int64]core.PreprepareMsgSig) []core.PreprepareMsgSig {
+	if maxS < minS {
+		return make([]core.PreprepareMsgSig, 0)
+	}
+	total := maxS - minS + 1
+
+	workers := int64(runtime.NumCPU())
+	if workers > total {
+		workers = total
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	chunkSize := (total + workers - 1) / workers
+	// have indiviudal slice for each worker because we dont have input for each index some are skipped, either we could have fixed index for everything like in handlenewview parallelism then we could use one share slice
+	chunkResults := make([][]core.PreprepareMsgSig, workers)
+	var wg sync.WaitGroup
+
+	for i := int64(0); i < workers; i++ {
+		chunkStart := minS + i*chunkSize
+		chunkEnd := chunkStart + chunkSize - 1
+		if chunkEnd > maxS {
+			chunkEnd = maxS
+		}
+		if chunkStart > chunkEnd {
+			continue // fewer remaining items than workers
+		}
+		wg.Add(1)
+		go func(idx, start, end int64) {
+			defer wg.Done()
+			chunk := make([]core.PreprepareMsgSig, 0, end-start+1)
+			for seq := start; seq <= end; seq++ {
+				if preprepare, exists := preprepareLog[seq]; exists {
+					preprepare.PreprepareMsgMini.View = view
+					payloadBytes, err := marshalDeterministic(preprepareSignPayload(preprepare.PreprepareMsgMini.View, preprepare.PreprepareMsgMini.SeqNum, preprepare.PreprepareMsgMini.DigestClientMsg[:]))
+					if err != nil {
+						// handle error, maybe skip this preprepare
+						continue
+					}
+					signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+					if n.cfg.CarryState {
+						chunk = append(chunk, core.PreprepareMsgSig{
+							PreprepareMsgMini: preprepare.PreprepareMsgMini,
+							Signature:         signature,
+							ActualMsg:         preprepare.ActualMsg,
+						})
+					} else {
+						chunk = append(chunk, core.PreprepareMsgSig{
+							PreprepareMsgMini: preprepare.PreprepareMsgMini,
+							Signature:         signature,
+						})
+					}
+
+				} else {
+					n.log.Info("No prepared cert for seq %d in view change messages, creating dummy preprepare the min and max seq are %d and %d", seq, minS, maxS)
+					dummyPreprepare := core.PreprepareMsgMini{
+						View:            view,
+						SeqNum:          seq,
+						DigestClientMsg: [32]byte{},
+					}
+					payloadBytes, err := marshalDeterministic(preprepareSignPayload(dummyPreprepare.View, dummyPreprepare.SeqNum, dummyPreprepare.DigestClientMsg[:]))
+					if err != nil {
+						// handle error, maybe skip this preprepare
+						continue
+					}
+					signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+					chunk = append(chunk, core.PreprepareMsgSig{
+						PreprepareMsgMini: dummyPreprepare,
+						Signature:         signature,
+					})
+				}
+			}
+			chunkResults[idx] = chunk
+		}(i, chunkStart, chunkEnd)
+	}
+	wg.Wait()
+
+	O := make([]core.PreprepareMsgSig, 0, total)
+	for _, chunk := range chunkResults {
+		O = append(O, chunk...)
+	}
+	return O
 }
 
 func (n *Node) createOReplica(vcMsgSigs []*core.ViewChangeMsgSig, view int64) (map[int64]core.PreprepareMsgSig, int64, checkpoint, []core.CheckpointMsgSig, map[string]*big.Int) {

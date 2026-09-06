@@ -1,0 +1,31 @@
+top -H -p "$(pgrep -d, pbft_main)"
+for p in $(pgrep pbft_main); do echo "pid $p: $(ls /proc/$p/task | wc -l) threads"; done
+
+second command give os threads for each process client and nodes
+go rountine != os thread
+gomaxproc with running server limit how many os thread
+if run node with gomaxproc 8 and no limit on client u get threads as
+pid 47240: 13 threads
+pid 47249: 13 threads
+pid 47259: 13 threads
+pid 47270: 13 threads
+pid 48018: 67 threads
+
+client prolly have 67 because no limit 
+
+when no limit on any one then this is the shape
+
+pid 48826: 42 threads
+pid 48833: 43 threads
+pid 48845: 45 threads
+pid 48854: 43 threads
+pid 49621: 68 threads
+
+
+cmds to see what governor
+grep -qw performance /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors && echo "available"
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor > /tmp/prev_governor
+echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor > /dev/null
+cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor | sort -u   # confirm all say "performance"
+
+./alt_run_project.sh   # freq trace + node/client logs collect automatically

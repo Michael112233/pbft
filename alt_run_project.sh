@@ -4,6 +4,20 @@ set -e
 SESSION="pbft"
 CONFIG_PATH="config/run2new.json"
 
+# GOMAXPROCS sweep knobs (see plan: Step0 baseline + A3).
+# Empty (default) = unchanged behavior, GOMAXPROCS defaults to the full CPU affinity mask.
+# Set e.g. NODE_GOMAXPROCS=8 ./alt_run_project.sh to test a smaller value on node processes.
+NODE_GOMAXPROCS="${NODE_GOMAXPROCS:-}"
+CLIENT_GOMAXPROCS="${CLIENT_GOMAXPROCS:-}"
+NODE_ENV_PREFIX=""
+CLIENT_ENV_PREFIX=""
+if [ -n "$NODE_GOMAXPROCS" ]; then
+    NODE_ENV_PREFIX="GOMAXPROCS=$NODE_GOMAXPROCS "
+fi
+if [ -n "$CLIENT_GOMAXPROCS" ]; then
+    CLIENT_ENV_PREFIX="GOMAXPROCS=$CLIENT_GOMAXPROCS "
+fi
+
 if ! command -v python3 >/dev/null 2>&1; then
     echo "Error: python3 is required to run the learning-agent servers." >&2
     exit 1
@@ -23,6 +37,9 @@ NETEM_INTERFACE="lo"
 NETEM_LIMIT=100000
 NETEM_DELAY_LOG="logs/netem_schedule.log"
 NETEM_SCHEDULE_PID=""
+
+FREQ_TRACE_LOG="logs/freq_trace.csv"
+FREQ_TRACE_PID=""
 
 setup_netem() {
     if ! command -v tc >/dev/null 2>&1; then
@@ -137,6 +154,23 @@ start_repeating_netem_spikes() {
     echo "Started repeating netem spikes with PID $NETEM_SCHEDULE_PID; transitions are logged to $NETEM_DELAY_LOG."
 }
 
+start_freq_trace() {
+    : > "$FREQ_TRACE_LOG"
+
+    (
+        while true; do
+            ts=$(date +%s.%N)
+            freqs=$(cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq 2>/dev/null | tr '\n' ',')
+            echo "$ts,$freqs" >> "$FREQ_TRACE_LOG"
+            sleep 0.2
+        done
+    ) &
+
+    FREQ_TRACE_PID=$!
+    echo "Started CPU frequency trace with PID $FREQ_TRACE_PID; samples are logged to $FREQ_TRACE_LOG."
+    echo "Kill it manually once the experiment finishes: kill $FREQ_TRACE_PID"
+}
+
 pkill -f pbft_main || true
 echo "Cleaning up log files..."
 mkdir -p logs
@@ -187,23 +221,27 @@ echo "Learning-agent launcher log: $CURRENT_DIR/logs/learning-agent-launcher.log
 echo "Learning-agent node logs: $CURRENT_DIR/logs/learning-agent-node-<id>.log"
 echo "Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log"
 
+
+
 # tmux new-session -d -s "$SESSION" -n "node1" \
 #     "cd \"$CURRENT_DIR\" && ./pbft_main -r node -m loopbackip -n 1; status=\$?; echo; echo \"node1 exited with status \$status\"; exec bash"
 # Start every Go node in its own window.
 for i in $(seq 1 "$NODE_COUNT"); do
     tmux new-window -t "$SESSION" -n "node$i" \
-        "cd \"$CURRENT_DIR\" && ./pbft_main -r node -m loopbackip -n $i; status=\$?; echo; echo \"node$i exited with status \$status\"; exec bash"
+        "cd \"$CURRENT_DIR\" && ${NODE_ENV_PREFIX}./pbft_main -r node -m loopbackip -n $i; status=\$?; echo; echo \"node$i exited with status \$status\"; exec bash"
 done
 
 sleep 5
 # setup_netem
 # Optional: start client in another window
+
 tmux new-window -t "$SESSION" -n "client" \
-    "cd \"$CURRENT_DIR\" && ./pbft_main -r client -m loopbackip; status=\$?; echo; echo \"client exited with status \$status\"; exec bash"
+    "cd \"$CURRENT_DIR\" && ${CLIENT_ENV_PREFIX}./pbft_main -r client -m loopbackip; status=\$?; echo; echo \"client exited with status \$status\"; exec bash"
 
 # sleep 2
 # start_repeating_netem_spikes
 # start_netem_schedule
+# start_freq_trace
 
 echo "All nodes started."
 echo "Attaching to tmux session: $SESSION"
