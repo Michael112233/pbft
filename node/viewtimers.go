@@ -3,8 +3,8 @@ package node
 import "time"
 
 const (
-	leaderProgressTimeout = 200 * time.Millisecond
-	newViewTimeout        = 200 * time.Millisecond
+	leaderProgressTimeout = 100 * time.Millisecond
+	newViewTimeout        = 100 * time.Millisecond
 )
 
 // was 90
@@ -78,6 +78,10 @@ func (n *Node) stopViewTimers() {
 func (n *Node) acceptNewViewTimers() {
 	n.stopNewViewTimer()
 	n.resetLeaderProgressTimer()
+}
+
+func (n *Node) acceptNewViewTimersLeader() {
+	n.stopNewViewTimer()
 }
 
 func (n *Node) handleLeaderProgressTimeout() {

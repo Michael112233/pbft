@@ -35,6 +35,7 @@ type Client struct {
 	messageHub         *ClientMessageHub
 	privateKey         ed25519.PrivateKey
 	TransactionManager *TransactionManager
+	EventManager       *EventManager
 	requestPacer       requestPacer
 	leaderMu           sync.RWMutex
 	leaderAddr         string
@@ -87,6 +88,7 @@ func NewClient(addr string, name string, config *config.Config, leaderAddr strin
 	}
 	txnManager := NewTransactionManager(c, log)
 	c.TransactionManager = txnManager
+	c.EventManager = NewEventManager(c, log, defaultEventLowerBound, defaultEventUpperBound)
 	return c
 }
 
@@ -100,13 +102,16 @@ func (c *Client) Start() {
 	}
 	// keep it on for normal retry
 	// c.TransactionManager.StartRetryTimer(true)
+
 	c.injectSpeed = c.config.InjectSpeed
 	time.Sleep(100 * time.Millisecond) // msg hub to start
+	c.EventManager.Start()
 	c.InjectTxs()
 }
 
 func (c *Client) Stop() {
 	c.WaitGroup.Wait()
+	c.EventManager.Stop()
 	c.TransactionManager.StopRetryTimer()
 	c.messageHub.Close()
 	c.memoryLoggerStopOnce.Do(func() {
@@ -130,6 +135,12 @@ func (c *Client) AddTxs(txs []*core.Transaction) {
 
 func (c *Client) GetAddr() string {
 	return c.addr
+}
+
+func (c *Client) currentLeaderAddr() string {
+	c.leaderMu.RLock()
+	defer c.leaderMu.RUnlock()
+	return c.leaderAddr
 }
 
 func (c *Client) ExportTPSSeries(path string) error {

@@ -17,4 +17,5 @@ const (
 	MsgNewViewMessage         string = "MsgNewViewMessage"
 	MsgRequestVoteMessage     string = "MsgRequestVoteMessage"
 	MsgGrantVoteMessage       string = "MsgGrantVoteMessage"
+	MsgEventMessage           string = "MsgEventMessage"
 )

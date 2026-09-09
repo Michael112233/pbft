@@ -29,6 +29,10 @@ type ClientMsg struct {
 	Padding    string
 }
 
+type EventMsg struct {
+	EventType string
+}
+
 type ClientMsgReply struct {
 	Id         int64
 	Timestamp  time.Time

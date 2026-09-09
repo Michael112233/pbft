@@ -15,6 +15,7 @@ import (
 
 func (n *Node) enterViewChange() {
 	n.stopViewTimers()
+	n.stopPerfTimer()
 	// if n.lastExecuted >= 11500 {
 	// 	n.log.Info("Node %d has executed %d requests, stopping further view changes", n.GetNodeID(), n.lastExecuted)
 	// 	return
@@ -374,6 +375,7 @@ func (n *Node) primaryForView(forView int64, currView int64) int {
 }
 
 func (n *Node) newview() {
+	
 	oldView := n.view
 	n.view = n.forView
 	n.leaderId = n.GetNodeID()
@@ -416,6 +418,7 @@ func (n *Node) newview() {
 	n.sequenceNumber = maxSeq
 
 	maxRecentThroughput := n.newviewUpdatePerf(maxSeq, n.view)
+	
 
 	newViewMsg := core.NewViewMsg{
 		NewViewNumber: n.view,
@@ -440,7 +443,8 @@ func (n *Node) newview() {
 	// maxseq == ladtStableCheckpoint.seq means no suffix, O len zero
 
 	// loss in this queue is fine ig
-	n.acceptNewViewTimers()
+	// n.acceptNewViewTimers()
+	n.acceptNewViewTimersLeader() // experimental dont start progress timer on leader
 	n.pendingRequests.Reset()
 }
 

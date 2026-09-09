@@ -1,6 +1,8 @@
 package node
 
 import (
+	"context"
+	"errors"
 	"runtime"
 	"sync"
 
@@ -9,6 +11,20 @@ import (
 	"github.com/michael112233/pbft/transportpb"
 	"google.golang.org/protobuf/proto"
 )
+
+var errEventLoopStopped = errors.New("node event loop stopped")
+
+func (n *Node) HandleEventMessage(ctx context.Context, msg core.EventMsg) error {
+	select {
+	case n.clientEventMsgChan <- msg:
+		n.log.Debug("event message received: %s", msg.EventType)
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-n.eventLoopStopCh:
+		return errEventLoopStopped
+	}
+}
 
 func (n *Node) HandleRequestMessage(requests core.RequestMessage) {
 	txs := requests.Txs

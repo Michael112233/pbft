@@ -37,6 +37,10 @@ message RequestMessage {
   string msg_type = 2;
 }
 
+message EventMsg {
+  string event_type = 1;
+}
+
 // ClientBatchDigestPayload is the canonical protobuf representation hashed for
 // a batch. Client signatures are deliberately excluded and verified
 // separately.
@@ -245,6 +249,7 @@ message Envelope {
     VCRunningStatus vc_running_status = 22;
     RequestVoteMsg request_vote = 23;
     GrantVoteMsg grant_vote = 24;
+    EventMsg event = 25;
   }
 }
 

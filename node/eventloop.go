@@ -1,6 +1,8 @@
 package node
 
 import (
+	"time"
+
 	"github.com/michael112233/pbft/core"
 )
 
@@ -25,6 +27,7 @@ func (n *Node) run() {
 	defer close(n.eventLoopDoneCh)
 	defer n.StopBatchTimer()
 	defer n.stopViewTimers()
+	defer n.stopPerfTimer()
 
 	for {
 		clientRequestCh := n.receiveVerifiedClientRequestCh
@@ -74,6 +77,8 @@ func (n *Node) run() {
 			n.handleLeaderProgressTimeout()
 		case <-n.newViewTimerCh:
 			n.handleNewViewTimeout()
+		case <-n.perfTimerCh:
+			n.handlePerfTimerTimeout()
 		case electionMsg := <-n.electionMsgChan:
 			switch electionMsg.MsgType {
 			case core.MsgRequestVoteMessage:
@@ -84,6 +89,12 @@ func (n *Node) run() {
 				n.HandleGrantVoteMsg(msg, electionMsg.Signature)
 			default:
 				n.log.Error("Unknown election message type: %v", electionMsg.MsgType)
+			}
+		case <-n.clientEventMsgChan:
+			if n.GetNodeID() == n.GetLeaderId() && !n.viewChangeRunning {
+				n.log.Debug("Activated leader stall for view %d", n.GetView())
+				time.Sleep(120 * time.Millisecond)
+				// n.SetStall(true)
 			}
 
 		case <-n.eventLoopStopCh:

@@ -267,6 +267,20 @@ func (hub *NodeMessageHub) ClientNodeChannel(stream transportpb.PBFTTransport_Cl
 			continue
 		}
 		switch env.MsgType {
+		case core.MsgEventMessage:
+			event := env.GetEvent()
+			if event == nil {
+				continue
+			}
+			data, err := transportpb.EventFromPB(event)
+			if err != nil {
+				hub.log.Error("stream event decode failed: err=%v", err)
+				continue
+			}
+			if err := hub.node_ref.HandleEventMessage(stream.Context(), data); err != nil {
+				hub.log.Error("stream event enqueue failed: err=%v", err)
+			}
+
 		case core.MsgRequestMessage:
 			request := env.GetRequest()
 			if request == nil {
@@ -326,12 +340,29 @@ func (hub *NodeMessageHub) receiveNodeStream(stream transportpb.PBFTTransport_Cl
 	}
 }
 
-func (hub *NodeMessageHub) Deliver(_ context.Context, env *transportpb.Envelope) (*transportpb.Ack, error) {
+func (hub *NodeMessageHub) Deliver(ctx context.Context, env *transportpb.Envelope) (*transportpb.Ack, error) {
 	// if hub.node_ref.dead {
 	// 	hub.log.Info("Node is dead. Ignoring message from %d", env.From)
 	// 	return &transportpb.Ack{Ok: true}, nil
 	// }
 	switch env.MsgType {
+	case core.MsgEventMessage:
+		if hub.node_ref.dead {
+			return &transportpb.Ack{Ok: false, Error: "node is dead"}, nil
+		}
+		event := env.GetEvent()
+		if event == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing event body"}, nil
+		}
+		data, err := transportpb.EventFromPB(event)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		if err := hub.node_ref.HandleEventMessage(ctx, data); err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		return &transportpb.Ack{Ok: true}, nil
+
 	case core.MsgRequestMessage:
 		request := env.GetRequest()
 		if request == nil {
@@ -831,9 +862,9 @@ func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, sign
 	hub.injectArtificialLatency(msgType, ip)
 	timeStart := time.Now()
 	sizeBytes := 0
-	if msgType == core.MsgNewViewMessage || msgType == core.MsgViewChangeMessage {
-		sizeBytes = proto.Size(env) // this is also very slow
-	}
+	// if msgType == core.MsgNewViewMessage || msgType == core.MsgViewChangeMessage {
+	// 	sizeBytes = proto.Size(env) // this is also very slow
+	// }
 
 	if err := hub.sendEnvelopeOverPeerStream(ip, env); err != nil {
 		hub.log.Error("node stream send failed. msgType=%s target=%s err=%v", msgType, ip, err)

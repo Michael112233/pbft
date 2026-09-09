@@ -22,6 +22,7 @@ const (
 	clientDialTimeout         = 3 * time.Second
 	streamRetryInterval       = 500 * time.Millisecond
 	sendWaitTimeout           = 5 * time.Second
+	controlRPCTimeout         = time.Second
 	maxGRPCMsgBytes           = 256 * 1024 * 1024
 	grpcFlowControlWindowSize = 8 * 1024 * 1024
 )
@@ -309,10 +310,42 @@ func (hub *ClientMessageHub) sendToNodeStream(addr string, env *transportpb.Enve
 	}
 }
 
+func (hub *ClientMessageHub) sendUnaryToNode(addr string, env *transportpb.Envelope) error {
+	state := hub.getNodeStream(addr)
+	if state == nil || state.client == nil {
+		return fmt.Errorf("connection not ready for target %s", addr)
+	}
+	if hub.ctx == nil {
+		return errors.New("client message hub is not started")
+	}
+
+	ctx, cancel := context.WithTimeout(hub.ctx, controlRPCTimeout)
+	defer cancel()
+
+	ack, err := state.client.Deliver(ctx, env)
+	if err != nil {
+		return fmt.Errorf("unary deliver to %s: %w", addr, err)
+	}
+	if ack == nil {
+		return fmt.Errorf("unary deliver to %s returned a nil acknowledgement", addr)
+	}
+	if !ack.Ok {
+		return fmt.Errorf("unary deliver to %s rejected: %s", addr, ack.Error)
+	}
+	return nil
+}
+
 func (hub *ClientMessageHub) buildEnvelope(msgType string, msg interface{}) (*transportpb.Envelope, error) {
 	env := &transportpb.Envelope{MsgType: msgType}
 
 	switch msgType {
+	case core.MsgEventMessage:
+		event, ok := msg.(core.EventMsg)
+		if !ok {
+			return nil, fmt.Errorf("invalid payload type for %s: %T", msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_Event{Event: transportpb.EventToPB(event)}
+
 	case core.MsgRequestMessage:
 		request, ok := msg.(core.RequestMessage)
 		if !ok {
@@ -355,8 +388,13 @@ func (hub *ClientMessageHub) Send(msgType string, from string, to string, msg in
 
 	// hub.injectArtificialLatency(msgType, from, to)
 
-	if err := hub.sendToNodeStream(to, env); err != nil {
-		hub.log.Error("stream send failed. msgType=%s target=%s err=%v", msgType, to, err)
+	if msgType == core.MsgEventMessage {
+		err = hub.sendUnaryToNode(to, env)
+	} else {
+		err = hub.sendToNodeStream(to, env)
+	}
+	if err != nil {
+		hub.log.Error("send failed. msgType=%s target=%s err=%v", msgType, to, err)
 		return
 	}
 

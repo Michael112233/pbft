@@ -29,7 +29,7 @@ const (
 	targetThroughputMaxFactor          = 0.90
 	ALPHA                              = 1 / float64(10) // for exponential moving average calculation of throughput
 	D                                  = 3
-	THROUGHPUTINTERVAL_DELAY           = 5
+	THROUGHPUTINTERVAL_DELAY           = 3
 )
 
 type Node struct {
@@ -48,6 +48,7 @@ type Node struct {
 	checkpointMsgChan              chan CheckpointMsg
 	newViewMsgChan                 chan NewViewMsg
 	electionMsgChan                chan ElectionMsg
+	clientEventMsgChan             chan core.EventMsg
 
 	electionVDFResultCh chan electionVDFResult
 	eventLoopStarted    atomic.Bool
@@ -60,6 +61,8 @@ type Node struct {
 	leaderProgressTimerCh <-chan time.Time
 	newViewTimer          *time.Timer
 	newViewTimerCh        <-chan time.Time
+	perfTimer             *time.Timer
+	perfTimerCh           <-chan time.Time
 	pool                  *Pool
 	consensusLog          *Log
 	checkpointManager     *CheckpointManager
@@ -112,17 +115,19 @@ type Node struct {
 	throughputPerf ThroughputPerf
 	lm             *LatencyMonitor
 
-	dead               bool
-	split              bool
-	periodic           bool
-	fixed              bool
-	changemu           sync.RWMutex
-	periodicReq        bool
-	performanceTrigger bool
-	peakTpsTest        bool
-	proposalDelay      bool
-	gc                 bool
-	latencyLog         bool
+	dead                    bool
+	split                   bool
+	periodic                bool
+	fixed                   bool
+	changemu                sync.RWMutex
+	periodicReq             bool
+	performanceTrigger      bool
+	performanceTimedTrigger bool
+	peakTpsTest             bool
+	proposalDelay           bool
+	stallState              StallState
+	gc                      bool
+	latencyLog              bool
 }
 
 func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
@@ -151,6 +156,7 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		checkpointMsgChan:              make(chan CheckpointMsg, 100),
 		newViewMsgChan:                 make(chan NewViewMsg, 20),
 		electionMsgChan:                make(chan ElectionMsg, 100),
+		clientEventMsgChan:             make(chan core.EventMsg, 2),
 		electionVDFResultCh:            make(chan electionVDFResult, 1),
 
 		pendingRequests:            NewRequestQueue(cfg.PendingQueueCapacity),
@@ -189,17 +195,24 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 			throughputIntervalStart:      time.Time{},
 			throughputObservationStarted: false,
 			viewThroughputs:              make(map[int64]float64),
+
+			timedTargetThroughput:   defaultTargetThroughput,
+			timedIntervalStartSeq:   THROUGHPUTINTERVAL_DELAY,
+			timedIntervalStart:      time.Time{},
+			timedObservationStarted: false,
 		},
 		lm: NewLatencyMonitor(),
 
-		split:              false,
-		dead:               cfg.NodesDead[nodeID],
-		proposalDelay:      cfg.ProposalDelayNode == nodeID,
-		periodic:           cfg.Periodic,
-		periodicReq:        cfg.PeriodicReq,
-		fixed:              cfg.Fixed,
-		performanceTrigger: cfg.PerformanceTrigger,
-		peakTpsTest:        cfg.PeakTpsTest,
+		split:                   false,
+		dead:                    cfg.NodesDead[nodeID],
+		proposalDelay:           cfg.ProposalDelayNode == nodeID,
+		periodic:                cfg.Periodic,
+		periodicReq:             cfg.PeriodicReq,
+		fixed:                   cfg.Fixed,
+		performanceTrigger:      cfg.PerformanceTrigger,
+		performanceTimedTrigger: cfg.PerformanceTimedTrigger,
+		peakTpsTest:             cfg.PeakTpsTest,
+		stallState:              StallState{stall: false, view: 1},
 
 		latencyLog: cfg.LatencyLog,
 		gc:         cfg.GC,
@@ -362,8 +375,19 @@ func (n *Node) tryPropose(fullBatch bool) {
 		n.log.Debug("Cannot propose: next sequence number %d would exceed the high watermark %d", n.CurrentSequenceNumber()+1, n.consensusLog.high)
 		return
 	}
+	// if n.CurrentSequenceNumber() == 100 {
+	// 	n.log.Debug("Leader stall aplied")
+	// 	time.Sleep(120 * time.Millisecond)
+	// }
+	// leaderStall := n.GetStall()
+	// if leaderStall {
+	// 	time.Sleep(200 * time.Millisecond)
+	// 	n.log.Debug("Applied leader stall")
+	// 	n.SetStall(false)
+	// 	return
+	// }
 	if n.ProposalDelayEnabled() {
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(70 * time.Millisecond)
 	}
 
 	reqs := n.pendingRequests.Dequeue(n.GetBatchSize())
@@ -792,7 +816,7 @@ func (n *Node) tryExecute(slot *LogEntry) {
 	}
 	// every view change this will hit as executed survive across view and Oset reproposes all thing above last stable
 	if slot.executed {
-		n.log.Debug("should not be executed")
+		// n.log.Debug("should not be executed")
 		return
 	}
 	if len(slot.commits) < n.QuorumSize() || matchingVotesC(slot.commits, slot.preprepare.DigestClientMsg) < n.QuorumSize() {
@@ -949,6 +973,22 @@ func (n *Node) QuorumSize() int {
 
 func (n *Node) ProposalDelayEnabled() bool {
 	return n.proposalDelay
+}
+
+type StallState struct {
+	stall bool
+	view  int64
+}
+
+func (n *Node) SetStall(stall bool) {
+	n.stallState = StallState{stall: stall, view: n.GetView()}
+}
+
+// GetStall reports whether a stall was requested in the current view. A stall
+// requested in an earlier view is ignored so it cannot leak into a later view
+// where this replica becomes primary again.
+func (n *Node) GetStall() bool {
+	return n.stallState.stall && n.stallState.view == n.GetView()
 }
 
 func (n *Node) assert(condition bool, format string, args ...interface{}) {

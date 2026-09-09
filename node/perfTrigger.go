@@ -51,10 +51,14 @@ func (n *Node) newviewUpdatePerf(maxSeq int64, view int64) float64 {
 		n.log.Info("Throughput interval start seq set to %d for new view %d", n.throughputPerf.throughputIntervalStartSeq, view)
 		n.throughputPerf.throughputObservationStarted = false
 		maxRecentThroughput = n.maxRecentViewThroughput(view)
+		if maxRecentThroughput <= 100 {
+			n.log.Error("Concerning how is tput <= 100")
+		}
 		n.throughputPerf.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput
 
 		n.log.Info("Max recent throughput for new view %d is %.2f; target throughput set to %.2f", n.view, maxRecentThroughput, n.throughputPerf.targetThroughput)
 
+		n.resetTimedPerfWindow(maxSeq, view, maxRecentThroughput)
 	}
 	return maxRecentThroughput
 
@@ -70,5 +74,6 @@ func (n *Node) handleNewViewUpdatePerf(maxSeq int64, view int64, throughput floa
 
 		n.log.Info("Max recent throughput for new view %d is %.2f; target throughput set to %.2f", n.view, maxRecentThroughput, n.throughputPerf.targetThroughput)
 
+		n.resetTimedPerfWindow(maxSeq, view, maxRecentThroughput)
 	}
 }

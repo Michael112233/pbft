@@ -15,39 +15,40 @@ type Config struct {
 	PendingQueueCapacity  int   `json:"pending_queue_capacity"`
 	ClientMsgPaddingBytes int   `json:"client_msg_padding_bytes"`
 
-	NodeNum            int64        `json:"node_num"`
-	NodesDead          map[int]bool `json:"nodes_dead"`
-	Periodic           bool         `json:"periodic"`
-	Period             int64        `json:"period"`
-	NumberOfPeriods    int          `json:"number_of_periods"`
-	PeakTpsTest        bool         `json:"peak_tps_test"`
-	LeaderType         string       `json:"leader_type"`
-	FarNodeID          int          `json:"far_node_id"`
-	FarNodeDelayMs     int64        `json:"far_node_delay_ms"`
-	Netem              NetemConfig  `json:"netem"`
-	LeaderTypeEnum     core.VCType
-	ActiveL            bool  `json:"active_l"`
-	PerformanceTrigger bool  `json:"performance_trigger"`
-	Performance        bool  `json:"performance"`
-	ProposalDelayNode  int   `json:"proposal_delay_node"`
-	ProposalDelayMS    int   `json:"proposal_delay_ms"`
-	GC                 bool  `json:"gc"`
-	Logging            bool  `json:"logging"`
-	CarryState         bool  `json:"carry_state"`
-	LogShares          bool  `json:"log_shares"`
-	RetrySleep         int   `json:"retry_sleep"`
-	MaxInflightSeq     int64 `json:"max_inflight_seq"`
-	Fixed              bool  `json:"fixed"`
-	PeriodicReq        bool  `json:"periodic_req"`
-	CompleteSuite      bool  `json:"complete_suite"`
-	LatencyLog         bool  `json:"node_latency_logger"`
-	SerialClient       bool  `json:"serial_client"`
-	MaxBatchSize       int   `json:"max_batch_size"`
-	MaxBatchDelay      int   `json:"max_batch_delay"`
-	ConsensusChanSize  int   `json:"consensus_chan_size"`
-	MinVDFDelay        int   `json:"min_vdf_delay"`
-	MaxVDFDelay        int   `json:"max_vdf_delay"`
-	ParallelWorkers    bool  `json:"parallel_workers"`
+	NodeNum                 int64        `json:"node_num"`
+	NodesDead               map[int]bool `json:"nodes_dead"`
+	Periodic                bool         `json:"periodic"`
+	Period                  int64        `json:"period"`
+	NumberOfPeriods         int          `json:"number_of_periods"`
+	PeakTpsTest             bool         `json:"peak_tps_test"`
+	LeaderType              string       `json:"leader_type"`
+	FarNodeID               int          `json:"far_node_id"`
+	FarNodeDelayMs          int64        `json:"far_node_delay_ms"`
+	Netem                   NetemConfig  `json:"netem"`
+	LeaderTypeEnum          core.VCType
+	ActiveL                 bool  `json:"active_l"`
+	PerformanceTrigger      bool  `json:"performance_trigger"`
+	Performance             bool  `json:"performance"`
+	ProposalDelayNode       int   `json:"proposal_delay_node"`
+	ProposalDelayMS         int   `json:"proposal_delay_ms"`
+	GC                      bool  `json:"gc"`
+	Logging                 bool  `json:"logging"`
+	CarryState              bool  `json:"carry_state"`
+	LogShares               bool  `json:"log_shares"`
+	RetrySleep              int   `json:"retry_sleep"`
+	MaxInflightSeq          int64 `json:"max_inflight_seq"`
+	Fixed                   bool  `json:"fixed"`
+	PeriodicReq             bool  `json:"periodic_req"`
+	CompleteSuite           bool  `json:"complete_suite"`
+	LatencyLog              bool  `json:"node_latency_logger"`
+	SerialClient            bool  `json:"serial_client"`
+	MaxBatchSize            int   `json:"max_batch_size"`
+	MaxBatchDelay           int   `json:"max_batch_delay"`
+	ConsensusChanSize       int   `json:"consensus_chan_size"`
+	MinVDFDelay             int   `json:"min_vdf_delay"`
+	MaxVDFDelay             int   `json:"max_vdf_delay"`
+	ParallelWorkers         bool  `json:"parallel_workers"`
+	PerformanceTimedTrigger bool  `json:"performance_timed_trigger"`
 }
 
 func ReadCfg(filename string) *Config {

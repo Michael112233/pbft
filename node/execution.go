@@ -62,12 +62,15 @@ func (n *Node) exeLoop() {
 		// if n.lastExecuted == 1 {
 		// 	n.resetLeaderProgressTimer()
 		// }
-		n.resetLeaderProgressTimer()
+		if n.leaderId != n.GetNodeID() {
+			n.resetLeaderProgressTimer()
+		}
 		if n.cfg.Performance {
 			perfTrigger := n.observeExecutedSlotForThroughput(n.lastExecuted, time.Now(), view, leaderId)
 			if perfTrigger {
 				performanceTrigger++
 			}
+			n.observeExecutedSlotForTimedThroughput(n.lastExecuted, time.Now())
 		}
 		if n.lastExecuted%CHECKPOINT_INTERVAL == 0 {
 			copyOfBalances := n.executionMachine.CheckpointSnapshot()

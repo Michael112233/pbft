@@ -4,7 +4,10 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"io"
 	"net"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -17,6 +20,180 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/proto"
 )
+
+type eventClientStream struct {
+	grpc.ServerStream
+	envelopes []*transportpb.Envelope
+}
+
+func (s *eventClientStream) Context() context.Context { return context.Background() }
+
+func (s *eventClientStream) Send(*transportpb.Envelope) error { return nil }
+
+func (s *eventClientStream) Recv() (*transportpb.Envelope, error) {
+	if len(s.envelopes) == 0 {
+		return nil, io.EOF
+	}
+	env := s.envelopes[0]
+	s.envelopes = s.envelopes[1:]
+	return env, nil
+}
+
+func TestClientStreamEventDispatch(t *testing.T) {
+	t.Chdir(t.TempDir())
+	for _, dead := range []bool{false, true} {
+		n := &Node{
+			dead:               dead,
+			log:                logger.NewLogger(98765, "node"),
+			clientEventMsgChan: make(chan core.EventMsg, 2),
+			eventLoopStopCh:    make(chan struct{}),
+		}
+		hub := &NodeMessageHub{node_ref: n, log: n.log}
+		eventType := "live-event"
+		if dead {
+			eventType = "dead-event"
+		}
+		stream := &eventClientStream{envelopes: []*transportpb.Envelope{
+			{MsgType: core.MsgEventMessage},
+			{MsgType: core.MsgEventMessage, Body: &transportpb.Envelope_Request{Request: &transportpb.RequestMessage{}}},
+			{MsgType: core.MsgEventMessage, Body: &transportpb.Envelope_Event{Event: &transportpb.EventMsg{EventType: eventType}}},
+			{MsgType: core.MsgEventMessage, Body: &transportpb.Envelope_Event{Event: &transportpb.EventMsg{}}},
+		}}
+		if err := hub.ClientNodeChannel(stream); err != nil {
+			t.Fatal(err)
+		}
+		if hub.clientStream != nil {
+			t.Fatal("client stream was not cleared after EOF")
+		}
+	}
+	contents, err := os.ReadFile("logs/node_98765.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := string(contents)
+	if strings.Count(output, "event message received:") != 2 || !strings.Contains(output, "event message received: live-event") || strings.Contains(output, "dead-event") {
+		t.Fatalf("unexpected event handler output: %s", output)
+	}
+}
+
+func TestDeliverEvent(t *testing.T) {
+	t.Run("accepted and enqueued", func(t *testing.T) {
+		events := make(chan core.EventMsg, 1)
+		n := &Node{
+			log:                logger.NewLogger(98765, "node"),
+			clientEventMsgChan: events,
+			eventLoopStopCh:    make(chan struct{}),
+		}
+		hub := &NodeMessageHub{node_ref: n, log: n.log}
+
+		ack, err := hub.Deliver(context.Background(), &transportpb.Envelope{
+			MsgType: core.MsgEventMessage,
+			Body: &transportpb.Envelope_Event{
+				Event: &transportpb.EventMsg{EventType: "LeaderStall"},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ack == nil || !ack.Ok {
+			t.Fatalf("ack = %v, want successful acknowledgement", ack)
+		}
+		select {
+		case event := <-events:
+			if event.EventType != "LeaderStall" {
+				t.Fatalf("event type = %q, want LeaderStall", event.EventType)
+			}
+		default:
+			t.Fatal("event was acknowledged before being enqueued")
+		}
+	})
+
+	invalid := []struct {
+		name string
+		node *Node
+		env  *transportpb.Envelope
+		want string
+	}{
+		{
+			name: "missing body",
+			node: &Node{clientEventMsgChan: make(chan core.EventMsg, 1), eventLoopStopCh: make(chan struct{})},
+			env:  &transportpb.Envelope{MsgType: core.MsgEventMessage},
+			want: "missing event body",
+		},
+		{
+			name: "mismatched body",
+			node: &Node{clientEventMsgChan: make(chan core.EventMsg, 1), eventLoopStopCh: make(chan struct{})},
+			env: &transportpb.Envelope{
+				MsgType: core.MsgEventMessage,
+				Body:    &transportpb.Envelope_Request{Request: &transportpb.RequestMessage{}},
+			},
+			want: "missing event body",
+		},
+		{
+			name: "dead node",
+			node: &Node{dead: true, clientEventMsgChan: make(chan core.EventMsg, 1), eventLoopStopCh: make(chan struct{})},
+			env: &transportpb.Envelope{
+				MsgType: core.MsgEventMessage,
+				Body: &transportpb.Envelope_Event{
+					Event: &transportpb.EventMsg{EventType: "LeaderStall"},
+				},
+			},
+			want: "node is dead",
+		},
+	}
+
+	for _, tt := range invalid {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.node.log = logger.NewLogger(98765, "node")
+			hub := &NodeMessageHub{node_ref: tt.node, log: tt.node.log}
+			ack, err := hub.Deliver(context.Background(), tt.env)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ack == nil || ack.Ok || !strings.Contains(ack.Error, tt.want) {
+				t.Fatalf("ack = %v, want rejection containing %q", ack, tt.want)
+			}
+			select {
+			case event := <-tt.node.clientEventMsgChan:
+				t.Fatalf("rejected event was enqueued: %+v", event)
+			default:
+			}
+		})
+	}
+}
+
+func TestDeliverEventCancellationReleasesBlockedEnqueue(t *testing.T) {
+	events := make(chan core.EventMsg, 1)
+	events <- core.EventMsg{EventType: "already queued"}
+	n := &Node{
+		log:                logger.NewLogger(98765, "node"),
+		clientEventMsgChan: events,
+		eventLoopStopCh:    make(chan struct{}),
+	}
+	hub := &NodeMessageHub{node_ref: n, log: n.log}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan *transportpb.Ack, 1)
+
+	go func() {
+		ack, _ := hub.Deliver(ctx, &transportpb.Envelope{
+			MsgType: core.MsgEventMessage,
+			Body: &transportpb.Envelope_Event{
+				Event: &transportpb.EventMsg{EventType: "LeaderStall"},
+			},
+		})
+		done <- ack
+	}()
+
+	cancel()
+	select {
+	case ack := <-done:
+		if ack == nil || ack.Ok || !strings.Contains(ack.Error, context.Canceled.Error()) {
+			t.Fatalf("ack = %v, want context-canceled rejection", ack)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("canceled event delivery remained blocked on a full event channel")
+	}
+}
 
 func TestBuildEnvelopeAndDeliverViewProtocolMessages(t *testing.T) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)

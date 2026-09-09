@@ -8,6 +8,32 @@ type ThroughputPerf struct {
 	targetThroughput             float64
 	throughputObservationStarted bool
 	viewThroughputs              map[int64]float64
+
+	// Timed trigger state. Mirrors the seq-driven fields above, but the
+	// measurement is taken by the perf timer once a second instead of at
+	// checkpoint boundaries, so it keeps its own target to raise.
+	timedIntervalStart      time.Time
+	timedIntervalStartSeq   int64
+	timedTargetThroughput   float64
+	timedObservationStarted bool
+}
+
+// observeExecutedSlotForTimedThroughput only opens the measurement window for the
+// timed trigger: the first executed slot at or above the post-new-view delay seq
+// pins the interval start and arms the perf timer. Everything else (measuring,
+// raising the bar, triggering the view change) happens in handlePerfTimerTimeout.
+func (n *Node) observeExecutedSlotForTimedThroughput(seq int64, now time.Time) {
+	if !n.performanceTimedTrigger || seq <= 0 {
+		return
+	}
+
+	if seq >= n.throughputPerf.timedIntervalStartSeq && !n.throughputPerf.timedObservationStarted {
+		n.log.Info("Timed trigger: interval start seq %d reached at seq %d, starting timing and perf timer", n.throughputPerf.timedIntervalStartSeq, seq)
+		n.throughputPerf.timedIntervalStart = now
+		n.throughputPerf.timedIntervalStartSeq = seq
+		n.throughputPerf.timedObservationStarted = true
+		n.resetPerfTimer()
+	}
 }
 
 // this will tput for seq number so full batch
@@ -48,7 +74,7 @@ func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view i
 			})
 		}
 		if throughput < 50 {
-			n.log.Warn(" Grace Period as throughput less than 50 for view %d and seq %d is %.2f with elapsed time %.2f seconds, executed slots %d", view, seq, throughput, elapsedSeconds, executedSlots)
+			// n.log.Warn(" Grace Period as throughput less than 50 for view %d and seq %d is %.2f with elapsed time %.2f seconds, executed slots %d", view, seq, throughput, elapsedSeconds, executedSlots)
 			// return false
 		}
 	} else { // grace period

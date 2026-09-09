@@ -139,6 +139,17 @@ func ClientMsgSigFromPB(msg *ClientMsgSignature) (core.ClientMsgSignature, error
 	}, nil
 }
 
+func EventToPB(msg core.EventMsg) *EventMsg {
+	return &EventMsg{EventType: msg.EventType}
+}
+
+func EventFromPB(msg *EventMsg) (core.EventMsg, error) {
+	if msg == nil {
+		return core.EventMsg{}, nil
+	}
+	return core.EventMsg{EventType: msg.EventType}, nil
+}
+
 func RequestToPB(msg core.RequestMessage) *RequestMessage {
 	out := &RequestMessage{
 		Txs:     make([]*ClientMsgSignature, 0, len(msg.Txs)),

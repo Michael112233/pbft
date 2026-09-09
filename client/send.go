@@ -15,6 +15,7 @@ import (
 )
 
 const clientSendInterval = 24 * time.Millisecond
+
 // 1000/clientsned * injectspeed = rate
 const (
 	normalRequestMessageType = "RequestMessage"
@@ -261,4 +262,15 @@ func (c *Client) altSendRequestTransactionsForSerialClient(txs []core.ClientMsgS
 		core.RequestMessage{Txs: txs, MsgType: requestMessageType},
 		nil,
 	)
+}
+
+func (c *Client) sendEventMsg(leaderAddr string) {
+	c.messageHub.Send(
+		core.MsgEventMessage,
+		c.addr,
+		leaderAddr,
+		core.EventMsg{EventType: "LeaderStall"},
+		nil,
+	)
+
 }

@@ -7,9 +7,37 @@ import (
 	"time"
 
 	"github.com/michael112233/pbft/core"
+	"google.golang.org/protobuf/proto"
 )
 
 var testTimestamp = time.Unix(123456789, 987654321).UTC()
+
+func TestEventMessageRoundTrip(t *testing.T) {
+	for _, eventType := range []string{"test-event", ""} {
+		t.Run(eventType, func(t *testing.T) {
+			in := core.EventMsg{EventType: eventType}
+			env := &Envelope{MsgType: core.MsgEventMessage, Body: &Envelope_Event{Event: EventToPB(in)}}
+			wire, err := proto.Marshal(env)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded Envelope
+			if err := proto.Unmarshal(wire, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			if decoded.MsgType != core.MsgEventMessage || decoded.GetEvent() == nil {
+				t.Fatalf("event envelope not preserved: %v", &decoded)
+			}
+			out, err := EventFromPB(decoded.GetEvent())
+			if err != nil || out != in {
+				t.Fatalf("round trip = %+v, %v; want %+v", out, err, in)
+			}
+		})
+	}
+	if out, err := EventFromPB(nil); err != nil || out != (core.EventMsg{}) {
+		t.Fatalf("nil conversion = %+v, %v", out, err)
+	}
+}
 
 func TestRequestMessageRoundTripIncludesMsgType(t *testing.T) {
 	in := core.RequestMessage{
