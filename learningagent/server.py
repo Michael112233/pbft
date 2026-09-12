@@ -26,7 +26,7 @@ from learningagent.address import SUPPORTED_MODES, node_address, server_address
 LOGGER = logging.getLogger(__name__)
 GRACEFUL_STOP_SECONDS = 5
 NODE_RPC_TIMEOUT_SECONDS = 1.0
-MAX_REPLAY_LENGTH = 1000
+MAX_REPLAY_LENGTH = -1
 LEARNING_DATA_REWARD_KEY = "reward"
 LEARNING_DATA_STATE_KEYS = ("shadow_count",)
 
@@ -40,8 +40,11 @@ class StopEvent(Protocol):
 
 
 class ProtocolName(StrEnum):
-    Periodic = "periodic"
-    Performance = "fixed"
+    PeriodicRoundRobin = "periodic_round_robin"
+    PeriodicElection = "periodic_election"
+    PerformanceRoundRobin = "performance_round_robin"
+    PerformanceElection = "performance_election"
+    FixedRoundRobin = "fixed_round_robin"
 
 
 PROTOCOLS = [p.value for p in ProtocolName]
@@ -61,7 +64,119 @@ DecisionQueue = queue.Queue[LearningData | None]
 def replay_len(experiences):
     return min(len(experiences), MAX_REPLAY_LENGTH)
 
+class QuadRF:
+    def __init__(self, seed: int | None = None) -> None:
+        self.experiences_X = {prev_action: {} for prev_action in PROTOCOLS}
+        self.experiences_y = {prev_action: {} for prev_action in PROTOCOLS}
+        self.models = {prev_action: {} for prev_action in PROTOCOLS}
+        self.rng = np.random.default_rng(seed)
+        self.on_hold_pairs: dict[tuple[ProtocolName, ProtocolName], bool] = {} # utilised at start for non tested arms
+        # self.fitted: set[ProtocolName] = set()
+        for prev_action in PROTOCOLS:
+            for action in PROTOCOLS:
+                self.experiences_X[prev_action][action] = []
+                self.experiences_y[prev_action][action] = []
+                self.models[prev_action][action] = RandomForestRegressor(max_depth=5, random_state=seed)
 
+    def record_state_action_reward(self, LearningData: LearningData, prev_protocol: ProtocolName):
+                current_protocol = LearningData.current_protocol
+                self.experiences_X[prev_protocol][current_protocol].append(LearningData.state)
+                self.experiences_y[prev_protocol][current_protocol].append(LearningData.reward)
+                if (prev_protocol, current_protocol) in self.on_hold_pairs:
+                    del self.on_hold_pairs[(prev_protocol, current_protocol)]
+    def train(self, prev_protocol: ProtocolName, current_protocol: ProtocolName) -> None:
+            experiences_X = self.experiences_X[prev_protocol][current_protocol]
+            experiences_y = self.experiences_y[prev_protocol][current_protocol]
+
+            if not experiences_y:
+                return
+
+            if len(experiences_X) != len(experiences_y):
+                raise ValueError(
+                    f"experience length mismatch for {prev_protocol} -> {current_protocol}: "
+                    f"X={len(experiences_X)}, y={len(experiences_y)}"
+                )
+
+            replay_length = replay_len(experiences_y)
+
+            replay_X = np.asarray(
+                experiences_X[-replay_length:],
+                dtype=np.float64,
+            )  # (N,F)
+            replay_y = np.asarray(
+                experiences_y[-replay_length:],
+                dtype=np.float64,
+            )  # (N,)
+
+            if replay_length < 5:
+                bootstrap_indices = np.arange(replay_length)
+            else:
+                bootstrap_indices = self.rng.choice(
+                    replay_length,
+                    size=replay_length,
+                    replace=True,
+                )
+
+            bootstrap_X = replay_X[bootstrap_indices]
+            bootstrap_y = replay_y[bootstrap_indices]
+
+            self.models[prev_protocol][current_protocol].fit(
+                bootstrap_X,
+                bootstrap_y,
+            )
+
+    def predict(self, state: NDArray[np.float64], prev_protocol: ProtocolName) -> ProtocolName:
+
+            state = np.asarray(state, dtype=np.float64)
+            
+            if state.ndim != 1:
+                raise ValueError(f"state must be one-dimensional, got shape {state.shape}")
+    
+            model_input = state.reshape(1, -1)
+            predicted_rewards: dict[ProtocolName, float] = {}
+            for protocol in self.models[prev_protocol]:
+                training_size = len(self.experiences_y[prev_protocol][protocol])
+                if training_size == 0:
+                    if (prev_protocol, protocol) in self.on_hold_pairs:
+                        predicted_rewards[protocol] = float('-inf')  # Assign a low value to discourage selection
+                    else:
+                        predicted_rewards[protocol] = float('inf')  # Assign a high value to encourage exploration
+                else:
+                    prediction = self.models[prev_protocol][protocol].predict(model_input)
+                    predicted_rewards[protocol] = float(prediction[0])
+
+            ranked_rewards = sorted(
+                predicted_rewards.items(),
+                key=lambda item: item[1],
+                reverse=True,
+            )
+
+            max_reward = ranked_rewards[0][1]
+            tied_protocols = [protocol for protocol, reward in ranked_rewards if reward == max_reward]
+            if len(tied_protocols) > 1:
+                LOGGER.info(
+                    "Tie at max reward=%.4f among models: %s",
+                    max_reward,
+                    tied_protocols,
+                )
+            best_protocol = tied_protocols[self.rng.integers(len(tied_protocols))]
+
+            second_protocol, second_reward = ranked_rewards[1]
+            reward_difference = max_reward - second_reward
+            LOGGER.info(
+                "Best: %s=%.4f, second: %s=%.4f, difference=%.4f",
+                best_protocol,
+                max_reward,
+                second_protocol,
+                second_reward,
+                reward_difference,
+            )
+            self.on_hold_pairs[(prev_protocol, best_protocol)] = True
+
+            return best_protocol
+
+        
+            
 class MultiRF:
     def __init__(self, seed: int | None = None) -> None:
         self.experiences_X = {}
