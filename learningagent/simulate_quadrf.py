@@ -1,14 +1,18 @@
 """Run a small synthetic experiment against the existing MultiRF model."""
 
 from collections import Counter
-from enum import StrEnum
+
+try:
+    from enum import StrEnum  # Python 3.11+
+except ImportError:
+    from strenum import StrEnum  # Python 3.10
 from time import time
 
 import numpy as np
 
 from learningagent.server import LearningData, MultiRF, ProtocolName, QuadRF
 
-SIMULATION_STEPS = 100
+SIMULATION_STEPS = 400
 RANDOM_SEED = 5
 MIN_SHADOW_COUNT = 6
 MAX_SHADOW_COUNT = 10
@@ -16,14 +20,17 @@ STATE_SHIFT_AFTER_STEP = 16
 SHIFTED_SHADOW_COUNT = 0
 INIT_PROTOCOL = ProtocolName.FixedRoundRobin
 
+
 class Scenario(StrEnum):
     Healthy = "healthy"
     ProposalDelay = "proposal_delay"
     NetworkDelay = "network_delay"
     NetworkDelayFCrash = "network_delay_f_crash"
 
+
 SCENARIOS = [s.value for s in Scenario]
 
+ROTATING_SCENARIOS = [Scenario.Healthy, Scenario.ProposalDelay, Scenario.NetworkDelay]
 
 
 def generate_state(
@@ -42,87 +49,97 @@ def generate_state(
             proposal_interval = 3.76
             u = 0
             return np.asarray([vc_rate, proposal_interval, u], dtype=np.float64)
-        elif protocol == ProtocolName.PeriodicRoundRobin or protocol == ProtocolName.PerformanceRoundRobin:
-            vc_rate = 0.1 # every 10s rotation
-            proposal_interval = 4.2 #estimate
+        elif (
+            protocol == ProtocolName.PeriodicRoundRobin
+            or protocol == ProtocolName.PerformanceRoundRobin
+        ):
+            vc_rate = 0.1  # every 10s rotation
+            proposal_interval = 4.2  # estimate
             u = 0
             return np.asarray([vc_rate, proposal_interval, u], dtype=np.float64)
-        elif protocol == ProtocolName.PeriodicElection or protocol == ProtocolName.PerformanceElection:
-            vc_rate = 0.1 # every 10s rotation, can be more due to split votes
-            proposal_interval = 4.2 #estimate, not sure honestly
+        elif (
+            protocol == ProtocolName.PeriodicElection
+            or protocol == ProtocolName.PerformanceElection
+        ):
+            vc_rate = 0.1  # every 10s rotation, can be more due to split votes
+            proposal_interval = 4.2  # estimate, not sure honestly
             u = 0
             return np.asarray([vc_rate, proposal_interval, u], dtype=np.float64)
-        else: 
+        else:
             raise ValueError(f"unsupported protocol: {protocol}")
     elif scenario == Scenario.ProposalDelay:
         if protocol == ProtocolName.FixedRoundRobin:
             vc_rate = 0.0
-            proposal_interval = 70 # 2s delay
+            proposal_interval = 70  # 2s delay
             u = 0
             return np.asarray([vc_rate, proposal_interval, u], dtype=np.float64)
         elif protocol == ProtocolName.PeriodicRoundRobin:
-            vc_rate = 0.1 # every 10s rotation
-            proposal_interval = 5.44 #estimate, 
+            vc_rate = 0.1  # every 10s rotation
+            proposal_interval = 5.44  # estimate,
             u = 0
             return np.asarray([vc_rate, proposal_interval, u], dtype=np.float64)
         elif protocol == ProtocolName.PerformanceRoundRobin:
-            vc_rate = 0.12 # every 31s
-            proposal_interval = 4.4 # 3.8 +vc tax
+            vc_rate = 0.12  # every 31s
+            proposal_interval = 4.4  # 3.8 +vc tax
             u = 0
             return np.asarray([vc_rate, proposal_interval, u], dtype=np.float64)
         elif protocol == ProtocolName.PeriodicElection:
-            vc_rate = 0.1 # every 10s rotation, can be more due to split votes
-            proposal_interval = 5.44 #estimate, not sure honestly, 2s delay
+            vc_rate = 0.1  # every 10s rotation, can be more due to split votes
+            proposal_interval = 5.44  # estimate, not sure honestly, 2s delay
             u = 0
             return np.asarray([vc_rate, proposal_interval, u], dtype=np.float64)
         elif protocol == ProtocolName.PerformanceElection:
-            vc_rate = 0.12 # every 31s
-            proposal_interval = 4.4 # 3.8 +vc tax
+            vc_rate = 0.12  # every 31s
+            proposal_interval = 4.4  # 3.8 +vc tax
             u = 0
             return np.asarray([vc_rate, proposal_interval, u], dtype=np.float64)
-        else: 
+        else:
             raise ValueError(f"unsupported protocol: {protocol}")
 
     elif scenario == Scenario.NetworkDelay:
-        if protocol == ProtocolName.FixedRoundRobin or protocol == ProtocolName.PerformanceElection or protocol == ProtocolName.PerformanceRoundRobin:
-            vc_rate = 10 # EVERY 100MS
-            proposal_interval = 1000 # should it be very large or zero
+        if (
+            protocol == ProtocolName.FixedRoundRobin
+            or protocol == ProtocolName.PerformanceElection
+            or protocol == ProtocolName.PerformanceRoundRobin
+        ):
+            vc_rate = 10  # EVERY 100MS
+            proposal_interval = 1000  # should it be very large or zero
             u = 0
             return np.asarray([vc_rate, proposal_interval, u], dtype=np.float64)
         if protocol == ProtocolName.PeriodicRoundRobin:
             vc_rate = 0.1
-            proposal_interval = 33 # 30 batches persec
+            proposal_interval = 33  # 30 batches persec
             u = 0
             return np.asarray([vc_rate, proposal_interval, u], dtype=np.float64)
         if protocol == ProtocolName.PeriodicElection:
             vc_rate = 0.1
-            proposal_interval = 33 # 30 batches persec
+            proposal_interval = 33  # 30 batches persec
             u = 0
             return np.asarray([vc_rate, proposal_interval, u], dtype=np.float64)
         else:
             raise ValueError(f"unsupported protocol: {protocol}")
     elif scenario == Scenario.NetworkDelayFCrash:
-        if protocol == ProtocolName.FixedRoundRobin or protocol == ProtocolName.PerformanceElection or protocol == ProtocolName.PerformanceRoundRobin:
-            vc_rate = 10 # EVERY 100MS
-            proposal_interval = 1000 # should it be very large or zero
+        if (
+            protocol == ProtocolName.FixedRoundRobin
+            or protocol == ProtocolName.PerformanceElection
+            or protocol == ProtocolName.PerformanceRoundRobin
+        ):
+            vc_rate = 10  # EVERY 100MS
+            proposal_interval = 1000  # should it be very large or zero
             u = 1
             return np.asarray([vc_rate, proposal_interval, u], dtype=np.float64)
         if protocol == ProtocolName.PeriodicRoundRobin:
             vc_rate = 0.1
-            proposal_interval = 45 # 25% no leader 75% of 30
+            proposal_interval = 45  # 25% no leader 75% of 30
             u = 1
             return np.asarray([vc_rate, proposal_interval, u], dtype=np.float64)
         if protocol == ProtocolName.PeriodicElection:
             vc_rate = 0.1
-            proposal_interval = 33 
+            proposal_interval = 33
             u = 1
             return np.asarray([vc_rate, proposal_interval, u], dtype=np.float64)
         else:
             raise ValueError(f"unsupported protocol: {protocol}")
-
-        
-          
-
 
 
 def generate_reward(
@@ -135,49 +152,63 @@ def generate_reward(
     if scenario == Scenario.Healthy:
         if protocol == ProtocolName.FixedRoundRobin:
             return float(266)
-        elif protocol == ProtocolName.PeriodicRoundRobin or protocol == ProtocolName.PerformanceRoundRobin:
+        elif (
+            protocol == ProtocolName.PeriodicRoundRobin
+            or protocol == ProtocolName.PerformanceRoundRobin
+        ):
             return float(262)
-        elif protocol == ProtocolName.PeriodicElection or protocol == ProtocolName.PerformanceElection:
+        elif (
+            protocol == ProtocolName.PeriodicElection
+            or protocol == ProtocolName.PerformanceElection
+        ):
             return float(258)
-        else: 
+        else:
             raise ValueError(f"unsupported protocol: {protocol}")
     elif scenario == Scenario.ProposalDelay:
         if protocol == ProtocolName.FixedRoundRobin:
-           
+
             return float(14)
         elif protocol == ProtocolName.PeriodicRoundRobin:
-            
+
             return float(203)
         elif protocol == ProtocolName.PerformanceRoundRobin:
             return float(258)
 
         elif protocol == ProtocolName.PeriodicElection:
-            
+
             return float(200)
         elif protocol == ProtocolName.PerformanceElection:
             return float(254)
-        else: 
+        else:
             raise ValueError(f"unsupported protocol: {protocol}")
     elif scenario == Scenario.NetworkDelay:
-        if protocol == ProtocolName.FixedRoundRobin or protocol == ProtocolName.PerformanceElection or protocol == ProtocolName.PerformanceRoundRobin:
+        if (
+            protocol == ProtocolName.FixedRoundRobin
+            or protocol == ProtocolName.PerformanceElection
+            or protocol == ProtocolName.PerformanceRoundRobin
+        ):
             return float(1)
-            
+
         if protocol == ProtocolName.PeriodicRoundRobin:
-          
+
             return float(30)
         if protocol == ProtocolName.PeriodicElection:
-           
+
             return float(27)
         else:
             raise ValueError(f"unsupported protocol: {protocol}")
-    
+
     elif scenario == Scenario.NetworkDelayFCrash:
-        if protocol == ProtocolName.FixedRoundRobin or protocol == ProtocolName.PerformanceElection or protocol == ProtocolName.PerformanceRoundRobin:
+        if (
+            protocol == ProtocolName.FixedRoundRobin
+            or protocol == ProtocolName.PerformanceElection
+            or protocol == ProtocolName.PerformanceRoundRobin
+        ):
             return float(1)
         if protocol == ProtocolName.PeriodicRoundRobin:
             return float(22)
         if protocol == ProtocolName.PeriodicElection:
-            
+
             return float(28)
         else:
             raise ValueError(f"unsupported protocol: {protocol}")
@@ -224,15 +255,15 @@ def main() -> None:
     selected_protocol = INIT_PROTOCOL
     selections: Counter[ProtocolName] = Counter()
     rewards: dict[ProtocolName, list[float]] = {p: [] for p in ProtocolName}
-    starting_scenario = Scenario.Healthy
     for step in range(1, SIMULATION_STEPS + 1):
         # only the arm selected is trained, the other arm is not trained
         timeStart = time()
-        
+
+        scenario = ROTATING_SCENARIOS[((step - 1) // 100) % len(ROTATING_SCENARIOS)]
         prev_protocol = selected_protocol
-        state = generate_state(step, data_rng, starting_scenario, prev_protocol)
+        state = generate_state(step, data_rng, scenario, prev_protocol)
         selected_protocol = ProtocolName(model.predict(state, prev_protocol))
-        reward = generate_reward(selected_protocol, starting_scenario, step, data_rng)
+        reward = generate_reward(selected_protocol, scenario, step, data_rng)
         sequence_id = step
 
         model.record_state_action_reward(
@@ -241,7 +272,8 @@ def main() -> None:
                 current_protocol=selected_protocol,
                 reward=reward,
                 state=state,
-            ), prev_protocol
+            ),
+            prev_protocol,
         )
         model.train(prev_protocol, selected_protocol)
         timeEnd = time()

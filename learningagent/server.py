@@ -62,7 +62,10 @@ DecisionQueue = queue.Queue[LearningData | None]
 
 
 def replay_len(experiences):
+    if MAX_REPLAY_LENGTH < 0:
+        return len(experiences)
     return min(len(experiences), MAX_REPLAY_LENGTH)
+
 
 class QuadRF:
     def __init__(self, seed: int | None = None) -> None:
@@ -175,8 +178,7 @@ class QuadRF:
 
             return best_protocol
 
-        
-            
+
 class MultiRF:
     def __init__(self, seed: int | None = None) -> None:
         self.experiences_X = {}
