@@ -111,14 +111,14 @@ class QuadRF:
                 dtype=np.float64,
             )  # (N,)
 
-            if replay_length < 5:
-                bootstrap_indices = np.arange(replay_length)
-            else:
-                bootstrap_indices = self.rng.choice(
-                    replay_length,
-                    size=replay_length,
-                    replace=True,
-                )
+            # if replay_length < 5:
+            #     bootstrap_indices = np.arange(replay_length)
+            # else:
+            bootstrap_indices = self.rng.choice(
+                replay_length,
+                size=replay_length,
+                replace=True,
+            )
 
             bootstrap_X = replay_X[bootstrap_indices]
             bootstrap_y = replay_y[bootstrap_indices]
@@ -145,6 +145,8 @@ class QuadRF:
                     else:
                         predicted_rewards[protocol] = float('inf')  # Assign a high value to encourage exploration
                 else:
+                    # Fresh Thompson/bootstrap sample for EVERY candidate arm.
+                    self.train(prev_protocol, protocol)
                     prediction = self.models[prev_protocol][protocol].predict(model_input)
                     predicted_rewards[protocol] = float(prediction[0])
 
