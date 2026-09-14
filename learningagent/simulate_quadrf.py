@@ -12,7 +12,7 @@ import numpy as np
 
 from learningagent.server import LearningData, MultiRF, ProtocolName, QuadRF
 
-SIMULATION_STEPS = 500
+SIMULATION_STEPS = 1000
 RANDOM_SEED = 5
 MIN_SHADOW_COUNT = 6
 MAX_SHADOW_COUNT = 10
@@ -287,6 +287,7 @@ def main() -> None:
             ),
             prev_protocol,
         )
+        # should train when use ucb
         # model.train(prev_protocol, selected_protocol)
         timeEnd = time()
 
