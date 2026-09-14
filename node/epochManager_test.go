@@ -53,7 +53,14 @@ func TestEpochManagerBroadcastsSignedAggregateAtQuorum(t *testing.T) {
 	if !bytes.Equal([]byte("aggregate-signature"), node.broadcastSig) {
 		t.Fatalf("broadcast signature = %q", node.broadcastSig)
 	}
-	if len(node.broadcastMsg.EpochDataMsgSigs) != 2 || node.broadcastMsg.EpochDataMsgSigs[0].EpochDataMsg.From != 1 || node.broadcastMsg.EpochDataMsgSigs[1].EpochDataMsg.From != 3 {
+	if len(node.broadcastMsg.EpochDataMsgSigs) != 2 {
+		t.Fatalf("collected epoch signatures = %#v", node.broadcastMsg.EpochDataMsgSigs)
+	}
+	collectedSignatures := make(map[int][]byte, len(node.broadcastMsg.EpochDataMsgSigs))
+	for _, msgSig := range node.broadcastMsg.EpochDataMsgSigs {
+		collectedSignatures[msgSig.EpochDataMsg.From] = msgSig.Signature
+	}
+	if !bytes.Equal(collectedSignatures[1], []byte("sig-1")) || !bytes.Equal(collectedSignatures[3], []byte("sig-3")) {
 		t.Fatalf("collected epoch signatures = %#v", node.broadcastMsg.EpochDataMsgSigs)
 	}
 }

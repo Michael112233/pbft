@@ -1,8 +1,6 @@
 package node
 
 import (
-	"sort"
-
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/crypto"
 	"github.com/michael112233/pbft/logger"
@@ -48,14 +46,10 @@ func (em *EpochManager) HandleEpochDataMsg(msg core.EpochDataMsg, signature []by
 	}
 
 	if len(em.epochMsgSig[msg.EpochGeneration]) == em.node.QuorumSize() {
-		senderIDs := make([]int, 0, len(em.epochMsgSig[msg.EpochGeneration]))
-		for senderID := range em.epochMsgSig[msg.EpochGeneration] {
-			senderIDs = append(senderIDs, senderID)
-		}
-		sort.Ints(senderIDs)
-		epochDataMsgSigs := make([]core.EpochDataMsgSig, 0, len(senderIDs))
-		for _, senderID := range senderIDs {
-			epochDataMsgSigs = append(epochDataMsgSigs, em.epochMsgSig[msg.EpochGeneration][senderID])
+		epochMsgSigs := em.epochMsgSig[msg.EpochGeneration]
+		epochDataMsgSigs := make([]core.EpochDataMsgSig, 0, len(epochMsgSigs))
+		for _, epochMsgSig := range epochMsgSigs {
+			epochDataMsgSigs = append(epochDataMsgSigs, epochMsgSig)
 		}
 
 		epochAggregateMsg := core.EpochAggregateMsg{
