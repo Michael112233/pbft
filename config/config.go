@@ -49,6 +49,7 @@ type Config struct {
 	MaxVDFDelay             int   `json:"max_vdf_delay"`
 	ParallelWorkers         bool  `json:"parallel_workers"`
 	PerformanceTimedTrigger bool  `json:"performance_timed_trigger"`
+	TriggerMode             int   `json:"trigger_mode"`
 }
 
 func ReadCfg(filename string) *Config {

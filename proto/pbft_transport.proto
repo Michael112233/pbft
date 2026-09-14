@@ -229,6 +229,35 @@ message GrantVoteMsgSig {
   bytes signature = 2;
 }
 
+message EpochData {
+  double throughput = 1;
+  double proposal_interval = 2;
+  uint32 inactive_nodes = 3;
+}
+
+message EpochDataMsg {
+  uint64 epoch_generation = 1;
+  int32 from = 2;
+}
+
+message EpochDataMsgSig {
+  EpochDataMsg epoch_data_msg = 1;
+  bytes signature = 2;
+}
+
+message EpochAggregateMsgMini {
+  uint64 epoch_generation = 1;
+  int32 from = 2;
+  EpochData epoch_data = 3;
+}
+
+message EpochAggregateMsg {
+  uint64 epoch_generation = 1;
+  int32 from = 2;
+  EpochData epoch_data = 3;
+  repeated EpochDataMsgSig epoch_data_msg_sigs = 4;
+}
+
 message Envelope {
   string msg_type = 1;
   int32 from = 2;
@@ -250,6 +279,8 @@ message Envelope {
     RequestVoteMsg request_vote = 23;
     GrantVoteMsg grant_vote = 24;
     EventMsg event = 25;
+    EpochDataMsg epoch_data = 26;
+    EpochAggregateMsg epoch_aggregate = 27;
   }
 }
 

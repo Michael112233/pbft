@@ -202,3 +202,31 @@ type GrantVoteMsgSig struct {
 	GrantVoteMsg GrantVoteMsg
 	Signature    []byte
 }
+type EpochData struct {
+	Throughput       float64
+	ProposalInterval float64
+	InactiveNodes    uint8
+}
+
+type EpochDataMsg struct {
+	EpochGeneration uint64
+	From            int
+}
+
+type EpochDataMsgSig struct {
+	EpochDataMsg EpochDataMsg
+	Signature    []byte
+}
+
+type EpochAggregateMsgMini struct {
+	EpochGeneration uint64
+	From            int
+	EpochData       EpochData
+}
+
+type EpochAggregateMsg struct {
+	EpochGeneration  uint64
+	From             int
+	EpochData        EpochData
+	EpochDataMsgSigs []EpochDataMsgSig
+}

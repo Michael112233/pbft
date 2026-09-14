@@ -23,9 +23,9 @@ type ThroughputPerf struct {
 // pins the interval start and arms the perf timer. Everything else (measuring,
 // raising the bar, triggering the view change) happens in handlePerfTimerTimeout.
 func (n *Node) observeExecutedSlotForTimedThroughput(seq int64, now time.Time) {
-	if !n.performanceTimedTrigger || seq <= 0 {
-		return
-	}
+	// if !n.performanceTimedTrigger || seq <= 0 {
+	// 	return
+	// }
 
 	if seq >= n.throughputPerf.timedIntervalStartSeq && !n.throughputPerf.timedObservationStarted {
 		n.log.Info("Timed trigger: interval start seq %d reached at seq %d, starting timing and perf timer", n.throughputPerf.timedIntervalStartSeq, seq)
@@ -88,16 +88,16 @@ func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view i
 	if elapsedSeconds > 1 && seq%CHECKPOINT_INTERVAL == 0 {
 		belowTarget = throughput <= n.throughputPerf.targetThroughput
 		if belowTarget {
-			n.log.Info("Elapsed secs greater than 1 and Throughput %.2f is below target %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, n.throughputPerf.targetThroughput, view, seq, elapsedSeconds, executedSlots)
+			n.log.Info("OLD PERF REQ: Elapsed secs greater than 1 and Throughput %.2f is below target %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, n.throughputPerf.targetThroughput, view, seq, elapsedSeconds, executedSlots)
 		} else {
-			n.log.Info("Elapsed secs greater than 1 and Throughput %.2f is above target %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, n.throughputPerf.targetThroughput, view, seq, elapsedSeconds, executedSlots)
-			oldtput := n.throughputPerf.targetThroughput
+			// n.log.Info("Elapsed secs greater than 1 and Throughput %.2f is above target %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, n.throughputPerf.targetThroughput, view, seq, elapsedSeconds, executedSlots)
+			_ = n.throughputPerf.targetThroughput
 			n.throughputPerf.targetThroughput *= 1.01
-			n.log.Info("Increasing target throughput from %.2f to %.2f for view %d as observed throughput %.2f is above target", oldtput, n.throughputPerf.targetThroughput, view, throughput)
+			// n.log.Info("Increasing target throughput from %.2f to %.2f for view %d as observed throughput %.2f is above target", oldtput, n.throughputPerf.targetThroughput, view, throughput)
 		}
 
 	} else if elapsedSeconds <= 1 {
-		n.log.Info("Elapsed secs less than 1 doing nothing, the measured throughput is %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, view, seq, elapsedSeconds, executedSlots)
+		// n.log.Info("Elapsed secs less than 1 doing nothing, the measured throughput is %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, view, seq, elapsedSeconds, executedSlots)
 	}
 	n.throughputPerf.viewThroughputs[view] = throughput
 	return belowTarget

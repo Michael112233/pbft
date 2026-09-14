@@ -39,6 +39,51 @@ func TestEventMessageRoundTrip(t *testing.T) {
 	}
 }
 
+func TestEpochMessageRoundTrips(t *testing.T) {
+	epochDataMsg := core.EpochDataMsg{EpochGeneration: 9, From: 3}
+	gotDataMsg, err := EpochDataMsgFromPB(EpochDataMsgToPB(epochDataMsg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotDataMsg != epochDataMsg {
+		t.Fatalf("epoch data message round trip = %#v, want %#v", gotDataMsg, epochDataMsg)
+	}
+	epochDataMsgSig := core.EpochDataMsgSig{EpochDataMsg: epochDataMsg, Signature: []byte{1, 2, 3}}
+	gotDataMsgSig, err := EpochDataMsgSigFromPB(EpochDataMsgSigToPB(epochDataMsgSig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(gotDataMsgSig, epochDataMsgSig) {
+		t.Fatalf("epoch data signature round trip = %#v, want %#v", gotDataMsgSig, epochDataMsgSig)
+	}
+
+	epochAggregate := core.EpochAggregateMsg{
+		EpochGeneration: 9,
+		From:            4,
+		EpochData: core.EpochData{
+			Throughput:       123.5,
+			ProposalInterval: 0.25,
+			InactiveNodes:    2,
+		},
+		EpochDataMsgSigs: []core.EpochDataMsgSig{epochDataMsgSig},
+	}
+	gotAggregate, err := EpochAggregateMsgFromPB(EpochAggregateMsgToPB(epochAggregate))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(gotAggregate, epochAggregate) {
+		t.Fatalf("epoch aggregate round trip = %#v, want %#v", gotAggregate, epochAggregate)
+	}
+	mini := core.EpochAggregateMsgMini{
+		EpochGeneration: epochAggregate.EpochGeneration,
+		From:            epochAggregate.From,
+		EpochData:       epochAggregate.EpochData,
+	}
+	if gotMini := EpochAggregateMsgMiniToPB(mini); gotMini.EpochGeneration != 9 || gotMini.From != 4 || gotMini.EpochData.Throughput != 123.5 {
+		t.Fatalf("epoch aggregate mini conversion = %#v", gotMini)
+	}
+}
+
 func TestRequestMessageRoundTripIncludesMsgType(t *testing.T) {
 	in := core.RequestMessage{
 		MsgType: "RetryRequestMessage",

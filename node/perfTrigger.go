@@ -2,15 +2,15 @@ package node
 
 import "fmt"
 
-func (n *Node) perfVC() {
-	if n.performanceTrigger {
-		n.log.Info("Starting perf view change my current for view %d and my n.view %d and the next for view will be %d", n.forView, n.view, n.forView+1)
-		if n.viewChangeRunning {
-			n.log.Warn(" vc already running when perf vc called")
-		}
-		n.enterViewChange()
-	}
-}
+// func (n *Node) perfVC() {
+// 	if n.performanceTrigger {
+// 		n.log.Info("Starting perf view change my current for view %d and my n.view %d and the next for view will be %d", n.forView, n.view, n.forView+1)
+// 		if n.viewChangeRunning {
+// 			n.log.Warn(" vc already running when perf vc called")
+// 		}
+// 		n.enterViewChange()
+// 	}
+// }
 
 func (n *Node) maxRecentViewThroughput(currentView int64) float64 {
 	window := int64(3*n.fNodes + 1)

@@ -45,10 +45,10 @@ func stopOneShotTimer(timer *time.Timer) {
 
 // keeps reseeting after expiry
 func (n *Node) resetLeaderProgressTimer() {
-	if !n.cfg.Fixed {
-		return
-	}
-	n.leaderProgressTimerCh = resetOneShotTimer(&n.leaderProgressTimer, leaderProgressTimeout)
+	// if !n.cfg.Fixed {
+	// 	return
+	// }
+	n.leaderProgressTimerCh = resetOneShotTimer(&n.leaderProgressTimer, n.GetProgressTimeout())
 }
 
 func (n *Node) stopLeaderProgressTimer() {
@@ -59,10 +59,10 @@ func (n *Node) stopLeaderProgressTimer() {
 // startNewViewTimer starts the deadline for the primary of the pending view to
 // produce a valid NewView message.
 func (n *Node) startNewViewTimer() {
-	if !n.cfg.Fixed {
-		return
-	}
-	n.newViewTimerCh = resetOneShotTimer(&n.newViewTimer, newViewTimeout)
+	// if !n.cfg.Fixed {
+	// 	return
+	// }
+	n.newViewTimerCh = resetOneShotTimer(&n.newViewTimer, n.GetNewViewTimeout())
 }
 
 func (n *Node) stopNewViewTimer() {

@@ -1,5 +1,7 @@
 package node
 
+// SHOULD CHECK HOW MUCH LAG TO ACTIVATE PERF TIMER
+
 import "time"
 
 const (
@@ -15,13 +17,13 @@ const (
 )
 
 func (n *Node) perfTimedVC() {
-	if n.performanceTimedTrigger {
-		n.log.Info("Starting timed perf view change my current for view %d and my n.view %d and the next for view will be %d", n.forView, n.view, n.forView+1)
-		if n.viewChangeRunning {
-			n.log.Warn(" vc already running when timed perf vc called")
-		}
-		n.enterViewChange()
+	// if n.performanceTimedTrigger {
+	// 	n.log.Info("Starting timed perf view change my current for view %d and my n.view %d and the next for view will be %d", n.forView, n.view, n.forView+1)
+	if n.viewChangeRunning {
+		n.log.Warn(" vc already running when timed perf vc called")
 	}
+	n.enterViewChange()
+	// }
 }
 
 // resetTimedPerfWindow closes the current timed measurement window and arms a new
@@ -29,9 +31,9 @@ func (n *Node) perfTimedVC() {
 // only restarted once that seq is actually executed, in
 // observeExecutedSlotForTimedThroughput.
 func (n *Node) resetTimedPerfWindow(maxSeq int64, view int64, maxRecentThroughput float64) {
-	if !n.performanceTimedTrigger {
-		return
-	}
+	// if !n.performanceTimedTrigger {
+	// 	return
+	// }
 	n.stopPerfTimer()
 	n.throughputPerf.timedIntervalStartSeq = maxSeq + THROUGHPUTINTERVAL_DELAY
 	n.throughputPerf.timedObservationStarted = false
@@ -43,7 +45,7 @@ func (n *Node) resetTimedPerfWindow(maxSeq int64, view int64, maxRecentThroughpu
 // interval. Like the view timers it is only ever touched from the node event
 // loop, so no locking is needed.
 func (n *Node) resetPerfTimer() {
-	if !n.performanceTimedTrigger {
+	if !n.IsPerformanceTrigger() {
 		return
 	}
 	n.perfTimerCh = resetOneShotTimer(&n.perfTimer, perfTimerInterval)
@@ -59,7 +61,10 @@ func (n *Node) stopPerfTimer() {
 // against the timed target: below target triggers a performance view change,
 // above target raises the bar and re-arms the timer.
 func (n *Node) handlePerfTimerTimeout() {
+	// if timing out before switch that mean switch hasnt happened so legal to call perf vc
 	if n.viewChangeRunning || !n.throughputPerf.timedObservationStarted {
+		// this can never run because once vc running perf timer already stopped
+		// if observation false then perf timer never rest so cant time out
 		n.log.Debug("Perf timer fired while no measurement window is open (vcRunning=%t started=%t), re-arming", n.viewChangeRunning, n.throughputPerf.timedObservationStarted)
 		n.resetPerfTimer()
 		return

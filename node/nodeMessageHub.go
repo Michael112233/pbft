@@ -66,6 +66,12 @@ type ElectionMsg struct {
 	Signature []byte
 }
 
+type EpochProtocolMsg struct {
+	MsgType   string
+	Msg       interface{}
+	Signature []byte
+}
+
 type NodeMessageHub struct {
 	transportpb.UnimplementedPBFTTransportServer
 
@@ -185,6 +191,14 @@ func preprepareSignPayload(view, seq int64, digest []byte) *transportpb.Preprepa
 		View:            view,
 		SeqNum:          seq,
 		DigestClientMsg: digest,
+	}
+}
+
+func epochAggregateSignPayload(msg *transportpb.EpochAggregateMsg) *transportpb.EpochAggregateMsgMini {
+	return &transportpb.EpochAggregateMsgMini{
+		EpochGeneration: msg.EpochGeneration,
+		From:            msg.From,
+		EpochData:       msg.EpochData,
 	}
 }
 
@@ -508,11 +522,9 @@ func (hub *NodeMessageHub) Deliver(ctx context.Context, env *transportpb.Envelop
 		}
 		// sizeBytes := proto.Size(env)
 		hub.node_ref.log.Info(
-			"HUB: Received NewView message from node %d for view %d. size_bytes=%d size_mib=%.3f",
+			"HUB: Received NewView message from node %d for view %d",
 			env.From,
 			data.NewViewNumber,
-			// sizeBytes,
-			// float64(sizeBytes)/(1024*1024),
 		)
 		hub.node_ref.newViewMsgChan <- NewViewMsg{
 			MsgType:   core.MsgNewViewMessage,
@@ -574,6 +586,50 @@ func (hub *NodeMessageHub) Deliver(ctx context.Context, env *transportpb.Envelop
 		// TODO: Deliver the verified grant vote to the node event loop.
 		hub.node_ref.electionMsgChan <- ElectionMsg{
 			MsgType:   core.MsgGrantVoteMessage,
+			Msg:       data,
+			Signature: env.Signature,
+		}
+		return &transportpb.Ack{Ok: true}, nil
+
+	case core.MsgEpochDataMessage:
+		epochData := env.GetEpochData()
+		if epochData == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing epoch-data body"}, nil
+		}
+		if int(env.From) != int(epochData.From) {
+			return &transportpb.Ack{Ok: false, Error: "epoch-data sender mismatch"}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, epochData) {
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.EpochDataMsgFromPB(epochData)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		hub.node_ref.epochMsgChan <- EpochProtocolMsg{
+			MsgType:   core.MsgEpochDataMessage,
+			Msg:       data,
+			Signature: env.Signature,
+		}
+		return &transportpb.Ack{Ok: true}, nil
+
+	case core.MsgEpochAggregateMessage:
+		epochAggregate := env.GetEpochAggregate()
+		if epochAggregate == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing epoch-aggregate body"}, nil
+		}
+		if int(env.From) != int(epochAggregate.From) {
+			return &transportpb.Ack{Ok: false, Error: "epoch-aggregate sender mismatch"}, nil
+		}
+		if !hub.verifySignature(int(epochAggregate.From), env.Signature, epochAggregateSignPayload(epochAggregate)) {
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.EpochAggregateMsgFromPB(epochAggregate)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		hub.node_ref.epochMsgChan <- EpochProtocolMsg{
+			MsgType:   core.MsgEpochAggregateMessage,
 			Msg:       data,
 			Signature: env.Signature,
 		}
@@ -789,6 +845,22 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}, signat
 			return nil, errInvalidPayloadType(msgType, msg)
 		}
 		env.Body = &transportpb.Envelope_GrantVote{GrantVote: transportpb.GrantVoteToPB(grantVote)}
+		env.From = int32(hub.node_ref.GetNodeID())
+
+	case core.MsgEpochDataMessage:
+		epochData, ok := msg.(core.EpochDataMsg)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_EpochData{EpochData: transportpb.EpochDataMsgToPB(epochData)}
+		env.From = int32(hub.node_ref.GetNodeID())
+
+	case core.MsgEpochAggregateMessage:
+		epochAggregate, ok := msg.(core.EpochAggregateMsg)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_EpochAggregate{EpochAggregate: transportpb.EpochAggregateMsgToPB(epochAggregate)}
 		env.From = int32(hub.node_ref.GetNodeID())
 
 	case core.MsgReplyMessage:

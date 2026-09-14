@@ -209,6 +209,8 @@ func TestBuildEnvelopeAndDeliverViewProtocolMessages(t *testing.T) {
 		viewChangeMsgChan:  make(chan ViewChangeMsg, 1),
 		checkpointMsgChan:  make(chan CheckpointMsg, 1),
 		newViewMsgChan:     make(chan NewViewMsg, 20),
+		electionMsgChan:    make(chan ElectionMsg, 2),
+		epochMsgChan:       make(chan EpochProtocolMsg, 2),
 	}
 	receiverHub := &NodeMessageHub{node_ref: receiverNode, log: receiverNode.log}
 	senderHub := &NodeMessageHub{node_ref: &Node{NodeID: 1}}
@@ -283,8 +285,14 @@ func TestBuildEnvelopeAndDeliverViewProtocolMessages(t *testing.T) {
 				VDFProof:   []byte{4, 5, 6},
 				VRFProof:   []byte{7, 8, 9},
 			},
-			payload:    func(env *transportpb.Envelope) proto.Message { return env.GetRequestVote() },
-			assertSent: func(*testing.T) {}, // Event-loop delivery is intentionally not wired yet.
+			payload: func(env *transportpb.Envelope) proto.Message { return env.GetRequestVote() },
+			assertSent: func(t *testing.T) {
+				delivered := <-receiverNode.electionMsgChan
+				msg, ok := delivered.Msg.(core.RequestVoteMsg)
+				if !ok || msg.ViewNumber != 2 || msg.From != 1 {
+					t.Fatalf("delivered request-vote = %#v", delivered.Msg)
+				}
+			},
 		},
 		{
 			name:    "grant vote",
@@ -293,8 +301,57 @@ func TestBuildEnvelopeAndDeliverViewProtocolMessages(t *testing.T) {
 				From:       1,
 				ViewNumber: 2,
 			},
-			payload:    func(env *transportpb.Envelope) proto.Message { return env.GetGrantVote() },
-			assertSent: func(*testing.T) {}, // Event-loop delivery is intentionally not wired yet.
+			payload: func(env *transportpb.Envelope) proto.Message { return env.GetGrantVote() },
+			assertSent: func(t *testing.T) {
+				delivered := <-receiverNode.electionMsgChan
+				msg, ok := delivered.Msg.(core.GrantVoteMsg)
+				if !ok || msg.ViewNumber != 2 || msg.From != 1 {
+					t.Fatalf("delivered grant-vote = %#v", delivered.Msg)
+				}
+			},
+		},
+		{
+			name:    "epoch data",
+			msgType: core.MsgEpochDataMessage,
+			msg: core.EpochDataMsg{
+				EpochGeneration: 3,
+				From:            1,
+			},
+			payload: func(env *transportpb.Envelope) proto.Message { return env.GetEpochData() },
+			assertSent: func(t *testing.T) {
+				delivered := <-receiverNode.epochMsgChan
+				msg, ok := delivered.Msg.(core.EpochDataMsg)
+				if !ok || msg.EpochGeneration != 3 || msg.From != 1 {
+					t.Fatalf("delivered epoch-data = %#v", delivered.Msg)
+				}
+			},
+		},
+		{
+			name:    "epoch aggregate",
+			msgType: core.MsgEpochAggregateMessage,
+			msg: core.EpochAggregateMsg{
+				EpochGeneration: 3,
+				From:            1,
+				EpochData: core.EpochData{
+					Throughput:       250.5,
+					ProposalInterval: 0.02,
+					InactiveNodes:    2,
+				},
+				EpochDataMsgSigs: []core.EpochDataMsgSig{{
+					EpochDataMsg: core.EpochDataMsg{EpochGeneration: 3, From: 1},
+					Signature:    []byte{1, 2, 3},
+				}},
+			},
+			payload: func(env *transportpb.Envelope) proto.Message {
+				return epochAggregateSignPayload(env.GetEpochAggregate())
+			},
+			assertSent: func(t *testing.T) {
+				delivered := <-receiverNode.epochMsgChan
+				msg, ok := delivered.Msg.(core.EpochAggregateMsg)
+				if !ok || msg.EpochGeneration != 3 || msg.From != 1 || msg.EpochData.InactiveNodes != 2 || len(msg.EpochDataMsgSigs) != 1 {
+					t.Fatalf("delivered epoch-aggregate = %#v", delivered.Msg)
+				}
+			},
 		},
 	}
 
@@ -319,6 +376,45 @@ func TestBuildEnvelopeAndDeliverViewProtocolMessages(t *testing.T) {
 			}
 			tt.assertSent(t)
 		})
+	}
+}
+
+func TestDeliverEpochAggregateVerifiesMiniPayload(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiverNode := &Node{
+		log:                logger.NewLogger(2, "node"),
+		encryptionKeyStore: &KeyStore{publicKeys: map[int]ed25519.PublicKey{1: publicKey}},
+		epochMsgChan:       make(chan EpochProtocolMsg, 1),
+	}
+	hub := &NodeMessageHub{node_ref: receiverNode, log: receiverNode.log}
+	aggregate := &transportpb.EpochAggregateMsg{
+		EpochGeneration: 4,
+		From:            1,
+		EpochData:       &transportpb.EpochData{Throughput: 100},
+	}
+	payload, err := marshalDeterministic(epochAggregateSignPayload(aggregate))
+	if err != nil {
+		t.Fatal(err)
+	}
+	signature := ed25519.Sign(privateKey, payload)
+
+	// Mutating a field from the signed mini after signing must invalidate the
+	// signature even though the full message also contains unsigned proofs.
+	aggregate.EpochData.Throughput = 200
+	ack, err := hub.Deliver(context.Background(), &transportpb.Envelope{
+		MsgType:   core.MsgEpochAggregateMessage,
+		From:      1,
+		Signature: signature,
+		Body:      &transportpb.Envelope_EpochAggregate{EpochAggregate: aggregate},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ack.Ok || ack.Error != "signature verification failed" {
+		t.Fatalf("ack = %#v, want signature verification failure", ack)
 	}
 }
 

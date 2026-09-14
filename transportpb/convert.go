@@ -150,6 +150,111 @@ func EventFromPB(msg *EventMsg) (core.EventMsg, error) {
 	return core.EventMsg{EventType: msg.EventType}, nil
 }
 
+func EpochDataMsgToPB(msg core.EpochDataMsg) *EpochDataMsg {
+	return &EpochDataMsg{
+		EpochGeneration: msg.EpochGeneration,
+		From:            int32(msg.From),
+	}
+}
+
+func EpochDataMsgFromPB(msg *EpochDataMsg) (core.EpochDataMsg, error) {
+	if msg == nil {
+		return core.EpochDataMsg{}, nil
+	}
+	return core.EpochDataMsg{
+		EpochGeneration: msg.EpochGeneration,
+		From:            int(msg.From),
+	}, nil
+}
+
+func EpochDataMsgSigToPB(msg core.EpochDataMsgSig) *EpochDataMsgSig {
+	return &EpochDataMsgSig{
+		EpochDataMsg: EpochDataMsgToPB(msg.EpochDataMsg),
+		Signature:    append([]byte(nil), msg.Signature...),
+	}
+}
+
+func EpochDataMsgSigFromPB(msg *EpochDataMsgSig) (core.EpochDataMsgSig, error) {
+	if msg == nil {
+		return core.EpochDataMsgSig{}, nil
+	}
+	epochDataMsg, err := EpochDataMsgFromPB(msg.EpochDataMsg)
+	if err != nil {
+		return core.EpochDataMsgSig{}, err
+	}
+	return core.EpochDataMsgSig{
+		EpochDataMsg: epochDataMsg,
+		Signature:    append([]byte(nil), msg.Signature...),
+	}, nil
+}
+
+func EpochDataToPB(data core.EpochData) *EpochData {
+	return &EpochData{
+		Throughput:       data.Throughput,
+		ProposalInterval: data.ProposalInterval,
+		InactiveNodes:    uint32(data.InactiveNodes),
+	}
+}
+
+func EpochDataFromPB(data *EpochData) (core.EpochData, error) {
+	if data == nil {
+		return core.EpochData{}, nil
+	}
+	if data.InactiveNodes > uint32(^uint8(0)) {
+		return core.EpochData{}, fmt.Errorf("inactive nodes %d exceeds uint8", data.InactiveNodes)
+	}
+	return core.EpochData{
+		Throughput:       data.Throughput,
+		ProposalInterval: data.ProposalInterval,
+		InactiveNodes:    uint8(data.InactiveNodes),
+	}, nil
+}
+
+func EpochAggregateMsgMiniToPB(msg core.EpochAggregateMsgMini) *EpochAggregateMsgMini {
+	return &EpochAggregateMsgMini{
+		EpochGeneration: msg.EpochGeneration,
+		From:            int32(msg.From),
+		EpochData:       EpochDataToPB(msg.EpochData),
+	}
+}
+
+func EpochAggregateMsgToPB(msg core.EpochAggregateMsg) *EpochAggregateMsg {
+	epochDataMsgSigs := make([]*EpochDataMsgSig, 0, len(msg.EpochDataMsgSigs))
+	for _, epochDataMsgSig := range msg.EpochDataMsgSigs {
+		epochDataMsgSigs = append(epochDataMsgSigs, EpochDataMsgSigToPB(epochDataMsgSig))
+	}
+	return &EpochAggregateMsg{
+		EpochGeneration:  msg.EpochGeneration,
+		From:             int32(msg.From),
+		EpochData:        EpochDataToPB(msg.EpochData),
+		EpochDataMsgSigs: epochDataMsgSigs,
+	}
+}
+
+func EpochAggregateMsgFromPB(msg *EpochAggregateMsg) (core.EpochAggregateMsg, error) {
+	if msg == nil {
+		return core.EpochAggregateMsg{}, nil
+	}
+	data, err := EpochDataFromPB(msg.EpochData)
+	if err != nil {
+		return core.EpochAggregateMsg{}, err
+	}
+	epochDataMsgSigs := make([]core.EpochDataMsgSig, 0, len(msg.EpochDataMsgSigs))
+	for _, epochDataMsgSig := range msg.EpochDataMsgSigs {
+		data, err := EpochDataMsgSigFromPB(epochDataMsgSig)
+		if err != nil {
+			return core.EpochAggregateMsg{}, err
+		}
+		epochDataMsgSigs = append(epochDataMsgSigs, data)
+	}
+	return core.EpochAggregateMsg{
+		EpochGeneration:  msg.EpochGeneration,
+		From:             int(msg.From),
+		EpochData:        data,
+		EpochDataMsgSigs: epochDataMsgSigs,
+	}, nil
+}
+
 func RequestToPB(msg core.RequestMessage) *RequestMessage {
 	out := &RequestMessage{
 		Txs:     make([]*ClientMsgSignature, 0, len(msg.Txs)),

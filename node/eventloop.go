@@ -28,6 +28,7 @@ func (n *Node) run() {
 	defer n.StopBatchTimer()
 	defer n.stopViewTimers()
 	defer n.stopPerfTimer()
+	defer n.stopEpochTimer()
 
 	for {
 		clientRequestCh := n.receiveVerifiedClientRequestCh
@@ -79,6 +80,8 @@ func (n *Node) run() {
 			n.handleNewViewTimeout()
 		case <-n.perfTimerCh:
 			n.handlePerfTimerTimeout()
+		case <-n.epochTimerCh:
+			n.handleEpochTimerTimeout()
 		case electionMsg := <-n.electionMsgChan:
 			switch electionMsg.MsgType {
 			case core.MsgRequestVoteMessage:
@@ -89,6 +92,15 @@ func (n *Node) run() {
 				n.HandleGrantVoteMsg(msg, electionMsg.Signature)
 			default:
 				n.log.Error("Unknown election message type: %v", electionMsg.MsgType)
+			}
+		case epochMsg := <-n.epochMsgChan:
+			switch epochMsg.MsgType {
+			case core.MsgEpochDataMessage:
+				n.HandleEpochDataMsg(epochMsg.Msg.(core.EpochDataMsg), epochMsg.Signature)
+			case core.MsgEpochAggregateMessage:
+				n.HandleEpochAggregateMsg(epochMsg.Msg.(core.EpochAggregateMsg), epochMsg.Signature)
+			default:
+				n.log.Error("Unknown epoch message type: %v", epochMsg.MsgType)
 			}
 		case <-n.clientEventMsgChan:
 			if n.GetNodeID() == n.GetLeaderId() && !n.viewChangeRunning {

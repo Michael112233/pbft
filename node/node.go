@@ -48,6 +48,7 @@ type Node struct {
 	checkpointMsgChan              chan CheckpointMsg
 	newViewMsgChan                 chan NewViewMsg
 	electionMsgChan                chan ElectionMsg
+	epochMsgChan                   chan EpochProtocolMsg
 	clientEventMsgChan             chan core.EventMsg
 
 	electionVDFResultCh chan electionVDFResult
@@ -63,11 +64,15 @@ type Node struct {
 	newViewTimerCh        <-chan time.Time
 	perfTimer             *time.Timer
 	perfTimerCh           <-chan time.Time
+	epochTimer            *time.Timer
+	epochTimerCh          <-chan time.Time
 	pool                  *Pool
 	consensusLog          *Log
 	checkpointManager     *CheckpointManager
 	bufferedMsgs          []bufferedConsensusMessage
 	electionManager       *ElectionManager
+	triggerManager        *TriggerManager
+	epochManager          *EpochManager
 
 	////
 
@@ -115,13 +120,8 @@ type Node struct {
 	throughputPerf ThroughputPerf
 	lm             *LatencyMonitor
 
-	dead                    bool
-	split                   bool
-	periodic                bool
-	fixed                   bool
-	changemu                sync.RWMutex
-	periodicReq             bool
-	performanceTrigger      bool
+	dead bool
+
 	performanceTimedTrigger bool
 	peakTpsTest             bool
 	proposalDelay           bool
@@ -146,6 +146,7 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		executionMachine:   execution.NewAccountStateMachine(),
 		bufferedMsgs:       make([]bufferedConsensusMessage, 0),
 		electionManager:    NewElectionManager(),
+
 		// checkpointManager:  NewCheckpointManager(log),
 
 		eventLoopStopCh:                make(chan struct{}),
@@ -156,6 +157,7 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		checkpointMsgChan:              make(chan CheckpointMsg, 100),
 		newViewMsgChan:                 make(chan NewViewMsg, 20),
 		electionMsgChan:                make(chan ElectionMsg, 100),
+		epochMsgChan:                   make(chan EpochProtocolMsg, 20),
 		clientEventMsgChan:             make(chan core.EventMsg, 2),
 		electionVDFResultCh:            make(chan electionVDFResult, 1),
 
@@ -203,13 +205,8 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		},
 		lm: NewLatencyMonitor(),
 
-		split:                   false,
 		dead:                    cfg.NodesDead[nodeID],
 		proposalDelay:           cfg.ProposalDelayNode == nodeID,
-		periodic:                cfg.Periodic,
-		periodicReq:             cfg.PeriodicReq,
-		fixed:                   cfg.Fixed,
-		performanceTrigger:      cfg.PerformanceTrigger,
 		performanceTimedTrigger: cfg.PerformanceTimedTrigger,
 		peakTpsTest:             cfg.PeakTpsTest,
 		stallState:              StallState{stall: false, view: 1},
@@ -221,6 +218,10 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 	n.ArmBatchTimer()
 	n.StopBatchTimer()
 	checkpointManager := NewCheckpointManager(log, n)
+	triggerManager := NewTriggerManager(log, TriggerMode(cfg.TriggerMode), n)
+	n.triggerManager = triggerManager
+	epochManager := NewEpochManager(log, n)
+	n.epochManager = epochManager
 	n.checkpointManager = checkpointManager
 	if address := config.LearningAgentAddr[nodeID]; address != "" {
 		learningAgent, err := NewLearningAgent(n, address)
@@ -353,9 +354,6 @@ func (n *Node) GetNodeID() int {
 
 func (n *Node) Dead() {
 	n.dead = true
-}
-func (n *Node) Split() {
-	n.split = true
 }
 
 func (n *Node) tryPropose(fullBatch bool) {
@@ -895,6 +893,10 @@ func (n *Node) GetView() int64 {
 
 func (n *Node) GetLeaderId() int {
 	return n.leaderId
+}
+
+func (n *Node) IsLeader() bool {
+	return n.GetNodeID() == n.GetLeaderId()
 }
 
 func (n *Node) CurrentSequenceNumber() int64 {
