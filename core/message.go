@@ -205,6 +205,7 @@ type GrantVoteMsgSig struct {
 type EpochData struct {
 	Throughput       float64
 	ProposalInterval float64
+	VCRate           float64
 	InactiveNodes    uint8
 }
 
@@ -229,4 +230,71 @@ type EpochAggregateMsg struct {
 	From             int
 	EpochData        EpochData
 	EpochDataMsgSigs []EpochDataMsgSig
+}
+type TriggerMode int
+
+const (
+	PeriodicTrigger TriggerMode = iota
+	PerfTrigger
+	FixedTrigger
+	NullTrigger
+)
+
+type Policy int
+
+const (
+	PolicyRoundRobin Policy = iota
+	PolicyElection
+)
+
+type Action struct {
+	TriggerMode TriggerMode
+	Policy      Policy
+}
+
+var (
+	FixedRoundRobin       Action = Action{TriggerMode: FixedTrigger, Policy: PolicyRoundRobin}
+	PeriodicRoundRobin    Action = Action{TriggerMode: PeriodicTrigger, Policy: PolicyRoundRobin}
+	PeriodicElection      Action = Action{TriggerMode: PeriodicTrigger, Policy: PolicyElection}
+	PerformanceElection   Action = Action{TriggerMode: PerfTrigger, Policy: PolicyElection}
+	PerformanceRoundRobin Action = Action{TriggerMode: PerfTrigger, Policy: PolicyRoundRobin}
+)
+
+func ActiontoString(action Action) string {
+	switch action {
+	case FixedRoundRobin:
+		return "FixedRoundRobin"
+	case PeriodicRoundRobin:
+		return "PeriodicRoundRobin"
+	case PeriodicElection:
+		return "PeriodicElection"
+	case PerformanceElection:
+		return "PerformanceElection"
+	case PerformanceRoundRobin:
+		return "PerformanceRoundRobin"
+	default:
+		return "UnknownAction"
+	}
+}
+
+func StringtoAction(actionStr string) Action {
+	switch actionStr {
+	case "FixedRoundRobin":
+		return FixedRoundRobin
+	case "PeriodicRoundRobin":
+		return PeriodicRoundRobin
+	case "PeriodicElection":
+		return PeriodicElection
+	case "PerformanceElection":
+		return PerformanceElection
+	case "PerformanceRoundRobin":
+		return PerformanceRoundRobin
+	default:
+		return FixedRoundRobin // default action
+	}
+}
+
+type LearningAgentDecision struct {
+	NextProtocol Action
+	Generation   uint64
 }

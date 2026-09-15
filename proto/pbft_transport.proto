@@ -233,6 +233,7 @@ message EpochData {
   double throughput = 1;
   double proposal_interval = 2;
   uint32 inactive_nodes = 3;
+  double vc_rate = 4;
 }
 
 message EpochDataMsg {

@@ -50,6 +50,7 @@ type Node struct {
 	electionMsgChan                chan ElectionMsg
 	epochMsgChan                   chan EpochProtocolMsg
 	clientEventMsgChan             chan core.EventMsg
+	learningAgentDecisionCh        chan core.LearningAgentDecision
 
 	electionVDFResultCh chan electionVDFResult
 	eventLoopStarted    atomic.Bool
@@ -159,6 +160,7 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		electionMsgChan:                make(chan ElectionMsg, 100),
 		epochMsgChan:                   make(chan EpochProtocolMsg, 20),
 		clientEventMsgChan:             make(chan core.EventMsg, 2),
+		learningAgentDecisionCh:        make(chan core.LearningAgentDecision, 1),
 		electionVDFResultCh:            make(chan electionVDFResult, 1),
 
 		pendingRequests:            NewRequestQueue(cfg.PendingQueueCapacity),
@@ -218,7 +220,7 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 	n.ArmBatchTimer()
 	n.StopBatchTimer()
 	checkpointManager := NewCheckpointManager(log, n)
-	triggerManager := NewTriggerManager(log, TriggerMode(cfg.TriggerMode), n)
+	triggerManager := NewTriggerManager(log, core.TriggerMode(cfg.TriggerMode), n)
 	n.triggerManager = triggerManager
 	epochManager := NewEpochManager(log, n)
 	n.epochManager = epochManager

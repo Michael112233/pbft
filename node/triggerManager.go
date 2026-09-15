@@ -3,16 +3,8 @@ package node
 import (
 	"time"
 
+	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/logger"
-)
-
-type TriggerMode int
-
-const (
-	PeriodicTrigger TriggerMode = iota
-	PerfTrigger
-	FixedTrigger
-	NullTrigger
 )
 
 const (
@@ -27,12 +19,12 @@ type NodeTrigger interface {
 type TriggerManager struct {
 	progressTimeoutValue time.Duration
 	newViewTimeoutValue  time.Duration
-	triggerMode          TriggerMode
+	triggerMode          core.TriggerMode
 	log                  *logger.Logger
 	node                 NodeTrigger
 }
 
-func NewTriggerManager(log *logger.Logger, triggerMode TriggerMode, node NodeTrigger) *TriggerManager {
+func NewTriggerManager(log *logger.Logger, triggerMode core.TriggerMode, node NodeTrigger) *TriggerManager {
 	return &TriggerManager{
 		progressTimeoutValue: FixedTriggerTimeout,
 		newViewTimeoutValue:  FixedTriggerTimeout,
@@ -42,15 +34,16 @@ func NewTriggerManager(log *logger.Logger, triggerMode TriggerMode, node NodeTri
 	}
 }
 
-func (tm *TriggerManager) SwitchTriggerMode(newMode TriggerMode) {
-	if tm.triggerMode == PerfTrigger && newMode != PerfTrigger {
+
+func (tm *TriggerManager) SwitchTriggerMode(newMode core.TriggerMode) {
+	if tm.triggerMode == core.PerfTrigger && newMode != core.PerfTrigger {
 		tm.node.stopPerfTimer()
 	}
 	tm.triggerMode = newMode
-	if newMode == FixedTrigger {
+	if newMode == core.FixedTrigger {
 		tm.progressTimeoutValue = FixedTriggerTimeout
 		tm.newViewTimeoutValue = FixedTriggerTimeout
-	} else if newMode == PeriodicTrigger {
+	} else if newMode == core.PeriodicTrigger {
 		tm.progressTimeoutValue = PeriodicTriggerTimeout
 		tm.newViewTimeoutValue = PeriodicTriggerTimeout
 	}
@@ -64,7 +57,7 @@ func (tm *TriggerManager) GetNewViewTimeout() time.Duration {
 	return tm.newViewTimeoutValue
 }
 
-func (tm *TriggerManager) GetTriggerMode() TriggerMode {
+func (tm *TriggerManager) GetTriggerMode() core.TriggerMode {
 	return tm.triggerMode
 }
 
@@ -72,16 +65,16 @@ func (n *Node) ResetOnExecution(seq int64) {
 	if n.IsLeader() {
 		return
 	}
-	if n.triggerManager.GetTriggerMode() == FixedTrigger {
+	if n.triggerManager.GetTriggerMode() == core.FixedTrigger {
 		n.resetLeaderProgressTimer()
-	} else if n.triggerManager.GetTriggerMode() == PeriodicTrigger && seq == 1 {
+	} else if n.triggerManager.GetTriggerMode() == core.PeriodicTrigger && seq == 1 {
 		n.resetLeaderProgressTimer()
 	}
 
 }
 
 func (n *Node) IsPerformanceTrigger() bool {
-	return n.triggerManager.GetTriggerMode() == PerfTrigger
+	return n.triggerManager.GetTriggerMode() == core.PerfTrigger
 }
 
 func (n *Node) GetProgressTimeout() time.Duration {

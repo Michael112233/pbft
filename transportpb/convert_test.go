@@ -63,6 +63,7 @@ func TestEpochMessageRoundTrips(t *testing.T) {
 		EpochData: core.EpochData{
 			Throughput:       123.5,
 			ProposalInterval: 0.25,
+			VCRate:           0.125,
 			InactiveNodes:    2,
 		},
 		EpochDataMsgSigs: []core.EpochDataMsgSig{epochDataMsgSig},
@@ -79,7 +80,7 @@ func TestEpochMessageRoundTrips(t *testing.T) {
 		From:            epochAggregate.From,
 		EpochData:       epochAggregate.EpochData,
 	}
-	if gotMini := EpochAggregateMsgMiniToPB(mini); gotMini.EpochGeneration != 9 || gotMini.From != 4 || gotMini.EpochData.Throughput != 123.5 {
+	if gotMini := EpochAggregateMsgMiniToPB(mini); gotMini.EpochGeneration != 9 || gotMini.From != 4 || gotMini.EpochData.Throughput != 123.5 || gotMini.EpochData.VcRate != 0.125 {
 		t.Fatalf("epoch aggregate mini conversion = %#v", gotMini)
 	}
 }

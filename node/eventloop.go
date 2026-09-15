@@ -1,10 +1,37 @@
 package node
 
 import (
+	"context"
 	"time"
 
 	"github.com/michael112233/pbft/core"
 )
+
+// ReceiveLearningAgentDecision queues a learning-agent decision for serialized
+// processing by the node event loop.
+func (n *Node) ReceiveLearningAgentDecision(ctx context.Context, decision core.LearningAgentDecision) error {
+	select {
+	case n.learningAgentDecisionCh <- decision:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-n.eventLoopStopCh:
+		return errEventLoopStopped
+	}
+}
+
+// handleLearningAgentDecision is the event-loop-owned decision handler. The
+// protocol transition will be implemented here once the learning policy is
+// wired into the node state machine.
+func (n *Node) handleLearningAgentDecision(decision core.LearningAgentDecision) {
+	if n.log != nil {
+		n.log.Debug(
+			"received learning-agent decision for generation %d: %s",
+			decision.Generation,
+			core.ActiontoString(decision.NextProtocol),
+		)
+	}
+}
 
 func (n *Node) ReceiveVerifiedClientRequestCh(req core.ClientMsgSignature) {
 	select {
@@ -102,6 +129,8 @@ func (n *Node) run() {
 			default:
 				n.log.Error("Unknown epoch message type: %v", epochMsg.MsgType)
 			}
+		case decision := <-n.learningAgentDecisionCh:
+			n.handleLearningAgentDecision(decision)
 		case <-n.clientEventMsgChan:
 			if n.GetNodeID() == n.GetLeaderId() && !n.viewChangeRunning {
 				n.log.Debug("Activated leader stall for view %d", n.GetView())

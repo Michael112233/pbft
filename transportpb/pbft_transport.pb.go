@@ -2156,6 +2156,7 @@ type EpochData struct {
 	Throughput       float64                `protobuf:"fixed64,1,opt,name=throughput,proto3" json:"throughput,omitempty"`
 	ProposalInterval float64                `protobuf:"fixed64,2,opt,name=proposal_interval,json=proposalInterval,proto3" json:"proposal_interval,omitempty"`
 	InactiveNodes    uint32                 `protobuf:"varint,3,opt,name=inactive_nodes,json=inactiveNodes,proto3" json:"inactive_nodes,omitempty"`
+	VcRate           float64                `protobuf:"fixed64,4,opt,name=vc_rate,json=vcRate,proto3" json:"vc_rate,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -2207,6 +2208,13 @@ func (x *EpochData) GetProposalInterval() float64 {
 func (x *EpochData) GetInactiveNodes() uint32 {
 	if x != nil {
 		return x.InactiveNodes
+	}
+	return 0
+}
+
+func (x *EpochData) GetVcRate() float64 {
+	if x != nil {
+		return x.VcRate
 	}
 	return 0
 }
@@ -3025,13 +3033,14 @@ const file_pbft_transport_proto_rawDesc = "" +
 	"viewNumber\"v\n" +
 	"\x0fGrantVoteMsgSig\x12E\n" +
 	"\x0egrant_vote_msg\x18\x01 \x01(\v2\x1f.pbft.transport.v1.GrantVoteMsgR\fgrantVoteMsg\x12\x1c\n" +
-	"\tsignature\x18\x02 \x01(\fR\tsignature\"\x7f\n" +
+	"\tsignature\x18\x02 \x01(\fR\tsignature\"\x98\x01\n" +
 	"\tEpochData\x12\x1e\n" +
 	"\n" +
 	"throughput\x18\x01 \x01(\x01R\n" +
 	"throughput\x12+\n" +
 	"\x11proposal_interval\x18\x02 \x01(\x01R\x10proposalInterval\x12%\n" +
-	"\x0einactive_nodes\x18\x03 \x01(\rR\rinactiveNodes\"M\n" +
+	"\x0einactive_nodes\x18\x03 \x01(\rR\rinactiveNodes\x12\x17\n" +
+	"\avc_rate\x18\x04 \x01(\x01R\x06vcRate\"M\n" +
 	"\fEpochDataMsg\x12)\n" +
 	"\x10epoch_generation\x18\x01 \x01(\x04R\x0fepochGeneration\x12\x12\n" +
 	"\x04from\x18\x02 \x01(\x05R\x04from\"v\n" +

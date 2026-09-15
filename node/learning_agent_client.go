@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/learningagentpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -21,7 +22,7 @@ var (
 
 type NodeLearningAgent interface {
 	GetNodeID() int
-	// HandleDecisionFromLearningAgent(epoch int64, protocol string)
+	ReceiveLearningAgentDecision(context.Context, core.LearningAgentDecision) error
 }
 
 type LearningAgentHub struct {
@@ -38,7 +39,7 @@ type LearningAgentHub struct {
 }
 
 func (c *LearningAgentHub) SendDecision(
-	_ context.Context,
+	ctx context.Context,
 	request *learningagentpb.LearningDecision,
 ) (*learningagentpb.DecisionAck, error) {
 	if request == nil {
@@ -66,9 +67,16 @@ func (c *LearningAgentHub) SendDecision(
 		ack.Error = "learning decision next protocol is empty"
 		return ack, nil
 	}
+	decision := core.LearningAgentDecision{
+		NextProtocol: core.StringtoAction(request.GetNextProtocol()),
+		Generation:   request.GetSequenceId(),
+	}
+	if err := c.node.ReceiveLearningAgentDecision(ctx, decision); err != nil {
+		ack.Error = fmt.Sprintf("queue learning decision: %v", err)
+		return ack, nil
+	}
 
 	ack.Accepted = true
-	// go c.node.HandleDecisionFromLearningAgent(int64(request.GetSequenceId()), request.GetNextProtocol())
 	return ack, nil
 }
 
@@ -113,7 +121,7 @@ func (c *LearningAgentHub) Start() error {
 	return nil
 }
 
-func (c *LearningAgentHub) SendLearningData(ctx context.Context, epoch int64, throughput float64, proposalRate float64, shadowCount int) error {
+func (c *LearningAgentHub) SendLearningData(ctx context.Context, epoch uint64, throughput float64, proposalRate float64, vcrRate float64, inactiveNodes uint8) error {
 	if epoch < 0 {
 		return fmt.Errorf("learning-data epoch must be nonnegative: %d", epoch)
 	}
@@ -130,12 +138,13 @@ func (c *LearningAgentHub) SendLearningData(ctx context.Context, epoch int64, th
 
 	request := &learningagentpb.LearningDecision{
 		NodeId:       int32(c.nodeID),
-		SequenceId:   uint64(epoch),
+		SequenceId:   epoch,
 		NextProtocol: "", // This field can be set based on your requirements
 		Data: map[string]float64{
 			"reward":            throughput,
 			"proposal_interval": proposalRate,
-			"shadow_count":      float64(shadowCount),
+			"vc_rate":           vcrRate,
+			"inactive_nodes":    float64(inactiveNodes),
 		},
 	}
 	response, err := client.SendLearningData(ctx, request)
@@ -212,14 +221,14 @@ func (n *Node) ExchangeWithLearningAgent(ctx context.Context, payload []byte) ([
 	}
 	return n.learningAgent.Exchange(ctx, payload)
 }
-func (n *Node) SendLearningDataToAgent(epoch int64, throughput float64, proposalRate float64, shadowCount int) {
+func (n *Node) SendLearningDataToAgent(epoch uint64, throughput float64, proposalRate float64, vcrRate float64, inactiveNodes uint8) {
 	if n.learningAgent == nil {
 		n.log.Error("learning agent is not configured for this node")
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), learningAgentRPCTimeout)
 	defer cancel()
-	err := n.learningAgent.SendLearningData(ctx, epoch, throughput, proposalRate, shadowCount)
+	err := n.learningAgent.SendLearningData(ctx, epoch, throughput, proposalRate, vcrRate, inactiveNodes)
 	if err != nil {
 		n.log.Error("Failed to send learning data to agent: %v", err)
 	}

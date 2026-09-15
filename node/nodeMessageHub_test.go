@@ -335,6 +335,7 @@ func TestBuildEnvelopeAndDeliverViewProtocolMessages(t *testing.T) {
 				EpochData: core.EpochData{
 					Throughput:       250.5,
 					ProposalInterval: 0.02,
+					VCRate:           0.4,
 					InactiveNodes:    2,
 				},
 				EpochDataMsgSigs: []core.EpochDataMsgSig{{
@@ -348,7 +349,7 @@ func TestBuildEnvelopeAndDeliverViewProtocolMessages(t *testing.T) {
 			assertSent: func(t *testing.T) {
 				delivered := <-receiverNode.epochMsgChan
 				msg, ok := delivered.Msg.(core.EpochAggregateMsg)
-				if !ok || msg.EpochGeneration != 3 || msg.From != 1 || msg.EpochData.InactiveNodes != 2 || len(msg.EpochDataMsgSigs) != 1 {
+				if !ok || msg.EpochGeneration != 3 || msg.From != 1 || msg.EpochData.VCRate != 0.4 || msg.EpochData.InactiveNodes != 2 || len(msg.EpochDataMsgSigs) != 1 {
 					t.Fatalf("delivered epoch-aggregate = %#v", delivered.Msg)
 				}
 			},

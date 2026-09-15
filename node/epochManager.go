@@ -55,7 +55,7 @@ func (em *EpochManager) HandleEpochDataMsg(msg core.EpochDataMsg, signature []by
 		epochAggregateMsg := core.EpochAggregateMsg{
 			EpochGeneration:  msg.EpochGeneration,
 			From:             em.node.GetNodeID(),
-			EpochData:        core.EpochData{Throughput: 0, ProposalInterval: 0, InactiveNodes: 0}, // Placeholder values
+			EpochData:        core.EpochData{Throughput: 0, ProposalInterval: 0, VCRate: 0, InactiveNodes: 0}, // Placeholder values
 			EpochDataMsgSigs: epochDataMsgSigs,
 		}
 		epochAggregateMsgMini := core.EpochAggregateMsgMini{

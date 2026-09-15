@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/learningagentpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -269,7 +270,12 @@ func TestLearningAgentClientCloseStopsFurtherExchanges(t *testing.T) {
 }
 
 func TestLearningAgentHubSendDecision(t *testing.T) {
-	hub, err := NewLearningAgent(&Node{NodeID: 2}, "passthrough:///learning-agent-test")
+	node := &Node{
+		NodeID:                  2,
+		eventLoopStopCh:         make(chan struct{}),
+		learningAgentDecisionCh: make(chan core.LearningAgentDecision, 1),
+	}
+	hub, err := NewLearningAgent(node, "passthrough:///learning-agent-test")
 	if err != nil {
 		t.Fatalf("NewLearningAgent() error = %v", err)
 	}
@@ -289,7 +295,7 @@ func TestLearningAgentHubSendDecision(t *testing.T) {
 			request: &learningagentpb.LearningDecision{
 				NodeId:       2,
 				SequenceId:   7,
-				NextProtocol: "pbft",
+				NextProtocol: "PeriodicElection",
 			},
 			wantSequence: 7,
 			wantAccepted: true,
@@ -352,10 +358,20 @@ func TestLearningAgentHubSendDecision(t *testing.T) {
 			}
 		})
 	}
+
+	decision := <-node.learningAgentDecisionCh
+	if decision.NextProtocol != core.PeriodicElection || decision.Generation != 7 {
+		t.Fatalf("queued learning decision = %+v, want PeriodicElection generation 7", decision)
+	}
 }
 
 func TestLearningAgentHubSendDecisionOverGRPC(t *testing.T) {
-	hub, err := NewLearningAgent(&Node{NodeID: 4}, "passthrough:///learning-agent-test")
+	node := &Node{
+		NodeID:                  4,
+		eventLoopStopCh:         make(chan struct{}),
+		learningAgentDecisionCh: make(chan core.LearningAgentDecision, 1),
+	}
+	hub, err := NewLearningAgent(node, "passthrough:///learning-agent-test")
 	if err != nil {
 		t.Fatalf("NewLearningAgent() error = %v", err)
 	}
@@ -395,7 +411,7 @@ func TestLearningAgentHubSendDecisionOverGRPC(t *testing.T) {
 		&learningagentpb.LearningDecision{
 			NodeId:       4,
 			SequenceId:   11,
-			NextProtocol: "hotstuff",
+			NextProtocol: "PerformanceRoundRobin",
 		},
 	)
 	if err != nil {
@@ -403,6 +419,10 @@ func TestLearningAgentHubSendDecisionOverGRPC(t *testing.T) {
 	}
 	if ack.GetNodeId() != 4 || ack.GetSequenceId() != 11 || !ack.GetAccepted() || ack.GetError() != "" {
 		t.Fatalf("SendDecision() acknowledgement = %+v, want accepted node 4 sequence 11", ack)
+	}
+	decision := <-node.learningAgentDecisionCh
+	if decision.NextProtocol != core.PerformanceRoundRobin || decision.Generation != 11 {
+		t.Fatalf("queued learning decision = %+v, want PerformanceRoundRobin generation 11", decision)
 	}
 }
 

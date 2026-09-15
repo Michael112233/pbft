@@ -192,6 +192,7 @@ func EpochDataToPB(data core.EpochData) *EpochData {
 	return &EpochData{
 		Throughput:       data.Throughput,
 		ProposalInterval: data.ProposalInterval,
+		VcRate:           data.VCRate,
 		InactiveNodes:    uint32(data.InactiveNodes),
 	}
 }
@@ -206,6 +207,7 @@ func EpochDataFromPB(data *EpochData) (core.EpochData, error) {
 	return core.EpochData{
 		Throughput:       data.Throughput,
 		ProposalInterval: data.ProposalInterval,
+		VCRate:           data.VcRate,
 		InactiveNodes:    uint8(data.InactiveNodes),
 	}, nil
 }
