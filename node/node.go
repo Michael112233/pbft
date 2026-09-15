@@ -32,6 +32,11 @@ const (
 	THROUGHPUTINTERVAL_DELAY           = 3
 )
 
+type ViewID struct {
+	Generation uint64
+	Counter    uint64
+}
+
 type Node struct {
 	NodeID int
 
@@ -83,6 +88,8 @@ type Node struct {
 	leaderId          int
 	leaderIdForView   map[int64]int
 	forView           int64
+	viewID            ViewID
+	forViewID         ViewID
 	votedFor          int
 	viewChangeRunning bool
 	viewChangeMsgsLog map[int64][]*core.ViewChangeMsgSig
@@ -186,6 +193,8 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		forView:         1,
 		leaderId:        1,
 		leaderIdForView: map[int64]int{1: 1},
+		viewID:          ViewID{Generation: 1, Counter: 1},
+		forViewID:       ViewID{Generation: 1, Counter: 1},
 
 		viewChangeMsgsLog: make(map[int64][]*core.ViewChangeMsgSig),
 		viewChangeRunning: false,
