@@ -2,7 +2,11 @@ package node
 
 // SHOULD CHECK HOW MUCH LAG TO ACTIVATE PERF TIMER
 
-import "time"
+import (
+	"time"
+
+	"github.com/michael112233/pbft/core"
+)
 
 const (
 	// perfTimerInterval is how often the timed performance trigger samples the
@@ -30,7 +34,7 @@ func (n *Node) perfTimedVC() {
 // one starting THROUGHPUTINTERVAL_DELAY slots past maxSeq. The perf timer itself is
 // only restarted once that seq is actually executed, in
 // observeExecutedSlotForTimedThroughput.
-func (n *Node) resetTimedPerfWindow(maxSeq int64, view int64, maxRecentThroughput float64) {
+func (n *Node) resetTimedPerfWindow(maxSeq int64, view core.ViewID, maxRecentThroughput float64) {
 	// if !n.performanceTimedTrigger {
 	// 	return
 	// }
@@ -38,7 +42,7 @@ func (n *Node) resetTimedPerfWindow(maxSeq int64, view int64, maxRecentThroughpu
 	n.throughputPerf.timedIntervalStartSeq = maxSeq + THROUGHPUTINTERVAL_DELAY
 	n.throughputPerf.timedObservationStarted = false
 	n.throughputPerf.timedTargetThroughput = targetThroughputMaxFactor * maxRecentThroughput
-	n.log.Info("Timed trigger: interval start seq set to %d for new view %d; timed target throughput set to %.2f from max recent throughput %.2f", n.throughputPerf.timedIntervalStartSeq, view, n.throughputPerf.timedTargetThroughput, maxRecentThroughput)
+	n.log.Info("Timed trigger: interval start seq set to %d for new view (%d,%d); timed target throughput set to %.2f from max recent throughput %.2f", n.throughputPerf.timedIntervalStartSeq, view.Generation, view.Counter, n.throughputPerf.timedTargetThroughput, maxRecentThroughput)
 }
 
 // resetPerfTimer starts the perf timer or moves its deadline forward by one
@@ -78,10 +82,11 @@ func (n *Node) handlePerfTimerTimeout() {
 	// 	n.resetPerfTimer()
 	// 	return
 	// }
+	view := n.GetViewID()
 
 	throughput := float64(executedSlots) / elapsedSeconds
 	if throughput <= n.throughputPerf.timedTargetThroughput {
-		n.log.Info("Perf timer: throughput %.2f is below timed target %.2f for view %d, elapsed time %.2f seconds, executed slots %d; triggering view change", throughput, n.throughputPerf.timedTargetThroughput, n.view, elapsedSeconds, executedSlots)
+		n.log.Info("Perf timer: throughput %.2f is below timed target %.2f for view (%d,%d), elapsed time %.2f seconds, executed slots %d; triggering view change", throughput, n.throughputPerf.timedTargetThroughput, view.Generation, view.Counter, elapsedSeconds, executedSlots)
 		n.stopPerfTimer()
 		n.perfTimedVC()
 		return
@@ -89,6 +94,6 @@ func (n *Node) handlePerfTimerTimeout() {
 
 	oldTarget := n.throughputPerf.timedTargetThroughput
 	n.throughputPerf.timedTargetThroughput *= perfTimedTargetGrowth
-	n.log.Info("Perf timer: throughput %.2f is above timed target %.2f for view %d, elapsed time %.2f seconds, executed slots %d; raising target to %.2f", throughput, oldTarget, n.view, elapsedSeconds, executedSlots, n.throughputPerf.timedTargetThroughput)
+	n.log.Info("Perf timer: throughput %.2f is above timed target %.2f for view (%d,%d), elapsed time %.2f seconds, executed slots %d; raising target to %.2f", throughput, oldTarget, view.Generation, view.Counter, elapsedSeconds, executedSlots, n.throughputPerf.timedTargetThroughput)
 	n.resetPerfTimer()
 }

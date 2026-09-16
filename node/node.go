@@ -32,11 +32,6 @@ const (
 	THROUGHPUTINTERVAL_DELAY           = 3
 )
 
-type ViewID struct {
-	Generation uint64
-	Counter    uint64
-}
-
 type Node struct {
 	NodeID int
 
@@ -84,16 +79,16 @@ type Node struct {
 
 	encryptionKeyStore *KeyStore
 
-	view              int64
-	leaderId          int
-	leaderIdForView   map[int64]int
-	forView           int64
-	viewID            ViewID
-	forViewID         ViewID
+	// view              int64
+	leaderId        int
+	leaderIdForView map[core.ViewID]int
+	// forView           int64
+	viewID            core.ViewID
+	forViewID         core.ViewID
+	currAction        core.Action
 	votedFor          int
 	viewChangeRunning bool
-	viewChangeMsgsLog map[int64][]*core.ViewChangeMsgSig
-	vcType            core.VCType
+	viewChangeMsgsLog map[core.ViewID][]*core.ViewChangeMsgSig
 	sequenceNumber    int64
 	lastExecuted      int64
 
@@ -189,16 +184,16 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 			batch:            make([]core.ClientMsgSignature, 0, cfg.MaxBatchSize),
 		},
 
-		view:            1,
-		forView:         1,
+		// view:            1,
+		// forView:         1,
 		leaderId:        1,
-		leaderIdForView: map[int64]int{1: 1},
-		viewID:          ViewID{Generation: 1, Counter: 1},
-		forViewID:       ViewID{Generation: 1, Counter: 1},
+		leaderIdForView: map[core.ViewID]int{core.ViewID{Generation: 1, Counter: 1}: 1},
+		viewID:          core.ViewID{Generation: 1, Counter: 1},
+		forViewID:       core.ViewID{Generation: 1, Counter: 1},
 
-		viewChangeMsgsLog: make(map[int64][]*core.ViewChangeMsgSig),
+		viewChangeMsgsLog: make(map[core.ViewID][]*core.ViewChangeMsgSig),
 		viewChangeRunning: false,
-		vcType:            cfg.LeaderTypeEnum,
+		currAction:        core.Action{Policy: core.PolicyRoundRobin, TriggerMode: core.FixedTrigger},
 
 		fNodes: (int(cfg.NodeNum) - 1) / 3,
 
@@ -405,20 +400,23 @@ func (n *Node) tryPropose(fullBatch bool) {
 		n.log.Error("Failed to compute batch digest: %v", err)
 		return
 	}
-	view := n.GetView()
+	// view := n.GetView()
 	seqNum := n.GetNextSeqNum()
+	view := n.GetViewID()
 	preprepareMsg := core.PreprepareMsg{
-		View:                       view,
+		// View:                       view,
 		SeqNum:                     seqNum,
 		DigestClientMsg:            digestBatch,
 		ClientMsg:                  reqs,
 		DigestIndividualClientMsgs: requestDigests,
+		View:                       view,
 	}
 	preprepareMsgMini := core.PreprepareMsgMini{
-		View:                       view,
+		// View:                       view,
 		SeqNum:                     seqNum,
 		DigestClientMsg:            digestBatch,
 		DigestIndividualClientMsgs: requestDigests,
+		View:                       view,
 	}
 
 	payloadBytes, err := marshalDeterministic(preprepareSignPayload(view, seqNum, digestBatch[:]))
@@ -431,8 +429,9 @@ func (n *Node) tryPropose(fullBatch bool) {
 	n.pool.AddBatch(reqs, requestDigests, seqNum, view)
 
 	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
-	slot, _ := n.consensusLog.GetorCreateEntry(seqNum, view)
+	slot, _ := n.consensusLog.GetorCreateEntry(seqNum)
 	n.slotPreprepare(slot, &preprepareMsgMini, signature, true)
+	// slot.view = view
 	slot.view = view
 	n.RecordStartTime(seqNum, digestBatch, time.Now())
 
@@ -441,9 +440,11 @@ func (n *Node) tryPropose(fullBatch bool) {
 
 func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []byte) {
 	// above it have check view chnage running ignore
-	view := n.GetView()
+	// view := n.GetView()
+	view := n.GetViewID()
+	forView := n.GetForViewID()
 	if n.viewChangeRunning {
-		if preprepareMsg.View > view {
+		if preprepareMsg.View.GreaterThan(view) {
 			// buffer
 			n.bufferConsensusMessage(bufferedConsensusMessage{
 				kind:       bufferedPrePrepare,
@@ -451,24 +452,24 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 				preprepare: preprepareMsg,
 				signature:  append([]byte(nil), signature...),
 			})
-			n.log.Info("Buffered PrePrepare for future view %d seq %d while current view is %d", preprepareMsg.View, preprepareMsg.SeqNum, view)
+			n.log.Info("Buffered PrePrepare for future view (%d,%d) seq %d while current view is (%d,%d)", preprepareMsg.View.Generation, preprepareMsg.View.Counter, preprepareMsg.SeqNum, view.Generation, view.Counter)
 			return
-		} else if preprepareMsg.View < view {
-			n.log.Info("Received PrePrepare for past view %d seq %d while current view is %d, ignoring and for view is %d", preprepareMsg.View, preprepareMsg.SeqNum, view, n.forView)
+		} else if preprepareMsg.View.LessThan(view) {
+			n.log.Info("Received PrePrepare for past view (%d,%d) seq %d while current view is (%d,%d), ignoring and for view is (%d,%d)", preprepareMsg.View.Generation, preprepareMsg.View.Counter, preprepareMsg.SeqNum, view.Generation, view.Counter, forView.Generation, forView.Counter)
 		} else if preprepareMsg.SeqNum%10 == 0 {
-			n.log.Info("Received PrePrepare for current view %d (equal views) seq %d but currently in view change, ignoring and for view is %d", preprepareMsg.View, preprepareMsg.SeqNum, n.forView)
+			n.log.Info("Received PrePrepare for current view (%d,%d) seq %d but currently in view change, ignoring and for view is (%d,%d)", preprepareMsg.View.Generation, preprepareMsg.View.Counter, preprepareMsg.SeqNum, forView.Generation, forView.Counter)
 		}
 
 		return
 
 	}
 
-	if !n.viewChangeRunning && preprepareMsg.View > view {
-		n.log.Warn("Interesting case: Received PrePrepare for future view %d seq %d while current view is %d, ignoring and for view is %d", preprepareMsg.View, preprepareMsg.SeqNum, view, n.forView)
+	if !n.viewChangeRunning && preprepareMsg.View.GreaterThan(view) {
+		n.log.Warn("Interesting case: Received PrePrepare for future view (%d,%d) seq %d while current view is (%d,%d), ignoring and for view is (%d,%d)", preprepareMsg.View.Generation, preprepareMsg.View.Counter, preprepareMsg.SeqNum, view.Generation, view.Counter, forView.Generation, forView.Counter)
 		return
 	}
 
-	if preprepareMsg.View != view {
+	if preprepareMsg.View.NotEqual(view) {
 		return
 	}
 
@@ -497,11 +498,11 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 	// 	n.log.Error("Batch digest mismatch")
 	// 	return
 	// }
-	slot, exists := n.consensusLog.GetorCreateEntry(preprepareMsg.SeqNum, preprepareMsg.View)
+	slot, exists := n.consensusLog.GetorCreateEntry(preprepareMsg.SeqNum)
 	// slots above masSeq of O only survive if prepared and even for those view aligned at new view, so can raise error if view greater or less
 	if exists {
-		if slot.view != preprepareMsg.View {
-			if slot.view < preprepareMsg.View {
+		if slot.view.NotEqual(preprepareMsg.View) {
+			if slot.view.LessThan(preprepareMsg.View) {
 				n.log.Error("Received PrePrepare message for a lower view than existing log entry")
 				return
 			} else {
@@ -613,9 +614,10 @@ func (n *Node) verifyPreprepareClientMessages(clientMsgs []core.ClientMsgSignatu
 }
 
 func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
-	view := n.GetView()
+	view := n.GetViewID()
+	forView := n.GetForViewID()
 	if n.viewChangeRunning {
-		if prepareMsg.View > view {
+		if prepareMsg.View.GreaterThan(view) {
 			n.bufferConsensusMessage(bufferedConsensusMessage{
 				kind:      bufferedPrepare,
 				view:      prepareMsg.View,
@@ -624,22 +626,22 @@ func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 			})
 			// n.log.Info("Buffered Prepare for future view %d seq %d while current view is %d", prepareMsg.View, prepareMsg.SeqNum, view)
 			return
-		} else if prepareMsg.View < view {
-			n.log.Info("Received Prepare for past view %d seq %d while current view is %d, ignoring and for view is %d", prepareMsg.View, prepareMsg.SeqNum, view, n.forView)
+		} else if prepareMsg.View.LessThan(view) {
+			n.log.Info("Received Prepare for past view (%d,%d) seq %d while current view is (%d,%d), ignoring and for view is (%d,%d)", prepareMsg.View.Generation, prepareMsg.View.Counter, prepareMsg.SeqNum, view.Generation, view.Counter, forView.Generation, forView.Counter)
 		} else if prepareMsg.SeqNum%10 == 0 {
-			n.log.Info("Received Prepare for current view %d (equal views) seq %d but currently in view change, ignoring and for view is %d", prepareMsg.View, prepareMsg.SeqNum, n.forView)
+			n.log.Info("Received Prepare for current view (%d,%d) seq %d but currently in view change, ignoring and for view is (%d,%d)", prepareMsg.View.Generation, prepareMsg.View.Counter, prepareMsg.SeqNum, view.Generation, view.Counter, forView.Generation, forView.Counter)
 		}
 		// n.viewMu.RUnlock()
 
 		return
 	}
 
-	if !n.viewChangeRunning && prepareMsg.View > view {
-		n.log.Warn("Interesting case: Received Prepare for future view %d seq %d while current view is %d, ignoring and for view is %d", prepareMsg.View, prepareMsg.SeqNum, view, n.forView)
+	if !n.viewChangeRunning && prepareMsg.View.GreaterThan(view) {
+		n.log.Warn("Interesting case: Received Prepare for future view (%d,%d) seq %d while current view is (%d,%d), ignoring and for view is (%d,%d)", prepareMsg.View.Generation, prepareMsg.View.Counter, prepareMsg.SeqNum, view.Generation, view.Counter, forView.Generation, forView.Counter)
 		return
 	}
 
-	if prepareMsg.View != view {
+	if prepareMsg.View.NotEqual(view) {
 		return
 	}
 
@@ -652,11 +654,11 @@ func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 		return
 	}
 
-	slot, exists := n.consensusLog.GetorCreateEntry(prepareMsg.SeqNum, prepareMsg.View)
+	slot, exists := n.consensusLog.GetorCreateEntry(prepareMsg.SeqNum)
 	// slots above masSeq of O only survive if prepared and even for those view aligned at new view, so can raise error if view greater or less
 	if exists {
-		if slot.view != prepareMsg.View {
-			if slot.view < prepareMsg.View {
+		if slot.view.NotEqual(prepareMsg.View) {
+			if slot.view.LessThan(prepareMsg.View) {
 				n.log.Error("Received Prepare message for a lower view than existing log entry")
 				return
 			} else {
@@ -752,9 +754,10 @@ func (n *Node) buildPreparedCert(slot *LogEntry) *core.PreparedCert {
 }
 
 func (n *Node) HandleCommit(commitMsg core.CommitMsg) {
-	view := n.GetView()
+	view := n.GetViewID()
+	forView := n.GetForViewID()
 	if n.viewChangeRunning {
-		if commitMsg.View > view {
+		if commitMsg.View.GreaterThan(view) {
 			n.bufferConsensusMessage(bufferedConsensusMessage{
 				kind:   bufferedCommit,
 				view:   commitMsg.View,
@@ -762,22 +765,22 @@ func (n *Node) HandleCommit(commitMsg core.CommitMsg) {
 			})
 			// n.log.Info("Buffered Commit for future view %d seq %d while current view is %d", commitMsg.View, commitMsg.SeqNum, view)
 			return
-		} else if commitMsg.View < view {
-			n.log.Info("Received Commit for past view %d seq %d while current view is %d, ignoring", commitMsg.View, commitMsg.SeqNum, n.forView)
+		} else if commitMsg.View.LessThan(view) {
+			n.log.Info("Received Commit for past view (%d,%d) seq %d while current view is (%d,%d), ignoring", commitMsg.View.Generation, commitMsg.View.Counter, commitMsg.SeqNum, view.Generation, view.Counter)
 		} else if commitMsg.SeqNum%10 == 0 {
-			n.log.Info("Received Commit for current view %d (equal views) seq %d but currently in view change, ignoring and for view is %d", commitMsg.View, commitMsg.SeqNum, n.forView)
+			n.log.Info("Received Commit for current view (%d,%d) (equal views) seq %d but currently in view change, ignoring and for view is (%d,%d)", commitMsg.View.Generation, commitMsg.View.Counter, commitMsg.SeqNum, forView.Generation, forView.Counter)
 		}
 		// n.viewMu.RUnlock()
 
 		return
 	}
 
-	if !n.viewChangeRunning && commitMsg.View > view {
-		n.log.Warn("Interesting case: Received Commit for future view %d seq %d while current view is %d, ignoring and for view is %d", commitMsg.View, commitMsg.SeqNum, view, n.forView)
+	if !n.viewChangeRunning && commitMsg.View.GreaterThan(view) {
+		n.log.Warn("Interesting case: Received Commit for future view (%d,%d) seq %d while current view is (%d,%d), ignoring and for view is (%d,%d)", commitMsg.View.Generation, commitMsg.View.Counter, commitMsg.SeqNum, view.Generation, view.Counter, forView.Generation, forView.Counter)
 		return
 	}
 
-	if commitMsg.View != view {
+	if commitMsg.View.NotEqual(view) {
 		return
 	}
 
@@ -790,10 +793,10 @@ func (n *Node) HandleCommit(commitMsg core.CommitMsg) {
 		return
 	}
 
-	slot, exists := n.consensusLog.GetorCreateEntry(commitMsg.SeqNum, commitMsg.View)
+	slot, exists := n.consensusLog.GetorCreateEntry(commitMsg.SeqNum)
 	if exists {
-		if slot.view != commitMsg.View {
-			if slot.view < commitMsg.View {
+		if slot.view.NotEqual(commitMsg.View) {
+			if slot.view.LessThan(commitMsg.View) {
 				n.log.Error("Received Commit message for a lower view than existing log entry")
 				return
 			} else {
@@ -898,8 +901,24 @@ func matchingVotesC(votes map[int][32]byte, target [32]byte) int {
 	return count
 }
 
-func (n *Node) GetView() int64 {
-	return n.view
+// func (n *Node) GetView() int64 {
+// 	return n.view
+// }
+
+func (n *Node) GetViewID() core.ViewID {
+	return n.viewID
+}
+
+func (n *Node) GetForViewID() core.ViewID {
+	return n.forViewID
+}
+
+func (n *Node) SetViewID(view core.ViewID) {
+	n.viewID = view
+}
+
+func (n *Node) SetForViewID(view core.ViewID) {
+	n.forViewID = view
 }
 
 func (n *Node) GetLeaderId() int {
@@ -944,7 +963,7 @@ func (n *Node) asyncBroadCast(msgType string, msg interface{}, signature []byte)
 		go n.messageHub.Send(msgType, othersIp, msg, signature)
 	}
 }
-func (n *Node) sendLeaderIdUpdate(newLeaderID int, view int64) {
+func (n *Node) sendLeaderIdUpdate(newLeaderID int, view core.ViewID) {
 	leaderUpdateMsg := core.LeaderIdUpdate{
 		From:        n.GetAddr(),
 		To:          config.ClientAddr,
@@ -955,7 +974,7 @@ func (n *Node) sendLeaderIdUpdate(newLeaderID int, view int64) {
 	n.messageHub.Send(core.MsgLeaderIdUpdateMessage, config.ClientAddr, leaderUpdateMsg, nil)
 }
 
-func (n *Node) asyncBroadcastCommit(view, seq int64, digest [32]byte) {
+func (n *Node) asyncBroadcastCommit(view core.ViewID, seq int64, digest [32]byte) {
 	msg := core.CommitMsg{
 		View:   view,
 		SeqNum: seq,
@@ -993,16 +1012,16 @@ type StallState struct {
 	view  int64
 }
 
-func (n *Node) SetStall(stall bool) {
-	n.stallState = StallState{stall: stall, view: n.GetView()}
-}
+// func (n *Node) SetStall(stall bool) {
+// 	n.stallState = StallState{stall: stall, view: n.GetView()}
+// }
 
-// GetStall reports whether a stall was requested in the current view. A stall
-// requested in an earlier view is ignored so it cannot leak into a later view
-// where this replica becomes primary again.
-func (n *Node) GetStall() bool {
-	return n.stallState.stall && n.stallState.view == n.GetView()
-}
+// // GetStall reports whether a stall was requested in the current view. A stall
+// // requested in an earlier view is ignored so it cannot leak into a later view
+// // where this replica becomes primary again.
+// func (n *Node) GetStall() bool {
+// 	return n.stallState.stall && n.stallState.view == n.GetView()
+// }
 
 func (n *Node) assert(condition bool, format string, args ...interface{}) {
 	message := fmt.Sprintf(format, args...)

@@ -4,7 +4,7 @@ import "github.com/michael112233/pbft/core"
 
 type bufferedConsensusMessage struct {
 	kind       bufferedConsensusMessageKind
-	view       int64
+	view       core.ViewID
 	preprepare core.PreprepareMsg
 	prepare    core.PrepareMsg
 	commit     core.CommitMsg
@@ -18,14 +18,14 @@ const (
 	bufferedCommit
 )
 
-func (n *Node) replayBufferedMessagesForView(view int64) {
+func (n *Node) replayBufferedMessagesForView(view core.ViewID) {
 	buffered := n.drainBufferedMessagesForView(view)
 	if len(buffered) == 0 {
-		n.log.Info("No buffered consensus messages to replay for view %d", view)
+		n.log.Info("No buffered consensus messages to replay for view (%d,%d)", view.Generation, view.Counter)
 		return
 	}
 
-	n.log.Info("Replaying %d buffered consensus messages for view %d", len(buffered), view)
+	n.log.Info("Replaying %d buffered consensus messages for view (%d,%d)", len(buffered), view.Generation, view.Counter)
 	for _, msg := range buffered {
 		switch msg.kind {
 		case bufferedPrePrepare: //maybe async them
@@ -38,7 +38,7 @@ func (n *Node) replayBufferedMessagesForView(view int64) {
 	}
 }
 
-func (n *Node) drainBufferedMessagesForView(view int64) []bufferedConsensusMessage {
+func (n *Node) drainBufferedMessagesForView(view core.ViewID) []bufferedConsensusMessage {
 
 	if len(n.bufferedMsgs) == 0 {
 		return nil
@@ -50,14 +50,14 @@ func (n *Node) drainBufferedMessagesForView(view int64) []bufferedConsensusMessa
 		if msg.view == view {
 			replay = append(replay, msg)
 			continue
-		} else if msg.view < view {
+		} else if msg.view.LessThan(view) {
 			n.log.Warn("buffer have lower view msgs")
-		} else if msg.view > view {
+		} else if msg.view.GreaterThan(view) {
 			remaining = append(remaining, msg)
 		}
 	}
 	if len(remaining) > 0 {
-		n.log.Info("Still have %d buffered consensus messages for future views after draining for view %d", len(remaining), view)
+		n.log.Info("Still have %d buffered consensus messages for future views after draining for view (%d,%d)", len(remaining), view.Generation, view.Counter)
 	}
 	n.bufferedMsgs = remaining
 	return replay

@@ -5,6 +5,41 @@ import (
 	"time"
 )
 
+type ViewID struct {
+	Generation uint64
+	Counter    uint64
+}
+
+func (v ViewID) Equal(other ViewID) bool {
+	return v.Generation == other.Generation && v.Counter == other.Counter
+}
+
+func (v ViewID) NotEqual(other ViewID) bool {
+	return !v.Equal(other)
+}
+
+func (v ViewID) GreaterThan(other ViewID) bool {
+	if v.Generation != other.Generation {
+		return v.Generation > other.Generation
+	}
+	return v.Counter > other.Counter
+}
+
+func (v ViewID) GreaterThanOrEqual(other ViewID) bool {
+	return !v.LessThan(other)
+}
+
+func (v ViewID) LessThan(other ViewID) bool {
+	if v.Generation != other.Generation {
+		return v.Generation < other.Generation
+	}
+	return v.Counter < other.Counter
+}
+
+func (v ViewID) LessThanOrEqual(other ViewID) bool {
+	return !v.GreaterThan(other)
+}
+
 type Message struct {
 	MsgType   string
 	Data      []byte
@@ -63,7 +98,7 @@ type LeaderIdUpdate struct {
 	To          string
 	From        string
 	NewLeaderId int
-	View        int64
+	View        ViewID
 }
 
 type CloseMessage struct {
@@ -73,18 +108,20 @@ type CloseMessage struct {
 }
 
 type PreprepareMsg struct {
-	View                       int64
+	// View                       int64
 	SeqNum                     int64
 	DigestClientMsg            [32]byte
 	ClientMsg                  []ClientMsgSignature
 	DigestIndividualClientMsgs [][32]byte
+	View                       ViewID
 }
 
 type PreprepareMsgMini struct {
-	View                       int64
+	// View                       int64
 	SeqNum                     int64
 	DigestClientMsg            [32]byte
 	DigestIndividualClientMsgs [][32]byte
+	View                       ViewID
 }
 type PreprepareMsgSig struct { // used in VC
 	PreprepareMsgMini PreprepareMsgMini
@@ -93,7 +130,7 @@ type PreprepareMsgSig struct { // used in VC
 }
 
 type PrepareMsg struct {
-	View   int64
+	View   ViewID
 	SeqNum int64
 	Digest [32]byte
 	From   int
@@ -104,7 +141,7 @@ type PrepareMsgSig struct {
 	Signature  []byte
 }
 type CommitMsg struct {
-	View   int64
+	View   ViewID
 	SeqNum int64
 	Digest [32]byte
 	From   int
@@ -147,17 +184,14 @@ type WRRVCData struct {
 }
 
 type ViewChangeMsg struct {
-	ViewNumber          int64
+	ViewNumber          ViewID
 	CheckpointSeqNumber int64
 	CheckpointDigest    [32]byte
 	CheckpointProof     []CheckpointMsgSig
 	CheckpointBalances  map[string]*big.Int
 	From                int
 	PreparedCerts       map[int64]*PreparedCert
-	Type                VCType
-	ElectionData        *ElectionVCData
-	RoundRobinData      *RoundRobinVCData
-	WRRData             *WRRVCData
+	Action              Action
 }
 
 type ViewChangeMsgSig struct {
@@ -168,7 +202,7 @@ type ViewChangeMsgSig struct {
 type NewViewMsg struct {
 	PreprepareLog []PreprepareMsgSig
 	ViewChangeLog []*ViewChangeMsgSig
-	NewViewNumber int64
+	NewViewNumber ViewID
 	Throughput    float64
 	From          int
 }
@@ -180,7 +214,7 @@ type NewViewMsgSig struct {
 
 type RequestVoteMsg struct {
 	From       int
-	ViewNumber int64
+	ViewNumber ViewID
 	Seed       []byte
 	DelaySteps uint64
 	Y          []byte
@@ -195,7 +229,7 @@ type RequestVoteMsgSig struct {
 
 type GrantVoteMsg struct {
 	From       int
-	ViewNumber int64
+	ViewNumber ViewID
 }
 
 type GrantVoteMsgSig struct {

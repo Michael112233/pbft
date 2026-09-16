@@ -178,9 +178,9 @@ class QuadRF:
                         "inf"
                     )  # Assign a high value to encourage exploration
             else:
-                if RESAMPLE_ON_PREDICT:
-                    # Fresh Thompson/bootstrap sample for EVERY candidate arm.
-                    self.train(prev_protocol, protocol)
+                # if RESAMPLE_ON_PREDICT:
+                # Fresh Thompson/bootstrap sample for EVERY candidate arm.
+                # self.train(prev_protocol, protocol)
 
                 prediction = self.models[prev_protocol][protocol].predict(model_input)
                 point_estimate = float(prediction[0])

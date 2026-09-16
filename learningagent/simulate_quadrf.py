@@ -288,7 +288,7 @@ def main() -> None:
             prev_protocol,
         )
         # should train when use ucb
-        # model.train(prev_protocol, selected_protocol)
+        model.train(prev_protocol, selected_protocol)
         timeEnd = time()
 
         selections[selected_protocol] += 1

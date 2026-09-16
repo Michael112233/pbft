@@ -17,7 +17,7 @@ type executionPostAction struct {
 
 func (n *Node) exeLoop() {
 	postActions := make([]executionPostAction, 0)
-	view := n.GetView()
+	view := n.GetViewID()
 	leaderId := n.GetLeaderId()
 	previousExecuted := n.GetLastExecuted()
 	performanceTrigger := 0

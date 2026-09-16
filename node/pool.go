@@ -11,7 +11,7 @@ type PoolData struct {
 	req      core.ClientMsgSignature
 	executed bool
 	seqNum   int64
-	view     int64
+	view     core.ViewID
 }
 type Pool struct {
 	existsMap map[[32]byte]PoolData
@@ -25,7 +25,7 @@ func NewPool(log *logger.Logger) *Pool {
 	}
 }
 
-func (p *Pool) AddBatch(reqs []core.ClientMsgSignature, digests [][32]byte, seqNum int64, view int64) {
+func (p *Pool) AddBatch(reqs []core.ClientMsgSignature, digests [][32]byte, seqNum int64, view core.ViewID) {
 	for i, req := range reqs {
 		p.existsMap[digests[i]] = PoolData{
 			req:      req,

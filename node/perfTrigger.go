@@ -1,6 +1,10 @@
 package node
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/michael112233/pbft/core"
+)
 
 // func (n *Node) perfVC() {
 // 	if n.performanceTrigger {
@@ -43,12 +47,12 @@ func (n *Node) maxRecentViewThroughput(currentView int64) float64 {
 	return maxThroughput
 }
 
-func (n *Node) newviewUpdatePerf(maxSeq int64, view int64) float64 {
+func (n *Node) newviewUpdatePerf(maxSeq int64, view core.ViewID) float64 {
 	maxRecentThroughput := 0.0
 	if n.cfg.Performance {
 
 		n.throughputPerf.throughputIntervalStartSeq = maxSeq + THROUGHPUTINTERVAL_DELAY
-		n.log.Info("Throughput interval start seq set to %d for new view %d", n.throughputPerf.throughputIntervalStartSeq, view)
+		n.log.Info("Throughput interval start seq set to %d for new view (%d,%d)", n.throughputPerf.throughputIntervalStartSeq, view.Generation, view.Counter)
 		n.throughputPerf.throughputObservationStarted = false
 		maxRecentThroughput = n.maxRecentViewThroughput(view)
 		if maxRecentThroughput <= 100 {
@@ -56,7 +60,7 @@ func (n *Node) newviewUpdatePerf(maxSeq int64, view int64) float64 {
 		}
 		n.throughputPerf.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput
 
-		n.log.Info("Max recent throughput for new view %d is %.2f; target throughput set to %.2f", n.view, maxRecentThroughput, n.throughputPerf.targetThroughput)
+		n.log.Info("Max recent throughput for new view (%d,%d) is %.2f; target throughput set to %.2f", view.Generation, view.Counter, maxRecentThroughput, n.throughputPerf.targetThroughput)
 
 		n.resetTimedPerfWindow(maxSeq, view, maxRecentThroughput)
 	}
@@ -64,15 +68,15 @@ func (n *Node) newviewUpdatePerf(maxSeq int64, view int64) float64 {
 
 }
 
-func (n *Node) handleNewViewUpdatePerf(maxSeq int64, view int64, throughput float64) {
+func (n *Node) handleNewViewUpdatePerf(maxSeq int64, view core.ViewID, throughput float64) {
 	if n.cfg.Performance {
 		n.throughputPerf.throughputIntervalStartSeq = maxSeq + THROUGHPUTINTERVAL_DELAY
-		n.log.Info("Throughput interval start seq set to %d for new view %d", n.throughputPerf.throughputIntervalStartSeq, view)
+		n.log.Info("Throughput interval start seq set to %d for new view (%d,%d)", n.throughputPerf.throughputIntervalStartSeq, view.Generation, view.Counter)
 		n.throughputPerf.throughputObservationStarted = false
 		maxRecentThroughput := throughput
 		n.throughputPerf.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput
 
-		n.log.Info("Max recent throughput for new view %d is %.2f; target throughput set to %.2f", n.view, maxRecentThroughput, n.throughputPerf.targetThroughput)
+		n.log.Info("Max recent throughput for new view (%d,%d) is %.2f; target throughput set to %.2f", view.Generation, view.Counter, maxRecentThroughput, n.throughputPerf.targetThroughput)
 
 		n.resetTimedPerfWindow(maxSeq, view, maxRecentThroughput)
 	}

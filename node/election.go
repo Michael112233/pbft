@@ -14,7 +14,7 @@ import (
 )
 
 type electionVDFResult struct {
-	view       int64
+	view       core.ViewID
 	seed       []byte
 	delaySteps uint64
 	vrfProof   []byte
@@ -25,60 +25,56 @@ type electionVDFResult struct {
 }
 
 type ElectionManager struct {
-	votedFor           map[int64]int
-	reqVoteBuffer      map[int64][]core.RequestVoteMsg
+	votedFor           map[core.ViewID]int
+	reqVoteBuffer      map[core.ViewID][]core.RequestVoteMsg
 	electionVDFWorkers sync.WaitGroup
-	collectVotes       map[int64]map[int]struct{} // view -> nodeID -> struct{}
+	collectVotes       map[core.ViewID]map[int]struct{} // view -> nodeID -> struct{}
 }
 
 func NewElectionManager() *ElectionManager {
 	return &ElectionManager{
-		votedFor:      make(map[int64]int),
-		reqVoteBuffer: make(map[int64][]core.RequestVoteMsg),
-		collectVotes:  make(map[int64]map[int]struct{}),
+		votedFor:      make(map[core.ViewID]int),
+		reqVoteBuffer: make(map[core.ViewID][]core.RequestVoteMsg),
+		collectVotes:  make(map[core.ViewID]map[int]struct{}),
 	}
 }
 
-func (n *Node) ElectionLogic(view int64) {
-	if n.forView != view {
+func (n *Node) ElectionLogic(forView, view core.ViewID, currAction core.Action, path string) {
+	n.log.Info("In select round robin from path %s for view (%d,%d)", path, forView.Generation, forView.Counter)
+	if _, alreadyVoted := n.electionManager.votedFor[forView]; alreadyVoted {
+		// this can happen if req vote come after for view equal due our timer or f+1
+		n.log.Warn("Its fine that already voted for but reordering happend before 2f+1 threshold we voted for view (%d,%d)", forView.Generation, forView.Counter)
 		return
 	}
-	if n.uniqueViewChangeCount(view) != n.QuorumSize() {
-		return
-	}
-	if _, alreadyVoted := n.electionManager.votedFor[view]; alreadyVoted {
-		// this can happen if req vote come after for view equal and have f+1 vc
-		n.log.Warn("Its fine that already voted for but reordering happend before 2f+1 threshold we voted for view %d", view)
-		return
-	}
-	// if req vote received after f+1 then we may have voted but if even before f+1 it sits in buffer and we extract at 2f+1
+	// if req vote received before 2f+1 of this view and our for view hadnt catched up it sits in buffer and we extract at 2f+1
 	// or maybe in buffer due to way beyon f+1
-	if n.electionManager.reqVoteBuffer[view] != nil {
-		n.log.Warn("Processing buffered request vote messages for view %d", view)
-		reqVote := n.electionManager.reqVoteBuffer[view][0]
-		n.electionManager.reqVoteBuffer[view] = n.electionManager.reqVoteBuffer[view][1:]
+
+	if n.electionManager.reqVoteBuffer[forView] != nil {
+		n.log.Info("Processing buffered request vote messages for view (%d,%d)", forView.Generation, forView.Counter)
+		reqVote := n.electionManager.reqVoteBuffer[forView][0]
+		n.electionManager.reqVoteBuffer[forView] = n.electionManager.reqVoteBuffer[forView][1:]
 		success := n.HandleRequestVoteMsg(reqVote, nil, "local buffered")
 		if !success {
-			n.log.Error("Failed to process buffered request vote message for view %d", view)
+			n.log.Error("Failed to process buffered request vote message for view (%d,%d)", forView.Generation, forView.Counter)
 		} else {
 			return
 		}
 
 	}
 
-	seed := []byte(fmt.Sprintf("view-%d", view))
+	seed := []byte(fmt.Sprintf("view-%d-%d", forView.Generation, forView.Counter))
 	// Eventually this seed will be the threshold signature assembled from the
 	// secret shares carried by the view-change messages.
 	privateVRFKey := n.encryptionKeyStore.GetPrivateVRFKey()
 	vrfProof, beta, err := vr.CreateProofAndBeta(privateVRFKey, seed)
 	if err != nil {
-		n.log.Error("Error creating proof and beta for view %d: %v", view, err)
+		n.log.Error("Error creating proof and beta for view (%d,%d): %v", forView.Generation, forView.Counter, err)
 		return
 	}
 
 	randNumber, err := vr.NumberFromBeta(beta, n.MinVDFDelay(), n.MaxVDFDelay())
 	if err != nil {
-		n.log.Error("Failed to generate VDF delay for view %d: %v", view, err)
+		n.log.Error("Failed to generate VDF delay for view (%d,%d): %v", forView.Generation, forView.Counter, err)
 		return
 	}
 
@@ -87,11 +83,11 @@ func (n *Node) ElectionLogic(view int64) {
 
 	n.electionManager.electionVDFWorkers.Add(1)
 
-	go n.evalElectionVDF(view, seed, delaySteps, modulus, vrfProof, beta)
+	go n.evalElectionVDF(forView, seed, delaySteps, modulus, vrfProof, beta)
 }
 
 func (n *Node) evalElectionVDF(
-	view int64,
+	view core.ViewID,
 	seed []byte,
 	delaySteps uint64,
 	modulus *big.Int,
@@ -102,7 +98,7 @@ func (n *Node) evalElectionVDF(
 	timeStart := time.Now()
 	y, vdfProof, err := vr.EvalVDF(seed, modulus, delaySteps)
 	timeElapsed := time.Since(timeStart)
-	n.log.Debug("VDF evaluation for view %d completed in %s", view, timeElapsed)
+	n.log.Debug("VDF evaluation for view (%d,%d) completed in %s", view.Generation, view.Counter, timeElapsed)
 	result := electionVDFResult{
 		view:       view,
 		seed:       append([]byte(nil), seed...),
@@ -122,18 +118,20 @@ func (n *Node) evalElectionVDF(
 
 func (n *Node) handleElectionVDFResult(result electionVDFResult) {
 	if result.err != nil {
-		n.log.Error("VDF evaluation failed for view %d: %v", result.view, result.err)
+		n.log.Error("VDF evaluation failed for view (%d,%d): %v", result.view.Generation, result.view.Counter, result.err)
 		return
 	}
-	if result.view <= n.view {
-		n.log.Debug("Already in view %d, ignoring completed VDF for election", result.view)
+	view := n.GetViewID()
+	forView := n.GetForViewID()
+	if result.view.LessThanOrEqual(view) {
+		n.log.Debug("Already in view (%d,%d), ignoring completed VDF for election", result.view.Generation, result.view.Counter)
 		return
 		// defensive check because if moved to new view would have already voted
 		// or received new view
 	}
-	if n.forView != result.view {
-		n.assert(result.view < n.forView, "VDF result view %d should be less than current forView %d", result.view, n.forView)
-		n.log.Debug("Ignoring completed VDF for stale view %d; current pending view is %d", result.view, n.forView)
+	if forView.NotEqual(result.view) {
+		n.assert(result.view.LessThan(forView), "VDF result view (%d,%d) should be less than current forView (%d,%d)", result.view.Generation, result.view.Counter, forView.Generation, forView.Counter)
+		n.log.Debug("Ignoring completed VDF for stale view (%d,%d); current pending view is (%d,%d)", result.view.Generation, result.view.Counter, forView.Generation, forView.Counter)
 		return
 	}
 
@@ -150,33 +148,35 @@ func (n *Node) handleElectionVDFResult(result electionVDFResult) {
 }
 
 func (n *Node) HandleRequestVoteMsg(reqVote core.RequestVoteMsg, signature []byte, path string) bool {
-	if reqVote.ViewNumber <= n.GetView() || reqVote.ViewNumber < n.forView {
+	view := n.GetViewID()
+	forView := n.GetForViewID()
+	if reqVote.ViewNumber.LessThanOrEqual(view) || reqVote.ViewNumber.LessThan(forView) {
 		return false
 	}
 	// we buffer wehn > for view which is too out of order
 	// or buffer when when vcs not greater f+1 yet but thst buffer is hadnled when reach 2f+1
-	if reqVote.ViewNumber > n.forView {
+	if reqVote.ViewNumber.GreaterThan(forView) {
 		// either i didnt collected f+1 vc so far or my timer hasnt expired
-		n.log.Error("Received request vote for view %d which is higher than my for view %d, buffering and path is %s", reqVote.ViewNumber, n.forView, path)
+		n.log.Error("Received request vote for view (%d,%d) which is higher than my for view (%d,%d), buffering and path is %s", reqVote.ViewNumber.Generation, reqVote.ViewNumber.Counter, forView.Generation, forView.Counter, path)
 		n.electionManager.reqVoteBuffer[reqVote.ViewNumber] = append(n.electionManager.reqVoteBuffer[reqVote.ViewNumber], reqVote)
 		return false
 	}
 	// only equal to forview handled
 
-	if len(n.viewChangeMsgsLog[reqVote.ViewNumber]) <= n.fNodes+1 {
-		n.electionManager.reqVoteBuffer[reqVote.ViewNumber] = append(n.electionManager.reqVoteBuffer[reqVote.ViewNumber], reqVote)
-		n.log.Error("Way to fast for request vote to happen and path is %s", path)
-		return false
-	}
+	// if len(n.viewChangeMsgsLog[reqVote.ViewNumber]) <= n.fNodes+1 {
+	// 	n.electionManager.reqVoteBuffer[reqVote.ViewNumber] = append(n.electionManager.reqVoteBuffer[reqVote.ViewNumber], reqVote)
+	// 	n.log.Error("Way to fast for request vote to happen and path is %s", path)
+	// 	return false
+	// }
 
 	if _, voted := n.electionManager.votedFor[reqVote.ViewNumber]; voted {
-		n.log.Debug("Already voted for view %d, ignoring request vote from node %d and path is %s", reqVote.ViewNumber, reqVote.From, path)
+		n.log.Debug("Already voted for view (%d,%d), ignoring request vote from node %d and path is %s", reqVote.ViewNumber.Generation, reqVote.ViewNumber.Counter, reqVote.From, path)
 		return false
 	}
 	// can buffer hereif 2f+1 vc not complete and replay buffer from 2f+1 part but req vote is self contain so can grant before too
 	verified := n.VerifyVRFVDF(reqVote)
 	if !verified {
-		n.log.Error("Failed to verify request vote message from node %d for view %d and path is %s", reqVote.From, reqVote.ViewNumber, path)
+		n.log.Error("Failed to verify request vote message from node %d for view (%d,%d) and path is %s", reqVote.From, reqVote.ViewNumber.Generation, reqVote.ViewNumber.Counter, path)
 		return false
 	}
 	// grant vote
@@ -227,7 +227,7 @@ func (n *Node) VerifyVRFVDF(reqVote core.RequestVoteMsg) bool {
 	return true
 }
 
-func (n *Node) asyncGrantVote(view int64, toNode int) {
+func (n *Node) asyncGrantVote(view core.ViewID, toNode int) {
 	msg := core.GrantVoteMsg{
 		ViewNumber: view,
 		From:       n.GetNodeID(),
@@ -236,7 +236,7 @@ func (n *Node) asyncGrantVote(view int64, toNode int) {
 	pbMsg := transportpb.GrantVoteToPB(msg)
 	payloadBytes, err := marshalDeterministic(pbMsg)
 	if err != nil {
-		n.log.Error("Failed to marshal GrantVote message for view %d: %v", view, err)
+		n.log.Error("Failed to marshal GrantVote message for view (%d,%d): %v", view.Generation, view.Counter, err)
 		return
 	}
 
@@ -268,7 +268,7 @@ func (n *Node) asyncBroadcastRequestVote(vdfResult electionVDFResult) {
 	pbMsg := transportpb.RequestVoteToPB(reqVote)
 	payloadBytes, err := marshalDeterministic(pbMsg)
 	if err != nil {
-		n.log.Error("Failed to marshal RequestVote message for view %d: %v", vdfResult.view, err)
+		n.log.Error("Failed to marshal RequestVote message for view (%d,%d): %v", vdfResult.view.Generation, vdfResult.view.Counter, err)
 		return
 	}
 
@@ -291,12 +291,14 @@ func (n *Node) asyncBroadcastRequestVote(vdfResult electionVDFResult) {
 }
 
 func (n *Node) HandleGrantVoteMsg(grantVote core.GrantVoteMsg, signature []byte) {
-	if grantVote.ViewNumber != n.forView {
-		n.log.Debug("Ignoring GrantVote for view %d; current pending view is %d", grantVote.ViewNumber, n.forView)
+	forView := n.GetForViewID()
+	view := n.GetViewID()
+	if grantVote.ViewNumber.NotEqual(forView) {
+		n.log.Debug("Ignoring GrantVote for view (%d,%d); current pending view is (%d,%d)", grantVote.ViewNumber.Generation, grantVote.ViewNumber.Counter, forView.Generation, forView.Counter)
 		return
 	}
 	if n.electionManager.votedFor[grantVote.ViewNumber] != n.GetNodeID() {
-		n.log.Debug("Ignoring GrantVote for view %d; this node did not vote for itself", grantVote.ViewNumber)
+		n.log.Debug("Ignoring GrantVote for view (%d,%d); this node did not vote for itself", grantVote.ViewNumber.Generation, grantVote.ViewNumber.Counter)
 		return
 	}
 
@@ -306,7 +308,7 @@ func (n *Node) HandleGrantVoteMsg(grantVote core.GrantVoteMsg, signature []byte)
 	n.electionManager.collectVotes[grantVote.ViewNumber][grantVote.From] = struct{}{}
 
 	if len(n.electionManager.collectVotes[grantVote.ViewNumber]) == n.QuorumSize() {
-		n.assert(n.view < n.forView, "View should be less than forView when entering new view")
+		n.assert(view.LessThan(forView), "View should be less than forView when entering new view")
 		n.newview()
 	}
 }

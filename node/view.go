@@ -13,7 +13,7 @@ import (
 	"github.com/michael112233/pbft/transportpb"
 )
 
-func (n *Node) enterViewChange() {
+func (n *Node) enterViewChange(trigger bool, action core.Action) {
 	n.stopViewTimers()
 	n.stopPerfTimer()
 	// if n.lastExecuted >= 11500 {
@@ -21,12 +21,23 @@ func (n *Node) enterViewChange() {
 	// 	return
 	// }
 	n.viewChangeRunning = true
-	n.forView = n.forView + 1
+	forView := n.GetForViewID()
+	// assuming generation slow so only plus one will later fix other paths
+	view := n.GetViewID()
+	if trigger {
+		forView = core.ViewID{Generation: forView.Generation, Counter: forView.Counter + 1}
+		n.SetForViewID(forView)
+	} else {
+		forView = core.ViewID{Generation: forView.Generation + 1, Counter: 1}
+		n.SetForViewID(forView)
+		n.currAction = action
+	}
+	// n.forView = n.forView + 1
 
-	n.VC()
+	n.VC(forView, view, n.currAction)
 }
 
-func (n *Node) createVCContent(stableCheckpointSeq int64) map[int64]*core.PreparedCert {
+func (n *Node) createVCContent(stableCheckpointSeq int64, forView, view core.ViewID) map[int64]*core.PreparedCert {
 	preparedCerts := make(map[int64]*core.PreparedCert)
 	lastStableCheckpointSeq := n.GetLastStableCheckpointSeq()
 	// The P-set carries the prepared certificate for every seq above the last stable
@@ -43,7 +54,7 @@ func (n *Node) createVCContent(stableCheckpointSeq int64) map[int64]*core.Prepar
 		preparedCerts[seq] = slot.preparedProof
 		iterations++
 	}
-	n.log.Info("createVCContent carried %d prepared certs; forView %d n.view %d", iterations, n.forView, n.view)
+	n.log.Info("createVCContent carried %d prepared certs; forView (%d, %d), n.view (%d, %d)", iterations, forView.Generation, forView.Counter, view.Generation, view.Counter)
 	return preparedCerts
 }
 
@@ -52,16 +63,16 @@ func (n *Node) createVCContent(stableCheckpointSeq int64) map[int64]*core.Prepar
 // empty: a committed request is prepared at f+1 honest replicas, so any 2f+1 ViewChange
 // messages carry its prepared cert and maxS covers it. A hit there means the P-sets
 // feeding createO were wrong, so surface it loudly.
-func (n *Node) warnRetainedDurableSlots(retained, committedAbove []int64, maxSeq int64, path string) {
+func (n *Node) warnRetainedDurableSlots(retained, committedAbove []int64, maxSeq int64, path string, view core.ViewID) {
 	for _, seq := range committedAbove {
-		n.log.Error("new-view %s: COMMITTED slot seq %d was above maxSeq %d in view %d", path, seq, maxSeq, n.view)
+		n.log.Error("new-view %s: COMMITTED slot seq %d was above maxSeq %d in view (%d, %d)", path, seq, maxSeq, view.Generation, view.Counter)
 	}
 	for _, seq := range retained {
 		slot, ok := n.consensusLog.GetLogEntry(seq)
 		if !ok {
 			continue
 		}
-		n.log.Warn("new-view %s: prepared slot seq %d (preparedView %d) retained above maxSeq %d in view %d", path, seq, slot.preparedView, maxSeq, n.view)
+		n.log.Warn("new-view %s: prepared slot seq %d (preparedView %d) retained above maxSeq %d in view (%d, %d)", path, seq, slot.preparedView, maxSeq, view.Generation, view.Counter)
 	}
 }
 
@@ -77,7 +88,7 @@ func (n *Node) verifyVC(vc core.ViewChangeMsg) bool {
 	return verifiedPreparedCerts
 }
 
-func (n *Node) verifyPrepareLog(prepareLog map[int]core.PrepareMsgSig, view, seq int64, digest [32]byte) bool {
+func (n *Node) verifyPrepareLog(prepareLog map[int]core.PrepareMsgSig, view core.ViewID, seq int64, digest [32]byte) bool {
 	required := n.QuorumSize() - 1
 	if required <= 0 {
 		return true
@@ -93,7 +104,7 @@ func (n *Node) verifyPrepareLog(prepareLog map[int]core.PrepareMsgSig, view, seq
 		}
 
 		prepareMsg := prepareMsgSig.PrepareMsg
-		if prepareMsg.View != view || prepareMsg.SeqNum != seq || prepareMsg.Digest != digest {
+		if prepareMsg.View.NotEqual(view) || prepareMsg.SeqNum != seq || prepareMsg.Digest != digest {
 			continue
 		}
 		if prepareMsg.From != from {
@@ -220,40 +231,42 @@ func (n *Node) verifyPreparedCertsParallel(preparedCerts map[int64]*core.Prepare
 	return !failed.Load()
 }
 
-func (n *Node) verifyPreprepare(preprepareMsg core.PreprepareMsgSig) (bool, int64, int64, [32]byte) {
+func (n *Node) verifyPreprepare(preprepareMsg core.PreprepareMsgSig) (bool, core.ViewID, int64, [32]byte) {
 	view := preprepareMsg.PreprepareMsgMini.View
 	seq := preprepareMsg.PreprepareMsgMini.SeqNum
 	digest := preprepareMsg.PreprepareMsgMini.DigestClientMsg
 	return true, view, seq, digest // need a fix when leader from election
 
-	from := n.leaderForView(view)
-	if from == 0 {
-		n.log.Error("leader not found for preprepare verification: view=%d", view)
-		return false, 0, 0, [32]byte{}
-	}
+	//code at bottom needs update for viewid style
 
-	senderPubKey, exists := n.encryptionKeyStore.GetPublicKey(from)
-	if !exists {
-		n.log.Error("public key not found for preprepare sender node ID: %d", from)
-		return false, 0, 0, [32]byte{}
-	}
-	payload := preprepareSignPayload(preprepareMsg.PreprepareMsgMini.View, preprepareMsg.PreprepareMsgMini.SeqNum, preprepareMsg.PreprepareMsgMini.DigestClientMsg[:])
-	// payload := &transportpb.PreprepareSignPayload{
-	// 	View:            view,
-	// 	SeqNum:          seq,
-	// 	DigestClientMsg: digest[:],
+	// from := n.leaderForView(view)
+	// if from == 0 {
+	// 	n.log.Error("leader not found for preprepare verification: view=%d", view)
+	// 	return false, 0, 0, [32]byte{}
 	// }
-	payloadBytes, err := marshalDeterministic(payload)
-	if err != nil {
-		n.log.Error("preprepare payload marshal failed: err=%v", err)
-		return false, 0, 0, [32]byte{}
-	}
 
-	if !crypto.VerifySignatureEd25519(payloadBytes, preprepareMsg.Signature, senderPubKey) {
-		n.log.Error("preprepare signature verification failed for node ID: %d", from)
-		return false, 0, 0, [32]byte{}
-	}
-	return true, view, seq, digest
+	// senderPubKey, exists := n.encryptionKeyStore.GetPublicKey(from)
+	// if !exists {
+	// 	n.log.Error("public key not found for preprepare sender node ID: %d", from)
+	// 	return false, 0, 0, [32]byte{}
+	// }
+	// payload := preprepareSignPayload(preprepareMsg.PreprepareMsgMini.View, preprepareMsg.PreprepareMsgMini.SeqNum, preprepareMsg.PreprepareMsgMini.DigestClientMsg[:])
+	// // payload := &transportpb.PreprepareSignPayload{
+	// // 	View:            view,
+	// // 	SeqNum:          seq,
+	// // 	DigestClientMsg: digest[:],
+	// // }
+	// payloadBytes, err := marshalDeterministic(payload)
+	// if err != nil {
+	// 	n.log.Error("preprepare payload marshal failed: err=%v", err)
+	// 	return false, 0, 0, [32]byte{}
+	// }
+
+	// if !crypto.VerifySignatureEd25519(payloadBytes, preprepareMsg.Signature, senderPubKey) {
+	// 	n.log.Error("preprepare signature verification failed for node ID: %d", from)
+	// 	return false, 0, 0, [32]byte{}
+	// }
+	// return true, view, seq, digest
 }
 
 func (n *Node) verifyNewView(newViewMsg core.NewViewMsg) bool {
@@ -261,7 +274,7 @@ func (n *Node) verifyNewView(newViewMsg core.NewViewMsg) bool {
 	viewChangeMsgsCached := n.viewChangeMsgsLog[newViewMsg.NewViewNumber]
 	for _, vcMsgSig := range newViewMsg.ViewChangeLog {
 		if vcMsgSig == nil {
-			n.log.Error("nil view change message in new view message log for view %d", newViewMsg.NewViewNumber)
+			n.log.Error("nil view change message in new view message log for view (%d,%d)", newViewMsg.NewViewNumber.Generation, newViewMsg.NewViewNumber.Counter)
 			return false
 		}
 		if _, exists := seenFrom[vcMsgSig.ViewChangeMsg.From]; exists {
@@ -295,7 +308,7 @@ func (n *Node) verifyNewView(newViewMsg core.NewViewMsg) bool {
 		if !foundInCache {
 			payloadBytes, err := marshalDeterministic(transportpb.ViewChangeToPB(vcMsgSig.ViewChangeMsg))
 			if err != nil {
-				n.log.Error("failed to marshal view change message for view %d from node %d: %v", newViewMsg.NewViewNumber, vcMsgSig.ViewChangeMsg.From, err)
+				n.log.Error("failed to marshal view change message for view (%d,%d) from node %d: %v", newViewMsg.NewViewNumber.Generation, newViewMsg.NewViewNumber.Counter, vcMsgSig.ViewChangeMsg.From, err)
 				continue
 			}
 			senderPubKey, exists := n.encryptionKeyStore.GetPublicKey(vcMsgSig.ViewChangeMsg.From)
@@ -304,7 +317,7 @@ func (n *Node) verifyNewView(newViewMsg core.NewViewMsg) bool {
 				continue
 			}
 			if !crypto.VerifySignatureEd25519(payloadBytes, vcMsgSig.Signature, senderPubKey) {
-				n.log.Error("signature verification failed for view change message for view %d from node %d", newViewMsg.NewViewNumber, vcMsgSig.ViewChangeMsg.From)
+				n.log.Error("signature verification failed for view change message for view (%d,%d) from node %d", newViewMsg.NewViewNumber.Generation, newViewMsg.NewViewNumber.Counter, vcMsgSig.ViewChangeMsg.From)
 				continue
 			}
 			n.log.Info("verifying VC in new newview")
@@ -320,7 +333,7 @@ func (n *Node) verifyNewView(newViewMsg core.NewViewMsg) bool {
 	if len(seenFrom) >= 2*n.fNodes+1 {
 		return true
 	} else {
-		n.log.Error("not enough unique view change messages in new view message log for view %d: unique=%d required=%d", newViewMsg.NewViewNumber, len(seenFrom), 2*n.fNodes+1)
+		n.log.Error("not enough unique view change messages in new view message log for view (%d,%d): unique=%d required=%d", newViewMsg.NewViewNumber.Generation, newViewMsg.NewViewNumber.Counter, len(seenFrom), 2*n.fNodes+1)
 		return false
 	}
 }
@@ -340,51 +353,33 @@ func verifyOSet(Ocreated map[int64]core.PreprepareMsgSig, Oreceived []core.Prepr
 	return true
 }
 
-func (n *Node) leaderForView(view int64) int {
-	if view <= 0 {
-		return 0
-	}
-	if leaderID, exists := n.leaderIdForView[view]; exists {
-		return leaderID
-	}
-	if n.vcType == core.VCTypeRoundRobin {
-		return n.primaryForView(view, -1)
-	}
-	return 0
-}
-
-func (n *Node) primaryForView(forView int64, currView int64) int {
-	if n.cfg == nil || n.cfg.NodeNum <= 0 || forView <= 0 {
-		return 0
-	}
-	// if n.cfg.ActiveL {
-	// 	if leaderID := n.primaryFromStableCheckpointVotes(); leaderID != 0 {
-	// 		return leaderID
-	// 	}
+func (n *Node) leaderForView(view core.ViewID) int {
+	return 1
+	// if view <= 0 {
+	// 	return 0
 	// }
-	// if n.vcType == core.VCTypeWRR {
-	// 	if leaderId := n.scoreboard.GetLeader(forView, currView); leaderId != 0 {
-
-	// 		return leaderId
-	// 	} else {
-	// 		n.log.Error("WRR enabled but no leader found in scoreboard for n.view %d (forView %d)", currView, forView)
-	// 	}
-
+	// if leaderID, exists := n.leaderIdForView[view]; exists {
+	// 	return leaderID
 	// }
-	return int((forView-1)%n.cfg.NodeNum) + 1
+	// if n.vcType == core.VCTypeRoundRobin {
+	// 	return n.primaryForView(view, -1)
+	// }
+	// return 0
 }
 
 func (n *Node) newview() {
-	
-	oldView := n.view
-	n.view = n.forView
+
+	oldView := n.GetViewID()
+
+	view := n.GetForViewID()
+	n.SetViewID(view)
 	n.leaderId = n.GetNodeID()
-	n.leaderIdForView[n.view] = n.leaderId
+	n.leaderIdForView[view] = n.leaderId
 	n.viewChangeRunning = false
 
-	n.log.Info("Became leader for new view %d and my id is %d", n.view, n.GetNodeID())
+	n.log.Info("Became leader for new view (%d,%d) and my id is %d", view.Generation, view.Counter, n.GetNodeID())
 
-	O, maxSeq, latestStableCheckpoint, checkpointProof, checkpointBalances := n.createO(n.viewChangeMsgsLog[n.view], n.view, oldView)
+	O, maxSeq, latestStableCheckpoint, checkpointProof, checkpointBalances := n.createO(n.viewChangeMsgsLog[view], view, oldView)
 	mylatestStableCheckpointSeq := n.GetLastStableCheckpointSeq()
 	if latestStableCheckpoint.seq > mylatestStableCheckpointSeq {
 		n.log.Debug("stable checkpoint %d ahead of my last stable checkpoint %d; stabilizing checkpoint at new-view primary", latestStableCheckpoint.seq, mylatestStableCheckpointSeq)
@@ -405,26 +400,25 @@ func (n *Node) newview() {
 			// n.log.Debug("preprepare seq %d is less than consensus log low %d, skipping", preprepareMsg.PreprepareMsgMini.SeqNum, n.consensusLog.low)
 			continue
 		}
-		slot := n.consensusLog.ResetPerViewState(preprepareMsg.PreprepareMsgMini.SeqNum, n.view)
+		slot := n.consensusLog.ResetPerViewState(preprepareMsg.PreprepareMsgMini.SeqNum, view)
 		n.slotPreprepare(slot, &preprepareMsg.PreprepareMsgMini, preprepareMsg.Signature, true)
-		slot.view = n.view
+		slot.view = view
 		// check if after all the flow if order of actual message same as digest of individual client messages in preprepare message
-		n.pool.AddBatch(preprepareMsg.ActualMsg, preprepareMsg.PreprepareMsgMini.DigestIndividualClientMsgs, preprepareMsg.PreprepareMsgMini.SeqNum, n.view)
+		n.pool.AddBatch(preprepareMsg.ActualMsg, preprepareMsg.PreprepareMsgMini.DigestIndividualClientMsgs, preprepareMsg.PreprepareMsgMini.SeqNum, view)
 
 	}
-	retained, committedAbove := n.consensusLog.RemoveLogEntriesAboveSeq(maxSeq, n.view)
-	n.warnRetainedDurableSlots(retained, committedAbove, maxSeq, "primary")
+	retained, committedAbove := n.consensusLog.RemoveLogEntriesAboveSeq(maxSeq, view)
+	n.warnRetainedDurableSlots(retained, committedAbove, maxSeq, "primary", view)
 	// max seq number in log is prepareseq number in all nodes
 	n.sequenceNumber = maxSeq
 
-	maxRecentThroughput := n.newviewUpdatePerf(maxSeq, n.view)
-	
+	maxRecentThroughput := n.newviewUpdatePerf(maxSeq, view)
 
 	newViewMsg := core.NewViewMsg{
-		NewViewNumber: n.view,
+		NewViewNumber: view,
 		From:          n.GetNodeID(),
 		PreprepareLog: O,
-		ViewChangeLog: n.viewChangeMsgsLog[n.view],
+		ViewChangeLog: n.viewChangeMsgsLog[view],
 		Throughput:    maxRecentThroughput,
 	}
 	// pbMsg := transportpb.NewViewToPB(newViewMsg)
@@ -438,7 +432,7 @@ func (n *Node) newview() {
 	// n.acceptNewViewTimers()
 	// shouldnt have anything to replay as not released event loop
 
-	n.replayBufferedMessagesForView(n.view)
+	n.replayBufferedMessagesForView(view)
 
 	// maxseq == ladtStableCheckpoint.seq means no suffix, O len zero
 
@@ -456,7 +450,7 @@ func (n *Node) newview() {
 // key, so it's safe to compute concurrently. Returns one core.PrepareMsgSig
 // per entry at the same index as preprepareLog, so the caller can index in
 // directly instead of building+signing inline.
-func (n *Node) buildPrepareMsgsForNewView(preprepareLog []core.PreprepareMsgSig, view int64) []core.PrepareMsgSig {
+func (n *Node) buildPrepareMsgsForNewView(preprepareLog []core.PreprepareMsgSig, view core.ViewID) []core.PrepareMsgSig {
 	if len(preprepareLog) == 0 {
 		return nil
 	}
@@ -510,18 +504,20 @@ func (n *Node) buildPrepareMsgsForNewView(preprepareLog []core.PreprepareMsgSig,
 
 func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	timestart := time.Now()
-	if newViewMsg.NewViewNumber <= n.view {
+	view := n.GetViewID()
+	forView := n.GetForViewID()
+	if newViewMsg.NewViewNumber.LessThanOrEqual(view) {
 
 		return
 	}
-	if newViewMsg.NewViewNumber < n.forView {
+	if newViewMsg.NewViewNumber.LessThan(forView) {
 
-		n.log.Error("Received new view message for view %d which is less than my for view %d, ignoring", newViewMsg.NewViewNumber, n.forView)
+		n.log.Error("Received new view message for view (%d,%d) which is less than my for view (%d,%d), ignoring", newViewMsg.NewViewNumber.Generation, newViewMsg.NewViewNumber.Counter, forView.Generation, forView.Counter)
 		return
 	}
 	verifiedNewView := n.verifyNewView(newViewMsg)
 	if !verifiedNewView {
-		n.log.Error("Failed to verify new view message for view %d, ignoring at replica", newViewMsg.NewViewNumber)
+		n.log.Error("Failed to verify new view message for view (%d,%d), ignoring at replica", newViewMsg.NewViewNumber.Generation, newViewMsg.NewViewNumber.Counter)
 		return
 	}
 
@@ -536,8 +532,9 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	n.log.Info("Received and accepted new view message for view %d and from node %d at replica", newViewMsg.NewViewNumber, newViewMsg.From)
 
 	// oldView := n.view
-	n.view = newViewMsg.NewViewNumber
-	n.forView = newViewMsg.NewViewNumber
+	n.SetViewID(newViewMsg.NewViewNumber)
+	n.SetForViewID(newViewMsg.NewViewNumber)
+	view = n.GetViewID()
 	n.leaderId = newViewMsg.From
 	n.leaderIdForView[newViewMsg.NewViewNumber] = newViewMsg.From
 	n.viewChangeRunning = false
@@ -560,7 +557,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	n.assert(n.consensusLog.low == n.GetLastStableCheckpointSeq()+1, "consensus log low %d is not equal to last stable checkpoint seq + 1 %d in new view replica", n.consensusLog.low, n.GetLastStableCheckpointSeq()+1)
 	n.assert(maxSeq <= n.consensusLog.high, "maxseq %d is greater than consensus log high %d in new view replica", maxSeq, n.consensusLog.high)
 
-	prepareMsgs := n.buildPrepareMsgsForNewView(newViewMsg.PreprepareLog, n.view)
+	prepareMsgs := n.buildPrepareMsgsForNewView(newViewMsg.PreprepareLog, view)
 	for i, preprepareMsg := range newViewMsg.PreprepareLog {
 		if preprepareMsg.PreprepareMsgMini.SeqNum < n.consensusLog.low {
 			// we dont help in running consensus if our stable cp ahead in vc path and even in normal path
@@ -568,9 +565,9 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 			continue
 		}
 		// all in O range reset their per view state
-		slot := n.consensusLog.ResetPerViewState(preprepareMsg.PreprepareMsgMini.SeqNum, n.view)
+		slot := n.consensusLog.ResetPerViewState(preprepareMsg.PreprepareMsgMini.SeqNum, view)
 		n.slotPreprepare(slot, &preprepareMsg.PreprepareMsgMini, preprepareMsg.Signature, true)
-		slot.view = n.view
+		slot.view = view
 
 		// signing already done in parallel above; just use the precomputed result
 		msgForLog := prepareMsgs[i]
@@ -582,32 +579,32 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 		n.asyncBroadCast(core.MsgPrepareMessage, msg, signature)
 
 		// check if after all the flow if order of actual message same as digest of individual client messages in preprepare message
-		n.pool.AddBatch(preprepareMsg.ActualMsg, preprepareMsg.PreprepareMsgMini.DigestIndividualClientMsgs, preprepareMsg.PreprepareMsgMini.SeqNum, n.view)
+		n.pool.AddBatch(preprepareMsg.ActualMsg, preprepareMsg.PreprepareMsgMini.DigestIndividualClientMsgs, preprepareMsg.PreprepareMsgMini.SeqNum, view)
 
 	}
 	// we not remove prepared entries , but i hope usually nothing to retain
 	// committed above should always be empty
-	retained, committedAbove := n.consensusLog.RemoveLogEntriesAboveSeq(maxSeq, n.view)
-	n.warnRetainedDurableSlots(retained, committedAbove, maxSeq, "replica")
+	retained, committedAbove := n.consensusLog.RemoveLogEntriesAboveSeq(maxSeq, view)
+	n.warnRetainedDurableSlots(retained, committedAbove, maxSeq, "replica", view)
 	if n.cfg.Performance {
 		n.throughputPerf.throughputIntervalStartSeq = maxSeq + THROUGHPUTINTERVAL_DELAY
-		n.log.Info("Throughput interval start seq set to %d for new view %d", n.throughputPerf.throughputIntervalStartSeq, n.view)
+		n.log.Info("Throughput interval start seq set to %d for new view (%d,%d)", n.throughputPerf.throughputIntervalStartSeq, view.Generation, view.Counter)
 		n.throughputPerf.throughputObservationStarted = false
 	}
 	n.sequenceNumber = maxSeq
-	n.handleNewViewUpdatePerf(maxSeq, n.view, newViewMsg.Throughput)
+	n.handleNewViewUpdatePerf(maxSeq, view, newViewMsg.Throughput)
 	n.pendingRequests.Reset()
 	// here we may have buffer
 	// buffer probably emptied to channel
-	n.replayBufferedMessagesForView(n.view)
-	go n.sendLeaderIdUpdate(n.leaderId, n.view)
+	n.replayBufferedMessagesForView(view)
+	go n.sendLeaderIdUpdate(n.leaderId, view)
 	duration := time.Since(timestart)
-	n.log.Info("New view %d processing completed in %v", n.view, duration)
+	n.log.Info("New view (%d,%d) processing completed in %v", view.Generation, view.Counter, duration)
 	n.acceptNewViewTimers()
 
 }
 
-func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView int64) ([]core.PreprepareMsgSig, int64, checkpoint, []core.CheckpointMsgSig, map[string]*big.Int) {
+func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view core.ViewID, oldView core.ViewID) ([]core.PreprepareMsgSig, int64, checkpoint, []core.CheckpointMsgSig, map[string]*big.Int) {
 	O := make([]core.PreprepareMsgSig, 0)
 	preprepareLog := make(map[int64]core.PreprepareMsgSig)
 	// n.checkpointMu.Lock()
@@ -657,10 +654,10 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView i
 			candidate := pm.PreprepareMsg
 			candidateView := candidate.PreprepareMsgMini.View
 
-			if candidateView >= view {
+			if candidateView.GreaterThanOrEqual(view) {
 				n.log.Error(
-					"prepared cert seq %d has view %d ahead of my new view %d in createO at Primary",
-					seqNumber, candidateView, view,
+					"prepared cert seq %d has view (%d,%d) ahead of my new view (%d,%d) in createO at Primary",
+					seqNumber, candidateView.Generation, candidateView.Counter, view.Generation, view.Counter,
 				)
 				continue
 			}
@@ -671,7 +668,7 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView i
 			}
 			existing, exists := preprepareLog[seqNumber]
 			if !exists ||
-				candidateView > existing.PreprepareMsgMini.View {
+				candidateView.GreaterThan(existing.PreprepareMsgMini.View) {
 				preprepareLog[seqNumber] = candidate
 			}
 			// if pm.PreprepareMsg.PreprepareMsgMini.View < oldView {
@@ -701,7 +698,7 @@ func (n *Node) createO(vcMsgSigs []*core.ViewChangeMsgSig, view int64, oldView i
 // carried in preprepareLog when one exists for that seq, and a signed no-op
 // ("dummy") preprepare when none does (Castro-Liskov O-set rule). Extracted
 // from createO for clean separation.
-func (n *Node) buildOSet(minS, maxS, view int64, preprepareLog map[int64]core.PreprepareMsgSig) []core.PreprepareMsgSig {
+func (n *Node) buildOSet(minS, maxS int64, view core.ViewID, preprepareLog map[int64]core.PreprepareMsgSig) []core.PreprepareMsgSig {
 	O := make([]core.PreprepareMsgSig, 0, maxS-minS+1)
 	for seq := minS; seq <= maxS; seq++ {
 		if preprepare, exists := preprepareLog[seq]; exists {
@@ -757,7 +754,7 @@ func (n *Node) buildOSet(minS, maxS, view int64, preprepareLog map[int64]core.Pr
 // (concurrent append into one shared slice would race); the chunk slices are
 // concatenated afterward, in increasing-seq-range order, reproducing the same
 // seq-ascending order buildOSet produces. Not wired to any call site yet.
-func (n *Node) buildOSetParallel(minS, maxS, view int64, preprepareLog map[int64]core.PreprepareMsgSig) []core.PreprepareMsgSig {
+func (n *Node) buildOSetParallel(minS int64, maxS int64, view core.ViewID, preprepareLog map[int64]core.PreprepareMsgSig) []core.PreprepareMsgSig {
 	if maxS < minS {
 		return make([]core.PreprepareMsgSig, 0)
 	}
@@ -841,7 +838,7 @@ func (n *Node) buildOSetParallel(minS, maxS, view int64, preprepareLog map[int64
 	return O
 }
 
-func (n *Node) createOReplica(vcMsgSigs []*core.ViewChangeMsgSig, view int64) (map[int64]core.PreprepareMsgSig, int64, checkpoint, []core.CheckpointMsgSig, map[string]*big.Int) {
+func (n *Node) createOReplica(vcMsgSigs []*core.ViewChangeMsgSig, view core.ViewID) (map[int64]core.PreprepareMsgSig, int64, checkpoint, []core.CheckpointMsgSig, map[string]*big.Int) {
 
 	preprepareLog := make(map[int64]core.PreprepareMsgSig)
 	// n.checkpointMu.Lock()
@@ -891,10 +888,10 @@ func (n *Node) createOReplica(vcMsgSigs []*core.ViewChangeMsgSig, view int64) (m
 			candidate := pm.PreprepareMsg
 			candidateView := candidate.PreprepareMsgMini.View
 
-			if candidateView >= view {
+			if candidateView.GreaterThanOrEqual(view) {
 				n.log.Error(
-					"prepared cert seq %d has view %d ahead of my new view %d in createO at Replica",
-					seqNumber, candidateView, view,
+					"prepared cert seq %d has view (%d,%d) ahead of my new view (%d,%d) in createO at Replica",
+					seqNumber, candidateView.Generation, candidateView.Counter, view.Generation, view.Counter,
 				)
 				continue
 			}
@@ -905,7 +902,7 @@ func (n *Node) createOReplica(vcMsgSigs []*core.ViewChangeMsgSig, view int64) (m
 			}
 			existing, exists := preprepareLog[seqNumber]
 			if !exists ||
-				candidateView > existing.PreprepareMsgMini.View {
+				candidateView.GreaterThan(existing.PreprepareMsgMini.View) {
 				preprepareLog[seqNumber] = candidate
 			}
 			// if pm.PreprepareMsg.PreprepareMsgMini.View < oldView {

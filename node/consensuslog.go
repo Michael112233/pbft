@@ -12,7 +12,7 @@ type LogEntry struct {
 	// replica must be able to re-advertise in every subsequent ViewChange P-set
 	// (Castro-Liskov 2.3.2).
 	preparedProof *core.PreparedCert // highest-view (pre-prepare + 2f prepares) cert ever assembled for this seq
-	preparedView  int64              // view of preparedProof; 0 = never prepared
+	preparedView  core.ViewID        // view of preparedProof; 0 = never prepared
 	executed      bool               // diagnostic only; n.lastExecuted is the real double-execution guard
 
 	// ---- per-view working state ----
@@ -26,7 +26,7 @@ type LogEntry struct {
 	// re-prepares and re-commits. Keeping it per-view means the commit decision and
 	// the pre-prepare that execution reads the batch from are always from the same
 	// view, so they cannot disagree.
-	view                int64
+	view                core.ViewID
 	preprepare          *core.PreprepareMsgMini
 	preprepareSignature []byte
 	prepares            map[int]core.PrepareMsgSig
@@ -47,8 +47,11 @@ func (e *LogEntry) hasDurableState() bool {
 // recordPreparedIfHigher records cert as the slot's prepared certificate when it was
 // prepared in a strictly higher view than any cert already stored. Monotonic: a view
 // change never lowers or clears it.
-func (e *LogEntry) recordPreparedIfHigher(view int64, cert *core.PreparedCert) {
-	if cert == nil || view <= e.preparedView {
+func (e *LogEntry) recordPreparedIfHigher(view core.ViewID, cert *core.PreparedCert) {
+	// if cert == nil || view <= e.preparedView {
+	// 	return
+	// }
+	if cert == nil || view.LessThanOrEqual(e.preparedView) {
 		return
 	}
 	e.preparedProof = cert
@@ -57,7 +60,7 @@ func (e *LogEntry) recordPreparedIfHigher(view int64, cert *core.PreparedCert) {
 
 // resetPerViewState clears everything tied to a particular view, leaving the durable
 // facts (preparedProof/preparedView/executed) intact.
-func (e *LogEntry) resetPerViewState(newView int64) {
+func (e *LogEntry) resetPerViewState(newView core.ViewID) {
 	e.view = newView
 	e.preprepare = nil
 	e.preprepareSignature = nil
@@ -83,7 +86,7 @@ func NewLog() *Log {
 	}
 }
 
-func (l *Log) GetorCreateEntry(seqNum, view int64) (*LogEntry, bool) {
+func (l *Log) GetorCreateEntry(seqNum int64) (*LogEntry, bool) {
 	// doesnt set view
 	slotkey := slotKey{seqNum: seqNum}
 	if slot, exists := l.log[slotkey]; exists {
@@ -121,7 +124,7 @@ func (l *Log) CreateEntry(seqNum int64) *LogEntry {
 // (preparedProof/preparedView/executed) are preserved. This replaces CreateEntry on the
 // new-view install path, which used to blank-overwrite the slot and so destroyed the
 // prepared certificate a later view change needs.
-func (l *Log) ResetPerViewState(seqNum, newView int64) *LogEntry {
+func (l *Log) ResetPerViewState(seqNum int64, newView core.ViewID) *LogEntry {
 	slotkey := slotKey{seqNum: seqNum}
 	slot, exists := l.log[slotkey]
 	if !exists {
@@ -175,7 +178,7 @@ func (l *Log) GCLog(stableCheckpointSeq int64) {
 // above seqNum. The latter should always be empty: a committed request is prepared at
 // f+1 honest replicas, so any 2f+1 ViewChange messages carry its prepared cert and
 // maxS covers it. A non-empty list means the P-sets going into createO were wrong.
-func (l *Log) RemoveLogEntriesAboveSeq(seqNum, newView int64) (retained []int64, committedAbove []int64) {
+func (l *Log) RemoveLogEntriesAboveSeq(seqNum int64, newView core.ViewID) (retained []int64, committedAbove []int64) {
 	newMax := seqNum
 	for seq := seqNum + 1; seq <= l.maxSeqNum; seq++ {
 		slotkey := slotKey{seqNum: seq}
