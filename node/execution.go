@@ -59,7 +59,7 @@ func (n *Node) exeLoop() {
 
 		slot.executed = true
 		n.lastExecuted++
-		if n.lastExecuted == 1 {
+		if n.lastExecuted == 1 && n.cfg.EpochMode {
 			n.startEpochTimer()
 		}
 		// if n.lastExecuted == 1 {

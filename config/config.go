@@ -49,7 +49,30 @@ type Config struct {
 	MaxVDFDelay             int   `json:"max_vdf_delay"`
 	ParallelWorkers         bool  `json:"parallel_workers"`
 	PerformanceTimedTrigger bool  `json:"performance_timed_trigger"`
-	TriggerMode             int   `json:"trigger_mode"`
+
+	// OracleMode replaces the learning-agent RPC with a local goroutine that
+	// sleeps to mimic model latency and then feeds a decision straight into
+	// the node's learning-decision channel, so tests can run without a real
+	// learning-agent process.
+	OracleMode        bool     `json:"oracle_mode"`
+	OracleActions     []string `json:"oracle_actions"`
+	OracleRandom      bool     `json:"oracle_random"`
+	OracleSeed        int64    `json:"oracle_seed"`
+	OracleActionsEnum []core.Action
+
+	EpochMode bool `json:"epoch_mode"`
+
+	// DefaultAction names the action (trigger mode + leader policy) every node
+	// starts in, e.g. "FixedRoundRobin". Empty keeps the legacy PerformanceRoundRobin.
+	DefaultAction string `json:"default_action"`
+}
+
+// InitialAction returns the action nodes start in.
+func (c *Config) InitialAction() core.Action {
+	if c.DefaultAction == "" {
+		return core.FixedRoundRobin
+	}
+	return core.StringtoAction(c.DefaultAction)
 }
 
 func ReadCfg(filename string) *Config {
@@ -80,6 +103,22 @@ func ReadCfg(filename string) *Config {
 	} else {
 		fmt.Printf("Invalid leader type in config: %s\n", config.LeaderType)
 		os.Exit(1)
+	}
+
+	if config.DefaultAction != "" && core.ActiontoString(core.StringtoAction(config.DefaultAction)) != config.DefaultAction {
+		fmt.Printf("Invalid default_action in config: %s\n", config.DefaultAction)
+		os.Exit(1)
+	}
+
+	if config.OracleMode {
+		config.OracleActionsEnum = make([]core.Action, len(config.OracleActions))
+		for i, actionStr := range config.OracleActions {
+			config.OracleActionsEnum[i] = core.StringtoAction(actionStr)
+		}
+		if len(config.OracleActionsEnum) == 0 {
+			fmt.Printf("Invalid oracle config: oracle_actions must be non-empty when oracle_mode is enabled\n")
+			os.Exit(1)
+		}
 	}
 
 	// config.FaultyNodesNum = (config.NodeNum - 1) / 3

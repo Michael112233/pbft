@@ -9,7 +9,7 @@ import (
 
 const (
 	PeriodicTriggerTimeout = 10 * time.Second
-	FixedTriggerTimeout    = 100 * time.Millisecond
+	FixedTriggerTimeout    = 150 * time.Millisecond
 )
 
 type NodeTrigger interface {
@@ -24,10 +24,20 @@ type TriggerManager struct {
 	node                 NodeTrigger
 }
 
+// timeoutForMode gives Periodic its long timeout; Fixed and Perf share the short
+// one (Perf keeps it as the progress floor under its throughput threshold).
+func timeoutForMode(mode core.TriggerMode) time.Duration {
+	if mode == core.PeriodicTrigger {
+		return PeriodicTriggerTimeout
+	}
+	return FixedTriggerTimeout
+}
+
 func NewTriggerManager(log *logger.Logger, triggerMode core.TriggerMode, node NodeTrigger) *TriggerManager {
+	timeout := timeoutForMode(triggerMode)
 	return &TriggerManager{
-		progressTimeoutValue: FixedTriggerTimeout,
-		newViewTimeoutValue:  FixedTriggerTimeout,
+		progressTimeoutValue: timeout,
+		newViewTimeoutValue:  timeout,
 		triggerMode:          triggerMode,
 		log:                  log,
 		node:                 node,
@@ -40,12 +50,10 @@ func (tm *TriggerManager) SwitchTriggerMode(newMode core.TriggerMode) {
 	// 	tm.node.stopPerfTimer()
 	// }
 	tm.triggerMode = newMode
-	if newMode == core.FixedTrigger {
-		tm.progressTimeoutValue = FixedTriggerTimeout
-		tm.newViewTimeoutValue = FixedTriggerTimeout
-	} else if newMode == core.PeriodicTrigger {
-		tm.progressTimeoutValue = PeriodicTriggerTimeout
-		tm.newViewTimeoutValue = PeriodicTriggerTimeout
+	if newMode != core.NullTrigger {
+		timeout := timeoutForMode(newMode)
+		tm.progressTimeoutValue = timeout
+		tm.newViewTimeoutValue = timeout
 	}
 }
 
@@ -65,7 +73,7 @@ func (n *Node) ResetOnExecution(seq int64) {
 	if n.IsLeader() {
 		return
 	}
-	if n.triggerManager.GetTriggerMode() == core.FixedTrigger {
+	if n.triggerManager.GetTriggerMode() == core.FixedTrigger || n.triggerManager.GetTriggerMode() == core.PerfTrigger {
 		n.resetLeaderProgressTimer()
 	} else if n.triggerManager.GetTriggerMode() == core.PeriodicTrigger && seq == 1 {
 		n.resetLeaderProgressTimer()

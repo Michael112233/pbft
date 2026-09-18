@@ -223,6 +223,10 @@ func (n *Node) ExchangeWithLearningAgent(ctx context.Context, payload []byte) ([
 	return n.learningAgent.Exchange(ctx, payload)
 }
 func (n *Node) SendLearningDataToAgent(epoch uint64, currAction core.Action, throughput float64, proposalRate float64, vcrRate float64, inactiveNodes uint8) {
+	if n.cfg.OracleMode {
+		n.runOracleDecision(epoch)
+		return
+	}
 	if n.learningAgent == nil {
 		n.log.Error("learning agent is not configured for this node")
 		return

@@ -262,13 +262,14 @@ func TestBuildEnvelopeAndDeliverViewProtocolMessages(t *testing.T) {
 			msgType: core.MsgNewViewMessage,
 			msg: core.NewViewMsg{
 				NewViewNumber: view,
+				Action:        core.PerformanceElection,
 				From:          1,
 			},
 			payload: func(env *transportpb.Envelope) proto.Message { return env.GetNewView() },
 			assertSent: func(t *testing.T) {
 				delivered := <-receiverNode.newViewMsgChan
 				msg, ok := delivered.Msg.(core.NewViewMsg)
-				if !ok || msg.NewViewNumber != view || msg.From != 1 {
+				if !ok || msg.NewViewNumber != view || msg.Action != core.PerformanceElection || msg.From != 1 {
 					t.Fatalf("delivered new-view = %#v", delivered.Msg)
 				}
 			},

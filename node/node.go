@@ -193,7 +193,7 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 
 		viewChangeMsgsLog: make(map[core.ViewID][]*core.ViewChangeMsgSig),
 		viewChangeRunning: false,
-		currAction:        core.Action{Policy: core.PolicyRoundRobin, TriggerMode: core.FixedTrigger},
+		currAction:        cfg.InitialAction(),
 
 		fNodes: (int(cfg.NodeNum) - 1) / 3,
 
@@ -225,7 +225,7 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 	n.ArmBatchTimer()
 	n.StopBatchTimer()
 	checkpointManager := NewCheckpointManager(log, n)
-	triggerManager := NewTriggerManager(log, core.TriggerMode(cfg.TriggerMode), n)
+	triggerManager := NewTriggerManager(log, n.currAction.TriggerMode, n)
 	n.triggerManager = triggerManager
 	epochManager := NewEpochManager(log, n)
 	n.epochManager = epochManager
@@ -636,9 +636,9 @@ func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 
 		return
 	}
-
+	// this is possible lets say only leader stall and in meanwhile other do vc and send prepare from bigger view
 	if !n.viewChangeRunning && prepareMsg.View.GreaterThan(view) {
-		n.log.Warn("Interesting case: Received Prepare for future view (%d,%d) seq %d while current view is (%d,%d), ignoring and for view is (%d,%d)", prepareMsg.View.Generation, prepareMsg.View.Counter, prepareMsg.SeqNum, view.Generation, view.Counter, forView.Generation, forView.Counter)
+		// n.log.Warn("Interesting case: Received Prepare for future view (%d,%d) seq %d while current view is (%d,%d), ignoring and for view is (%d,%d)", prepareMsg.View.Generation, prepareMsg.View.Counter, prepareMsg.SeqNum, view.Generation, view.Counter, forView.Generation, forView.Counter)
 		return
 	}
 

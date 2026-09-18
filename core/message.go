@@ -203,6 +203,7 @@ type NewViewMsg struct {
 	PreprepareLog []PreprepareMsgSig
 	ViewChangeLog []*ViewChangeMsgSig
 	NewViewNumber ViewID
+	Action        Action
 	Throughput    float64
 	From          int
 }

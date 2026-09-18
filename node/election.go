@@ -42,12 +42,12 @@ func NewElectionManager() *ElectionManager {
 func (n *Node) ElectionLogic(forView, view core.ViewID, currAction core.Action, path string) {
 	n.log.Info("In select round robin from path %s for view (%d,%d)", path, forView.Generation, forView.Counter)
 	if _, alreadyVoted := n.electionManager.votedFor[forView]; alreadyVoted {
-		// this can happen if req vote come after for view equal due our timer or f+1
+		// this can happen if req vote come after for view equal due our timer/trigger or f+1
 		n.log.Warn("Its fine that already voted for but reordering happend before 2f+1 threshold we voted for view (%d,%d)", forView.Generation, forView.Counter)
 		return
 	}
-	// if req vote received before 2f+1 of this view and our for view hadnt catched up it sits in buffer and we extract at 2f+1
-	// or maybe in buffer due to way beyon f+1
+	// if req vote received before 2f+1 of this view and our for view hadnt catched up(no f+1 or trigger) it sits in buffer and we extract at 2f+1
+	// or maybe in buffer due to way before f+1
 
 	if n.electionManager.reqVoteBuffer[forView] != nil {
 		n.log.Info("Processing buffered request vote messages for view (%d,%d)", forView.Generation, forView.Counter)
@@ -139,6 +139,10 @@ func (n *Node) handleElectionVDFResult(result electionVDFResult) {
 		n.log.Debug("Already voted for view %d, ignoring completed VDF", result.view)
 		return
 	}
+	nodeId := n.GetNodeID()
+	if nodeId != 3 { // avoiding split vote
+		return
+	}
 	n.electionManager.votedFor[result.view] = n.GetNodeID()
 	n.electionManager.collectVotes[result.view] = make(map[int]struct{})
 	n.electionManager.collectVotes[result.view][n.GetNodeID()] = struct{}{}
@@ -154,13 +158,14 @@ func (n *Node) HandleRequestVoteMsg(reqVote core.RequestVoteMsg, signature []byt
 		return false
 	}
 	// we buffer wehn > for view which is too out of order
-	// or buffer when when vcs not greater f+1 yet but thst buffer is hadnled when reach 2f+1
+
 	if reqVote.ViewNumber.GreaterThan(forView) {
 		// either i didnt collected f+1 vc so far or my timer hasnt expired
 		n.log.Error("Received request vote for view (%d,%d) which is higher than my for view (%d,%d), buffering and path is %s", reqVote.ViewNumber.Generation, reqVote.ViewNumber.Counter, forView.Generation, forView.Counter, path)
 		n.electionManager.reqVoteBuffer[reqVote.ViewNumber] = append(n.electionManager.reqVoteBuffer[reqVote.ViewNumber], reqVote)
 		return false
 	}
+	// buffer handled at 2f+1 vc thrsh then after catching up to forview
 	// only equal to forview handled
 
 	// if len(n.viewChangeMsgsLog[reqVote.ViewNumber]) <= n.fNodes+1 {

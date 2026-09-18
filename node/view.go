@@ -373,8 +373,10 @@ func (n *Node) leaderForView(view core.ViewID) int {
 	// return 0
 }
 
-func (n *Node) newview() {
+// in election new view timer start when vote in 100ms leader collect vote msgs and process his new view and sends to replica before the new view timer expire
 
+func (n *Node) newview() {
+	timeStart := time.Now()
 	oldView := n.GetViewID()
 
 	view := n.GetForViewID()
@@ -422,6 +424,7 @@ func (n *Node) newview() {
 
 	newViewMsg := core.NewViewMsg{
 		NewViewNumber: view,
+		Action:        n.GetCurrAction(),
 		From:          n.GetNodeID(),
 		PreprepareLog: O,
 		ViewChangeLog: n.viewChangeMsgsLog[view],
@@ -435,6 +438,9 @@ func (n *Node) newview() {
 	// }
 	// signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
 	n.asyncBroadCast(core.MsgNewViewMessage, newViewMsg, nil)
+	duration := time.Since(timeStart)
+	n.log.Info("Time taken to process new view is %d ms", duration.Milliseconds())
+
 	// n.acceptNewViewTimers()
 	// shouldnt have anything to replay as not released event loop
 
@@ -537,7 +543,13 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	}
 	n.log.Info("Received and accepted new view message for view %d and from node %d at replica", newViewMsg.NewViewNumber, newViewMsg.From)
 
+	if newViewMsg.NewViewNumber.Equal(forView) {
+		n.assert(newViewMsg.Action == n.GetCurrAction(), "new view message action %v does not match current action %v for view (%d,%d) at replica", newViewMsg.Action, n.GetCurrAction(), newViewMsg.NewViewNumber.Generation, newViewMsg.NewViewNumber.Counter)
+	}
 	// oldView := n.view
+	if newViewMsg.NewViewNumber.Generation > forView.Generation {
+		n.incrementGeneration(newViewMsg.Action)
+	}
 	n.SetViewID(newViewMsg.NewViewNumber)
 	n.SetForViewID(newViewMsg.NewViewNumber)
 	view = n.GetViewID()

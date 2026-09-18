@@ -644,6 +644,7 @@ func TestNewViewMsgSigRoundTrip(t *testing.T) {
 				},
 			},
 			NewViewNumber: core.ViewID{Generation: 2, Counter: 8},
+			Action:        core.PerformanceElection,
 			Throughput:    1234.5,
 			From:          1,
 		},
@@ -656,5 +657,17 @@ func TestNewViewMsgSigRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(out, in) {
 		t.Fatalf("round trip mismatch:\n got: %+v\nwant: %+v", out, in)
+	}
+}
+
+func TestNewViewFromPBRejectsInvalidAction(t *testing.T) {
+	msg := NewViewToPB(core.NewViewMsg{
+		NewViewNumber: core.ViewID{Generation: 2, Counter: 8},
+		Action:        core.PerformanceRoundRobin,
+	})
+	msg.Action.Policy = Policy(99)
+
+	if _, err := NewViewFromPB(msg); err == nil {
+		t.Fatal("NewViewFromPB accepted an invalid action")
 	}
 }

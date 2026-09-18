@@ -150,8 +150,8 @@ func (n *Node) maybeHandleViewChangeQuorum(forView, view core.ViewID, currAction
 		case core.PolicyRoundRobin:
 			n.SelectRoundRobin(forView, view, currAction, path)
 		case core.PolicyElection:
-			// n.ElectionLogic(forView, view, currAction, path)
-			n.SelectElection(forView, view, currAction, path)
+			n.ElectionLogic(forView, view, currAction, path)
+			// n.SelectElection(forView, view, currAction, path)
 		default:
 			n.log.Error("Unknown policy %v for view change quorum handling", currAction.Policy)
 		}

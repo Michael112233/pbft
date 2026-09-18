@@ -105,7 +105,7 @@ func (c *Client) Start() {
 
 	c.injectSpeed = c.config.InjectSpeed
 	time.Sleep(100 * time.Millisecond) // msg hub to start
-	c.EventManager.Start()
+	// c.EventManager.Start()
 	c.InjectTxs()
 }
 

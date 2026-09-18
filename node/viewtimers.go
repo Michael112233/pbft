@@ -3,8 +3,8 @@ package node
 import "time"
 
 const (
-	leaderProgressTimeout = 100 * time.Millisecond
-	newViewTimeout        = 100 * time.Millisecond
+	leaderProgressTimeout = 150 * time.Millisecond
+	newViewTimeout        = 150 * time.Millisecond
 )
 
 // was 90
@@ -98,7 +98,7 @@ func (n *Node) handleLeaderProgressTimeout() {
 func (n *Node) handleNewViewTimeout() {
 	n.stopNewViewTimer()
 	n.log.Error("New view timer expired; entering the next view change")
-	if true {
+	if n.cfg.PeakTpsTest {
 		n.log.Warn("Peak TPS test is enabled so ignoring new view timeout")
 		return
 	}

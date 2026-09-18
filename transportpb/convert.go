@@ -956,6 +956,7 @@ func NewViewToPB(msg core.NewViewMsg) *NewViewMsg {
 		PreprepareLog: preprepareLog,
 		ViewChangeLog: viewChangeLog,
 		NewViewNumber: ViewIDToPB(msg.NewViewNumber),
+		Action:        ActionToPB(msg.Action),
 		From:          int32(msg.From),
 		Throughput:    msg.Throughput,
 	}
@@ -968,6 +969,10 @@ func NewViewFromPB(msg *NewViewMsg) (core.NewViewMsg, error) {
 	view, err := ViewIDFromPB(msg.NewViewNumber)
 	if err != nil {
 		return core.NewViewMsg{}, err
+	}
+	action, err := ActionFromPB(msg.Action)
+	if err != nil {
+		return core.NewViewMsg{}, fmt.Errorf("action: %w", err)
 	}
 
 	var preprepareLog []core.PreprepareMsgSig
@@ -1003,6 +1008,7 @@ func NewViewFromPB(msg *NewViewMsg) (core.NewViewMsg, error) {
 		PreprepareLog: preprepareLog,
 		ViewChangeLog: viewChangeLog,
 		NewViewNumber: view,
+		Action:        action,
 		Throughput:    msg.Throughput,
 		From:          int(msg.From),
 	}, nil

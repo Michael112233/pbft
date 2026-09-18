@@ -945,6 +945,8 @@ func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, sign
 	if err := hub.sendEnvelopeOverPeerStream(ip, env); err != nil {
 		hub.log.Error("node stream send failed. msgType=%s target=%s err=%v", msgType, ip, err)
 	}
+	// this finishes when node puts msg on wire
+	// after that it travels through network receiver receive and then process it and put in event loop where then new view processing start
 	if msgType == core.MsgNewViewMessage || msgType == core.MsgViewChangeMessage {
 		timeElapsed := time.Since(timeStart)
 		hub.node_ref.log.Info(

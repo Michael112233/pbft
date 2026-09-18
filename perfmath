@@ -4,3 +4,15 @@ chkpoint based and time based
 
 compare aardvark design of perf and my own on claude
 
+
+
+t takes 11 ticks to go beyond 100%, so the target first sits above 100% at 11 s, and the first comparison against it is the 12th tick.
+
+The target after n raises is 0.9 × 1.01ⁿ, and n = ln(1/0.9) / ln(1.01) ≈ 10.6 raises to reach 100%. Since raises are whole ticks, that rounds up to 11.
+
+Tick (seconds)	Target compared	% of max
+1	0.9 × 1.01⁰	90.0%
+10	0.9 × 1.01⁹	98.4%
+11	0.9 × 1.01¹⁰	99.4% (raised to 100.4% after this tick)
+12	0.9 × 1.01¹¹	100.4%
+At tick 12 the target is 100.4% of the max. Even a node running exactly at max throughput fails it (the check is throughput <= target), so nobody survives past 12 s. Your observed throughput sits at ~99.95% of the max (271.7 vs 271.8), which is why the trigger fired at exactly the 12th tick.
