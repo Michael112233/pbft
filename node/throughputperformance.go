@@ -1,13 +1,22 @@
 package node
 
-import "time"
+import (
+	"time"
+
+	"github.com/michael112233/pbft/core"
+)
 
 type ThroughputPerf struct {
 	throughputIntervalStart      time.Time
 	throughputIntervalStartSeq   int64
 	targetThroughput             float64
 	throughputObservationStarted bool
-	viewThroughputs              map[int64]float64
+	viewThroughputs              map[core.ViewID]float64
+	// maxCounterByGeneration tracks, for each generation seen so far, the
+	// highest Counter recorded in viewThroughputs. Kept up to date on every
+	// write so looking up "where did the previous generation leave off" is
+	// O(1) instead of a scan over viewThroughputs.
+	maxCounterByGeneration map[uint64]uint64
 
 	// Timed trigger state. Mirrors the seq-driven fields above, but the
 	// measurement is taken by the perf timer once a second instead of at
@@ -38,7 +47,7 @@ func (n *Node) observeExecutedSlotForTimedThroughput(seq int64, now time.Time) {
 
 // this will tput for seq number so full batch
 
-func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view int64, leaderId int) bool {
+func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view core.ViewID, leaderId int) bool {
 	if seq <= 0 {
 		return false
 	}
@@ -63,15 +72,15 @@ func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view i
 	if elapsedSeconds > 0 {
 		throughput = float64(executedSlots) / elapsedSeconds
 		if elapsedSeconds > 0 {
-			n.emitThroughputMeasurement(throughputMeasurement{
-				MeasurementTime: now,
-				View:            view,
-				LeaderID:        leaderId,
-				Seq:             seq,
-				ExecutedSlots:   executedSlots,
-				ElapsedSeconds:  elapsedSeconds,
-				Throughput:      throughput,
-			})
+			// n.emitThroughputMeasurement(throughputMeasurement{
+			// 	MeasurementTime: now,
+			// 	View:            view,
+			// 	LeaderID:        leaderId,
+			// 	Seq:             seq,
+			// 	ExecutedSlots:   executedSlots,
+			// 	ElapsedSeconds:  elapsedSeconds,
+			// 	Throughput:      throughput,
+			// })
 		}
 		if throughput < 50 {
 			// n.log.Warn(" Grace Period as throughput less than 50 for view %d and seq %d is %.2f with elapsed time %.2f seconds, executed slots %d", view, seq, throughput, elapsedSeconds, executedSlots)
@@ -100,5 +109,8 @@ func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view i
 		// n.log.Info("Elapsed secs less than 1 doing nothing, the measured throughput is %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, view, seq, elapsedSeconds, executedSlots)
 	}
 	n.throughputPerf.viewThroughputs[view] = throughput
+	if view.Counter > n.throughputPerf.maxCounterByGeneration[view.Generation] {
+		n.throughputPerf.maxCounterByGeneration[view.Generation] = view.Counter
+	}
 	return belowTarget
 }

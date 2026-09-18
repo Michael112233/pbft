@@ -1,14 +1,12 @@
 package client
 
 import (
-	"fmt"
-
 	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
 )
 
 func (c *Client) HandleReplyMessage(data core.ReplyMessage) {
-	c.log.Info(fmt.Sprintf("Received reply message from %s, client message id %d success=%t error=%q seq=%d", data.From, data.ClientMsg.Id, data.Result.Success, data.Result.Error, data.Result.ExecutedSeqNum))
+	c.log.Info("Received reply message from %s, client message id %d success=%t error=%q seq=%d", data.From, data.ClientMsg.Id, data.Result.Success, data.Result.Error, data.Result.ExecutedSeqNum)
 	// Block := core.NewBlock(data.SequenceNumber, data.RequestMessage.Txs, data.RequestMessage.To, data.RequestMessage.Timestamp)
 	// Block.AddCommittedNode(data.From)
 	// core.Chain.AddBlock(Block)
@@ -26,9 +24,9 @@ func (c *Client) HandleCommitTpsMessage(data core.CommitTps) {
 
 func (c *Client) HandleLeaderUpdate(data core.LeaderIdUpdate) {
 	c.leaderMu.Lock()
-	if data.View <= c.currentView {
+	if data.View.LessThanOrEqual(c.currentView) {
 		c.leaderMu.Unlock()
-		c.log.Info(fmt.Sprintf("Received old leader update message with view %d, current view is %d, ignore the message", data.View, c.currentView))
+		c.log.Info("Received old leader update message with view (%d,%d), current view is (%d,%d), ignore the message", data.View.Generation, data.View.Counter, c.currentView.Generation, c.currentView.Counter)
 		return
 	}
 	leaderUpdate := LeaderUpdate{
@@ -40,7 +38,7 @@ func (c *Client) HandleLeaderUpdate(data core.LeaderIdUpdate) {
 		c.leaderAddr = config.NodeAddr[data.NewLeaderId]
 		c.currentView = data.View
 		leaderAddr := c.leaderAddr
-		c.log.Info(fmt.Sprintf("Received leader update message, new leader id %d, new leader addr %s", data.NewLeaderId, leaderAddr))
+		c.log.Info("Received leader update message, new leader id %d, new leader addr %s", data.NewLeaderId, leaderAddr)
 
 	}
 

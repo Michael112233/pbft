@@ -256,6 +256,7 @@ type EpochDataMsgSig struct {
 type EpochAggregateMsgMini struct {
 	EpochGeneration uint64
 	From            int
+	CurrentAction   Action
 	EpochData       EpochData
 }
 
@@ -264,6 +265,7 @@ type EpochAggregateMsg struct {
 	From             int
 	EpochData        EpochData
 	EpochDataMsgSigs []EpochDataMsgSig
+	CurrentAction    Action
 }
 type TriggerMode int
 

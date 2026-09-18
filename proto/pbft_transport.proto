@@ -6,6 +6,28 @@ option go_package = "github.com/michael112233/pbft/transportpb;transportpb";
 
 import "google/protobuf/timestamp.proto";
 
+message ViewID {
+  uint64 generation = 1;
+  uint64 counter = 2;
+}
+
+enum TriggerMode {
+  TRIGGER_MODE_PERIODIC = 0;
+  TRIGGER_MODE_PERFORMANCE = 1;
+  TRIGGER_MODE_FIXED = 2;
+  TRIGGER_MODE_NULL = 3;
+}
+
+enum Policy {
+  POLICY_ROUND_ROBIN = 0;
+  POLICY_ELECTION = 1;
+}
+
+message Action {
+  TriggerMode trigger_mode = 1;
+  Policy policy = 2;
+}
+
 message Transaction {
   string sender = 1;
   string receiver = 2;
@@ -54,7 +76,7 @@ message VCRunningStatus {
 }
 
 message PreprepareMsg {
-  int64 view = 1;
+  ViewID view = 1;
   int64 seq_num = 2;
   repeated ClientMsgSignature client_msg = 3;
   reserved 4;
@@ -63,14 +85,14 @@ message PreprepareMsg {
 }
 
 message PreprepareSignPayload {
-  int64 view = 1;
+  ViewID view = 1;
   int64 seq_num = 2;
   bytes digest_client_msg = 3;
   reserved 4;
 }
 
 message PrepareMsg {
-  int64 view = 1;
+  ViewID view = 1;
   int64 seq_num = 2;
   bytes digest = 3;
   int32 from = 4;
@@ -78,7 +100,7 @@ message PrepareMsg {
 }
 
 message CommitMsg {
-  int64 view = 1;
+  ViewID view = 1;
   int64 seq_num = 2;
   bytes digest = 3;
   int32 from = 4;
@@ -86,7 +108,7 @@ message CommitMsg {
 }
 
 message PreprepareMsgMini {
-  int64 view = 1;
+  ViewID view = 1;
   int64 seq_num = 2;
   bytes digest_client_msg = 3;
   repeated bytes digest_individual_client_msgs = 4;
@@ -122,7 +144,7 @@ message LeaderIdUpdate {
   string to = 1;
   string from = 2;
   int32 new_leader_id = 3;
-  int64 view = 4;
+  ViewID view = 4;
 }
 
 message CloseMessage {
@@ -147,39 +169,12 @@ message PreparedCert {
   map<int32, PrepareMsgSig> prepare_log = 2;
 }
 
-message ElectionVCData {
-  bool req_vote = 1;
-  bool grant_vote = 2;
-  int32 grant_to = 3;
-}
-
-message RoundRobinVCData {
-  bool grant_vote = 1;
-}
-
-message WRRVCData {
-  double throughput = 1;
-}
-
 message ViewChangeMsg {
-  enum VCType {
-    VC_TYPE_UNSPECIFIED = 0;
-    VC_TYPE_ELECTION = 1;
-    VC_TYPE_ROUND_ROBIN = 2;
-    VC_TYPE_WRR = 3;
-  }
-
-  int64 view_number = 1;
+  ViewID view_number = 1;
   int64 checkpoint_seq_number = 2;
   int32 from = 3;
   map<int64, PreparedCert> prepared_certs = 4;
-  VCType vc_type = 5;
-
-  oneof vc_data {
-    ElectionVCData election = 6;
-    RoundRobinVCData round_robin = 7;
-    WRRVCData wrr = 8;
-  }
+  Action action = 5;
 
   bytes checkpoint_digest = 9;
   repeated CheckpointMsgSig checkpoint_proof = 10;
@@ -194,7 +189,7 @@ message ViewChangeMsgSig {
 message NewViewMsg {
   repeated PreprepareMsgSig preprepare_log = 1;
   repeated ViewChangeMsgSig view_change_log = 2;
-  int64 new_view_number = 3;
+  ViewID new_view_number = 3;
   int32 from = 4;
   double throughput = 5;
 }
@@ -206,7 +201,7 @@ message NewViewMsgSig {
 
 message RequestVoteMsg {
   int32 from = 1;
-  int64 view_number = 2;
+  ViewID view_number = 2;
   bytes seed = 3;
   uint64 delay_steps = 4;
   bytes y = 5;
@@ -221,7 +216,7 @@ message RequestVoteMsgSig {
 
 message GrantVoteMsg {
   int32 from = 1;
-  int64 view_number = 2;
+  ViewID view_number = 2;
 }
 
 message GrantVoteMsgSig {
@@ -250,6 +245,7 @@ message EpochAggregateMsgMini {
   uint64 epoch_generation = 1;
   int32 from = 2;
   EpochData epoch_data = 3;
+  Action current_action = 4;
 }
 
 message EpochAggregateMsg {
@@ -257,6 +253,7 @@ message EpochAggregateMsg {
   int32 from = 2;
   EpochData epoch_data = 3;
   repeated EpochDataMsgSig epoch_data_msg_sigs = 4;
+  Action current_action = 5;
 }
 
 message Envelope {

@@ -214,6 +214,7 @@ func TestBuildEnvelopeAndDeliverViewProtocolMessages(t *testing.T) {
 	}
 	receiverHub := &NodeMessageHub{node_ref: receiverNode, log: receiverNode.log}
 	senderHub := &NodeMessageHub{node_ref: &Node{NodeID: 1}}
+	view := core.ViewID{Generation: 2, Counter: 3}
 
 	tests := []struct {
 		name       string
@@ -226,16 +227,15 @@ func TestBuildEnvelopeAndDeliverViewProtocolMessages(t *testing.T) {
 			name:    "view change",
 			msgType: core.MsgViewChangeMessage,
 			msg: core.ViewChangeMsg{
-				ViewNumber:     2,
-				From:           1,
-				Type:           core.VCTypeRoundRobin,
-				RoundRobinData: &core.RoundRobinVCData{},
+				ViewNumber: view,
+				From:       1,
+				Action:     core.PerformanceRoundRobin,
 			},
 			payload: func(env *transportpb.Envelope) proto.Message { return env.GetViewChange() },
 			assertSent: func(t *testing.T) {
 				delivered := <-receiverNode.viewChangeMsgChan
 				msg, ok := delivered.Msg.(core.ViewChangeMsg)
-				if !ok || msg.ViewNumber != 2 || msg.From != 1 {
+				if !ok || msg.ViewNumber != view || msg.From != 1 || msg.Action != core.PerformanceRoundRobin {
 					t.Fatalf("delivered view-change = %#v", delivered.Msg)
 				}
 			},
@@ -261,14 +261,14 @@ func TestBuildEnvelopeAndDeliverViewProtocolMessages(t *testing.T) {
 			name:    "new view",
 			msgType: core.MsgNewViewMessage,
 			msg: core.NewViewMsg{
-				NewViewNumber: 2,
+				NewViewNumber: view,
 				From:          1,
 			},
 			payload: func(env *transportpb.Envelope) proto.Message { return env.GetNewView() },
 			assertSent: func(t *testing.T) {
 				delivered := <-receiverNode.newViewMsgChan
 				msg, ok := delivered.Msg.(core.NewViewMsg)
-				if !ok || msg.NewViewNumber != 2 || msg.From != 1 {
+				if !ok || msg.NewViewNumber != view || msg.From != 1 {
 					t.Fatalf("delivered new-view = %#v", delivered.Msg)
 				}
 			},
@@ -278,7 +278,7 @@ func TestBuildEnvelopeAndDeliverViewProtocolMessages(t *testing.T) {
 			msgType: core.MsgRequestVoteMessage,
 			msg: core.RequestVoteMsg{
 				From:       1,
-				ViewNumber: 2,
+				ViewNumber: view,
 				Seed:       []byte("view-2"),
 				DelaySteps: 500,
 				Y:          []byte{1, 2, 3},
@@ -289,7 +289,7 @@ func TestBuildEnvelopeAndDeliverViewProtocolMessages(t *testing.T) {
 			assertSent: func(t *testing.T) {
 				delivered := <-receiverNode.electionMsgChan
 				msg, ok := delivered.Msg.(core.RequestVoteMsg)
-				if !ok || msg.ViewNumber != 2 || msg.From != 1 {
+				if !ok || msg.ViewNumber != view || msg.From != 1 {
 					t.Fatalf("delivered request-vote = %#v", delivered.Msg)
 				}
 			},
@@ -299,13 +299,13 @@ func TestBuildEnvelopeAndDeliverViewProtocolMessages(t *testing.T) {
 			msgType: core.MsgGrantVoteMessage,
 			msg: core.GrantVoteMsg{
 				From:       1,
-				ViewNumber: 2,
+				ViewNumber: view,
 			},
 			payload: func(env *transportpb.Envelope) proto.Message { return env.GetGrantVote() },
 			assertSent: func(t *testing.T) {
 				delivered := <-receiverNode.electionMsgChan
 				msg, ok := delivered.Msg.(core.GrantVoteMsg)
-				if !ok || msg.ViewNumber != 2 || msg.From != 1 {
+				if !ok || msg.ViewNumber != view || msg.From != 1 {
 					t.Fatalf("delivered grant-vote = %#v", delivered.Msg)
 				}
 			},
@@ -332,6 +332,7 @@ func TestBuildEnvelopeAndDeliverViewProtocolMessages(t *testing.T) {
 			msg: core.EpochAggregateMsg{
 				EpochGeneration: 3,
 				From:            1,
+				CurrentAction:   core.PerformanceElection,
 				EpochData: core.EpochData{
 					Throughput:       250.5,
 					ProposalInterval: 0.02,
@@ -349,7 +350,7 @@ func TestBuildEnvelopeAndDeliverViewProtocolMessages(t *testing.T) {
 			assertSent: func(t *testing.T) {
 				delivered := <-receiverNode.epochMsgChan
 				msg, ok := delivered.Msg.(core.EpochAggregateMsg)
-				if !ok || msg.EpochGeneration != 3 || msg.From != 1 || msg.EpochData.VCRate != 0.4 || msg.EpochData.InactiveNodes != 2 || len(msg.EpochDataMsgSigs) != 1 {
+				if !ok || msg.EpochGeneration != 3 || msg.From != 1 || msg.CurrentAction != core.PerformanceElection || msg.EpochData.VCRate != 0.4 || msg.EpochData.InactiveNodes != 2 || len(msg.EpochDataMsgSigs) != 1 {
 					t.Fatalf("delivered epoch-aggregate = %#v", delivered.Msg)
 				}
 			},
@@ -395,6 +396,7 @@ func TestDeliverEpochAggregateVerifiesMiniPayload(t *testing.T) {
 		EpochGeneration: 4,
 		From:            1,
 		EpochData:       &transportpb.EpochData{Throughput: 100},
+		CurrentAction:   transportpb.ActionToPB(core.PerformanceElection),
 	}
 	payload, err := marshalDeterministic(epochAggregateSignPayload(aggregate))
 	if err != nil {
@@ -419,6 +421,90 @@ func TestDeliverEpochAggregateVerifiesMiniPayload(t *testing.T) {
 	}
 }
 
+func TestDeliverPreprepareVerifiesFullViewID(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiverNode := &Node{
+		log:                logger.NewLogger(2, "node"),
+		encryptionKeyStore: &KeyStore{publicKeys: map[int]ed25519.PublicKey{1: publicKey}},
+		consensusMsgChan:   make(chan ConsensusMsg, 1),
+	}
+	hub := &NodeMessageHub{node_ref: receiverNode, log: receiverNode.log}
+	view := core.ViewID{Generation: 3, Counter: 4}
+	mutations := map[string]func(*transportpb.ViewID){
+		"generation": func(view *transportpb.ViewID) { view.Generation++ },
+		"counter":    func(view *transportpb.ViewID) { view.Counter++ },
+	}
+	for name, mutate := range mutations {
+		t.Run(name, func(t *testing.T) {
+			preprepare := &transportpb.PreprepareMsg{
+				View:            transportpb.ViewIDToPB(view),
+				SeqNum:          10,
+				DigestClientMsg: make([]byte, 32),
+			}
+			payload, err := marshalDeterministic(preprepareSignPayload(view, preprepare.SeqNum, preprepare.DigestClientMsg))
+			if err != nil {
+				t.Fatal(err)
+			}
+			signature := ed25519.Sign(privateKey, payload)
+
+			mutate(preprepare.View)
+			ack, err := hub.Deliver(context.Background(), &transportpb.Envelope{
+				MsgType:   core.MsgPreprepareMessage,
+				From:      1,
+				Signature: signature,
+				Body:      &transportpb.Envelope_Preprepare{Preprepare: preprepare},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ack.Ok || ack.Error != "signature verification failed" {
+				t.Fatalf("ack = %#v, want signature verification failure", ack)
+			}
+		})
+	}
+}
+
+func TestDeliverEpochAggregateVerifiesCurrentAction(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiverNode := &Node{
+		log:                logger.NewLogger(2, "node"),
+		encryptionKeyStore: &KeyStore{publicKeys: map[int]ed25519.PublicKey{1: publicKey}},
+		epochMsgChan:       make(chan EpochProtocolMsg, 1),
+	}
+	hub := &NodeMessageHub{node_ref: receiverNode, log: receiverNode.log}
+	aggregate := &transportpb.EpochAggregateMsg{
+		EpochGeneration: 4,
+		From:            1,
+		EpochData:       &transportpb.EpochData{Throughput: 100},
+		CurrentAction:   transportpb.ActionToPB(core.PerformanceElection),
+	}
+	payload, err := marshalDeterministic(epochAggregateSignPayload(aggregate))
+	if err != nil {
+		t.Fatal(err)
+	}
+	signature := ed25519.Sign(privateKey, payload)
+
+	aggregate.CurrentAction.Policy = transportpb.Policy_POLICY_ROUND_ROBIN
+	ack, err := hub.Deliver(context.Background(), &transportpb.Envelope{
+		MsgType:   core.MsgEpochAggregateMessage,
+		From:      1,
+		Signature: signature,
+		Body:      &transportpb.Envelope_EpochAggregate{EpochAggregate: aggregate},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ack.Ok || ack.Error != "signature verification failed" {
+		t.Fatalf("ack = %#v, want signature verification failure", ack)
+	}
+}
+
 func TestBuildEnvelopeLeaderIdUpdate(t *testing.T) {
 	hub := &NodeMessageHub{
 		node_ref: &Node{NodeID: 1},
@@ -428,7 +514,7 @@ func TestBuildEnvelopeLeaderIdUpdate(t *testing.T) {
 		From:        "localhost:28100",
 		To:          "localhost:20000",
 		NewLeaderId: 4,
-		View:        7,
+		View:        core.ViewID{Generation: 2, Counter: 7},
 	}, nil)
 	if err != nil {
 		t.Fatalf("buildEnvelope returned error: %v", err)
@@ -452,8 +538,8 @@ func TestBuildEnvelopeLeaderIdUpdate(t *testing.T) {
 	if data.From != "localhost:28100" {
 		t.Fatalf("From = %q, want %q", data.From, "localhost:28100")
 	}
-	if data.View != 7 {
-		t.Fatalf("View = %d, want 7", data.View)
+	if data.View != (core.ViewID{Generation: 2, Counter: 7}) {
+		t.Fatalf("View = %v, want (2,7)", data.View)
 	}
 }
 

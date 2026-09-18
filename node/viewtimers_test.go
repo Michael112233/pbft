@@ -48,9 +48,10 @@ func TestAcceptNewViewSwitchesTimers(t *testing.T) {
 }
 
 func TestViewChangeSenderIsCountedOnce(t *testing.T) {
-	n := &Node{viewChangeMsgsLog: make(map[int64][]*core.ViewChangeMsgSig)}
+	view := core.ViewID{Generation: 1, Counter: 2}
+	n := &Node{viewChangeMsgsLog: make(map[core.ViewID][]*core.ViewChangeMsgSig)}
 	viewChange := &core.ViewChangeMsgSig{
-		ViewChangeMsg: core.ViewChangeMsg{ViewNumber: 2, From: 1},
+		ViewChangeMsg: core.ViewChangeMsg{ViewNumber: view, From: 1},
 	}
 
 	if !n.appendViewChangeIfNew(viewChange) {
@@ -59,7 +60,7 @@ func TestViewChangeSenderIsCountedOnce(t *testing.T) {
 	if n.appendViewChangeIfNew(viewChange) {
 		t.Fatal("duplicate view-change message was accepted")
 	}
-	if got := n.uniqueViewChangeCount(2); got != 1 {
+	if got := n.uniqueViewChangeCount(view); got != 1 {
 		t.Fatalf("unique view-change count = %d, want 1", got)
 	}
 }

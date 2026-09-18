@@ -34,11 +34,11 @@ func NewTriggerManager(log *logger.Logger, triggerMode core.TriggerMode, node No
 	}
 }
 
-
 func (tm *TriggerManager) SwitchTriggerMode(newMode core.TriggerMode) {
-	if tm.triggerMode == core.PerfTrigger && newMode != core.PerfTrigger {
-		tm.node.stopPerfTimer()
-	}
+	// no need to stop perf already going to call view change when jump gen by amplification or model
+	// if tm.triggerMode == core.PerfTrigger && newMode != core.PerfTrigger {
+	// 	tm.node.stopPerfTimer()
+	// }
 	tm.triggerMode = newMode
 	if newMode == core.FixedTrigger {
 		tm.progressTimeoutValue = FixedTriggerTimeout
@@ -83,4 +83,8 @@ func (n *Node) GetProgressTimeout() time.Duration {
 
 func (n *Node) GetNewViewTimeout() time.Duration {
 	return n.triggerManager.GetNewViewTimeout()
+}
+
+func (n *Node) SwitchTriggerMode(newMode core.TriggerMode) {
+	n.triggerManager.SwitchTriggerMode(newMode)
 }

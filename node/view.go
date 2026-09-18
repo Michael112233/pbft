@@ -13,7 +13,20 @@ import (
 	"github.com/michael112233/pbft/transportpb"
 )
 
-func (n *Node) enterViewChange(trigger bool, action core.Action) {
+func (n *Node) incrementCounter() core.ViewID {
+	forView := n.GetForViewID()
+	return core.ViewID{Generation: forView.Generation, Counter: forView.Counter + 1}
+}
+
+func (n *Node) incrementGeneration(action core.Action) core.ViewID {
+	forView := n.GetForViewID()
+	n.resetEpochTimer()
+	n.SetCurrAction(action)
+	n.SwitchTriggerMode(action.TriggerMode) // its is some what parallel state with curr action both update together onn generation update
+	return core.ViewID{Generation: forView.Generation + 1, Counter: 1}
+}
+
+func (n *Node) enterViewChange(forView core.ViewID) {
 	n.stopViewTimers()
 	n.stopPerfTimer()
 	// if n.lastExecuted >= 11500 {
@@ -21,20 +34,13 @@ func (n *Node) enterViewChange(trigger bool, action core.Action) {
 	// 	return
 	// }
 	n.viewChangeRunning = true
-	forView := n.GetForViewID()
+	n.SetForViewID(forView)
 	// assuming generation slow so only plus one will later fix other paths
 	view := n.GetViewID()
-	if trigger {
-		forView = core.ViewID{Generation: forView.Generation, Counter: forView.Counter + 1}
-		n.SetForViewID(forView)
-	} else {
-		forView = core.ViewID{Generation: forView.Generation + 1, Counter: 1}
-		n.SetForViewID(forView)
-		n.currAction = action
-	}
 	// n.forView = n.forView + 1
+	action := n.GetCurrAction()
 
-	n.VC(forView, view, n.currAction)
+	n.VC(forView, view, action)
 }
 
 func (n *Node) createVCContent(stableCheckpointSeq int64, forView, view core.ViewID) map[int64]*core.PreparedCert {

@@ -6,16 +6,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/michael112233/pbft/core"
+	"github.com/michael112233/pbft/logger"
 	"github.com/michael112233/pbft/vr"
 )
 
 func TestEvalElectionVDFReportsCompletion(t *testing.T) {
+	t.Chdir(t.TempDir())
 	n := &Node{
+		log:                 logger.NewLogger(1, "node"),
 		electionVDFResultCh: make(chan electionVDFResult, 1),
 		eventLoopStopCh:     make(chan struct{}),
 		electionManager:     NewElectionManager(),
 	}
-	view := int64(7)
+	view := core.ViewID{Generation: 2, Counter: 7}
 	seed := []byte("view-7")
 	delaySteps := uint64(8)
 	modulus := big.NewInt(77)
@@ -31,7 +35,7 @@ func TestEvalElectionVDFReportsCompletion(t *testing.T) {
 			t.Fatalf("VDF worker returned error: %v", result.err)
 		}
 		if result.view != view || result.delaySteps != delaySteps {
-			t.Fatalf("completion metadata = (view %d, delay %d), want (view %d, delay %d)", result.view, result.delaySteps, view, delaySteps)
+			t.Fatalf("completion metadata = (view %v, delay %d), want (view %v, delay %d)", result.view, result.delaySteps, view, delaySteps)
 		}
 		if !bytes.Equal(result.seed, seed) || !bytes.Equal(result.vrfProof, vrfProof) || !bytes.Equal(result.beta, beta) {
 			t.Fatal("completion did not preserve its election inputs")

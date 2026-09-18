@@ -9,6 +9,62 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+func ViewIDToPB(view core.ViewID) *ViewID {
+	return &ViewID{
+		Generation: view.Generation,
+		Counter:    view.Counter,
+	}
+}
+
+func ViewIDFromPB(view *ViewID) (core.ViewID, error) {
+	if view == nil {
+		return core.ViewID{}, fmt.Errorf("missing view ID")
+	}
+	return core.ViewID{
+		Generation: view.Generation,
+		Counter:    view.Counter,
+	}, nil
+}
+
+func ActionToPB(action core.Action) *Action {
+	return &Action{
+		TriggerMode: TriggerMode(action.TriggerMode),
+		Policy:      Policy(action.Policy),
+	}
+}
+
+func ActionFromPB(action *Action) (core.Action, error) {
+	if action == nil {
+		return core.Action{}, fmt.Errorf("missing action")
+	}
+
+	var triggerMode core.TriggerMode
+	switch action.TriggerMode {
+	case TriggerMode_TRIGGER_MODE_PERIODIC:
+		triggerMode = core.PeriodicTrigger
+	case TriggerMode_TRIGGER_MODE_PERFORMANCE:
+		triggerMode = core.PerfTrigger
+	case TriggerMode_TRIGGER_MODE_FIXED:
+		triggerMode = core.FixedTrigger
+	case TriggerMode_TRIGGER_MODE_NULL:
+		triggerMode = core.NullTrigger
+	default:
+		return core.Action{}, fmt.Errorf("invalid trigger mode %d", action.TriggerMode)
+	}
+
+	var policy core.Policy
+	switch action.Policy {
+	case Policy_POLICY_ROUND_ROBIN:
+		policy = core.PolicyRoundRobin
+	case Policy_POLICY_ELECTION:
+		policy = core.PolicyElection
+	default:
+		return core.Action{}, fmt.Errorf("invalid policy %d", action.Policy)
+	}
+
+	return core.Action{TriggerMode: triggerMode, Policy: policy}, nil
+}
+
 func TransactionToPB(tx core.Transaction) *Transaction {
 	if tx.Sender == "" && tx.Receiver == "" && tx.Amount == nil {
 		return nil
@@ -217,6 +273,7 @@ func EpochAggregateMsgMiniToPB(msg core.EpochAggregateMsgMini) *EpochAggregateMs
 		EpochGeneration: msg.EpochGeneration,
 		From:            int32(msg.From),
 		EpochData:       EpochDataToPB(msg.EpochData),
+		CurrentAction:   ActionToPB(msg.CurrentAction),
 	}
 }
 
@@ -230,6 +287,7 @@ func EpochAggregateMsgToPB(msg core.EpochAggregateMsg) *EpochAggregateMsg {
 		From:             int32(msg.From),
 		EpochData:        EpochDataToPB(msg.EpochData),
 		EpochDataMsgSigs: epochDataMsgSigs,
+		CurrentAction:    ActionToPB(msg.CurrentAction),
 	}
 }
 
@@ -238,6 +296,10 @@ func EpochAggregateMsgFromPB(msg *EpochAggregateMsg) (core.EpochAggregateMsg, er
 		return core.EpochAggregateMsg{}, nil
 	}
 	data, err := EpochDataFromPB(msg.EpochData)
+	if err != nil {
+		return core.EpochAggregateMsg{}, err
+	}
+	action, err := ActionFromPB(msg.CurrentAction)
 	if err != nil {
 		return core.EpochAggregateMsg{}, err
 	}
@@ -254,6 +316,7 @@ func EpochAggregateMsgFromPB(msg *EpochAggregateMsg) (core.EpochAggregateMsg, er
 		From:             int(msg.From),
 		EpochData:        data,
 		EpochDataMsgSigs: epochDataMsgSigs,
+		CurrentAction:    action,
 	}, nil
 }
 
@@ -322,7 +385,7 @@ func PreprepareToPB(msg core.PreprepareMsg) *PreprepareMsg {
 	}
 
 	return &PreprepareMsg{
-		View:                       msg.View,
+		View:                       ViewIDToPB(msg.View),
 		SeqNum:                     msg.SeqNum,
 		ClientMsg:                  clientMsgs,
 		DigestClientMsg:            digestToPB(msg.DigestClientMsg),
@@ -332,7 +395,7 @@ func PreprepareToPB(msg core.PreprepareMsg) *PreprepareMsg {
 
 func PreprepareMiniToPB2(msg core.PreprepareMsgMini) *PreprepareMsg {
 	return &PreprepareMsg{
-		View:                       msg.View,
+		View:                       ViewIDToPB(msg.View),
 		SeqNum:                     msg.SeqNum,
 		DigestClientMsg:            digestToPB(msg.DigestClientMsg),
 		DigestIndividualClientMsgs: digestsToPB(msg.DigestIndividualClientMsgs),
@@ -342,6 +405,10 @@ func PreprepareMiniToPB2(msg core.PreprepareMsgMini) *PreprepareMsg {
 func PreprepareFromPB(msg *PreprepareMsg) (core.PreprepareMsg, error) {
 	if msg == nil {
 		return core.PreprepareMsg{}, nil
+	}
+	view, err := ViewIDFromPB(msg.View)
+	if err != nil {
+		return core.PreprepareMsg{}, err
 	}
 	clientMsgs := make([]core.ClientMsgSignature, 0, len(msg.ClientMsg))
 	for _, clientMsg := range msg.ClientMsg {
@@ -360,7 +427,7 @@ func PreprepareFromPB(msg *PreprepareMsg) (core.PreprepareMsg, error) {
 		return core.PreprepareMsg{}, fmt.Errorf("individual client-message digests: %w", err)
 	}
 	return core.PreprepareMsg{
-		View:                       msg.View,
+		View:                       view,
 		SeqNum:                     msg.SeqNum,
 		ClientMsg:                  clientMsgs,
 		DigestClientMsg:            digest,
@@ -405,7 +472,7 @@ func digestsFromPB(digests [][]byte) ([][32]byte, error) {
 
 func PrepareToPB(msg core.PrepareMsg) *PrepareMsg {
 	return &PrepareMsg{
-		View:   msg.View,
+		View:   ViewIDToPB(msg.View),
 		SeqNum: msg.SeqNum,
 		Digest: digestToPB(msg.Digest),
 		From:   int32(msg.From),
@@ -417,12 +484,16 @@ func PrepareFromPB(msg *PrepareMsg) (core.PrepareMsg, error) {
 	if msg == nil {
 		return core.PrepareMsg{}, nil
 	}
+	view, err := ViewIDFromPB(msg.View)
+	if err != nil {
+		return core.PrepareMsg{}, err
+	}
 	digest, err := digestFromPB(msg.Digest)
 	if err != nil {
 		return core.PrepareMsg{}, err
 	}
 	return core.PrepareMsg{
-		View:   msg.View,
+		View:   view,
 		SeqNum: msg.SeqNum,
 		Digest: digest,
 		From:   int(msg.From),
@@ -432,7 +503,7 @@ func PrepareFromPB(msg *PrepareMsg) (core.PrepareMsg, error) {
 
 func CommitToPB(msg core.CommitMsg) *CommitMsg {
 	return &CommitMsg{
-		View:   msg.View,
+		View:   ViewIDToPB(msg.View),
 		SeqNum: msg.SeqNum,
 		Digest: digestToPB(msg.Digest),
 		From:   int32(msg.From),
@@ -444,12 +515,16 @@ func CommitFromPB(msg *CommitMsg) (core.CommitMsg, error) {
 	if msg == nil {
 		return core.CommitMsg{}, nil
 	}
+	view, err := ViewIDFromPB(msg.View)
+	if err != nil {
+		return core.CommitMsg{}, err
+	}
 	digest, err := digestFromPB(msg.Digest)
 	if err != nil {
 		return core.CommitMsg{}, err
 	}
 	return core.CommitMsg{
-		View:   msg.View,
+		View:   view,
 		SeqNum: msg.SeqNum,
 		Digest: digest,
 		From:   int(msg.From),
@@ -516,7 +591,7 @@ func LeaderIdUpdateToPB(msg core.LeaderIdUpdate) *LeaderIdUpdate {
 		To:          msg.To,
 		From:        msg.From,
 		NewLeaderId: int32(msg.NewLeaderId),
-		View:        msg.View,
+		View:        ViewIDToPB(msg.View),
 	}
 }
 
@@ -524,11 +599,15 @@ func LeaderIdUpdateFromPB(msg *LeaderIdUpdate) (core.LeaderIdUpdate, error) {
 	if msg == nil {
 		return core.LeaderIdUpdate{}, nil
 	}
+	view, err := ViewIDFromPB(msg.View)
+	if err != nil {
+		return core.LeaderIdUpdate{}, err
+	}
 	return core.LeaderIdUpdate{
 		To:          msg.To,
 		From:        msg.From,
 		NewLeaderId: int(msg.NewLeaderId),
-		View:        msg.View,
+		View:        view,
 	}, nil
 }
 
@@ -553,7 +632,7 @@ func CloseFromPB(msg *CloseMessage) core.CloseMessage {
 
 func PreprepareMiniToPB(msg core.PreprepareMsgMini) *PreprepareMsgMini {
 	return &PreprepareMsgMini{
-		View:                       msg.View,
+		View:                       ViewIDToPB(msg.View),
 		SeqNum:                     msg.SeqNum,
 		DigestClientMsg:            digestToPB(msg.DigestClientMsg),
 		DigestIndividualClientMsgs: digestsToPB(msg.DigestIndividualClientMsgs),
@@ -564,6 +643,10 @@ func PreprepareMiniFromPB(msg *PreprepareMsgMini) (core.PreprepareMsgMini, error
 	if msg == nil {
 		return core.PreprepareMsgMini{}, nil
 	}
+	view, err := ViewIDFromPB(msg.View)
+	if err != nil {
+		return core.PreprepareMsgMini{}, err
+	}
 	digest, err := digestFromPB(msg.DigestClientMsg)
 	if err != nil {
 		return core.PreprepareMsgMini{}, err
@@ -573,7 +656,7 @@ func PreprepareMiniFromPB(msg *PreprepareMsgMini) (core.PreprepareMsgMini, error
 		return core.PreprepareMsgMini{}, fmt.Errorf("individual client-message digests: %w", err)
 	}
 	return core.PreprepareMsgMini{
-		View:                       msg.View,
+		View:                       view,
 		SeqNum:                     msg.SeqNum,
 		DigestClientMsg:            digest,
 		DigestIndividualClientMsgs: individualDigests,
@@ -722,32 +805,6 @@ func PreparedCertFromPB(cert *PreparedCert) (*core.PreparedCert, error) {
 	}, nil
 }
 
-func vcTypeToPB(vcType core.VCType) ViewChangeMsg_VCType {
-	switch vcType {
-	case core.VCTypeElection:
-		return ViewChangeMsg_VC_TYPE_ELECTION
-	case core.VCTypeRoundRobin:
-		return ViewChangeMsg_VC_TYPE_ROUND_ROBIN
-	case core.VCTypeWRR:
-		return ViewChangeMsg_VC_TYPE_WRR
-	default:
-		return ViewChangeMsg_VC_TYPE_UNSPECIFIED
-	}
-}
-
-func vcTypeFromPB(vcType ViewChangeMsg_VCType) (core.VCType, error) {
-	switch vcType {
-	case ViewChangeMsg_VC_TYPE_ELECTION:
-		return core.VCTypeElection, nil
-	case ViewChangeMsg_VC_TYPE_ROUND_ROBIN:
-		return core.VCTypeRoundRobin, nil
-	case ViewChangeMsg_VC_TYPE_WRR:
-		return core.VCTypeWRR, nil
-	default:
-		return 0, fmt.Errorf("invalid view-change type %d", vcType)
-	}
-}
-
 func balancesToPB(balances map[string]*big.Int) map[string]string {
 	if balances == nil {
 		return nil
@@ -792,46 +849,27 @@ func ViewChangeToPB(msg core.ViewChangeMsg) *ViewChangeMsg {
 		checkpointProof = append(checkpointProof, CheckpointMsgSigToPB(checkpoint))
 	}
 
-	out := &ViewChangeMsg{
-		ViewNumber:          msg.ViewNumber,
+	return &ViewChangeMsg{
+		ViewNumber:          ViewIDToPB(msg.ViewNumber),
 		CheckpointSeqNumber: msg.CheckpointSeqNumber,
 		From:                int32(msg.From),
 		PreparedCerts:       preparedCerts,
-		VcType:              vcTypeToPB(msg.Type),
+		Action:              ActionToPB(msg.Action),
 		CheckpointDigest:    digestToPB(msg.CheckpointDigest),
 		CheckpointProof:     checkpointProof,
 		CheckpointBalances:  balancesToPB(msg.CheckpointBalances),
 	}
-	switch msg.Type {
-	case core.VCTypeElection:
-		if msg.ElectionData != nil {
-			out.VcData = &ViewChangeMsg_Election{Election: &ElectionVCData{
-				ReqVote:   msg.ElectionData.ReqVote,
-				GrantVote: msg.ElectionData.GrantVote,
-				GrantTo:   int32(msg.ElectionData.GrantTo),
-			}}
-		}
-	case core.VCTypeRoundRobin:
-		if msg.RoundRobinData != nil {
-			out.VcData = &ViewChangeMsg_RoundRobin{RoundRobin: &RoundRobinVCData{
-				GrantVote: msg.RoundRobinData.GrantVote,
-			}}
-		}
-	case core.VCTypeWRR:
-		if msg.WRRData != nil {
-			out.VcData = &ViewChangeMsg_Wrr{Wrr: &WRRVCData{
-				Throughput: msg.WRRData.Throughput,
-			}}
-		}
-	}
-	return out
 }
 
 func ViewChangeFromPB(msg *ViewChangeMsg) (core.ViewChangeMsg, error) {
 	if msg == nil {
 		return core.ViewChangeMsg{}, nil
 	}
-	vcType, err := vcTypeFromPB(msg.VcType)
+	view, err := ViewIDFromPB(msg.ViewNumber)
+	if err != nil {
+		return core.ViewChangeMsg{}, err
+	}
+	action, err := ActionFromPB(msg.Action)
 	if err != nil {
 		return core.ViewChangeMsg{}, err
 	}
@@ -860,47 +898,16 @@ func ViewChangeFromPB(msg *ViewChangeMsg) (core.ViewChangeMsg, error) {
 		return core.ViewChangeMsg{}, err
 	}
 
-	out := core.ViewChangeMsg{
-		ViewNumber:          msg.ViewNumber,
+	return core.ViewChangeMsg{
+		ViewNumber:          view,
 		CheckpointSeqNumber: msg.CheckpointSeqNumber,
 		CheckpointDigest:    checkpointDigest,
 		CheckpointProof:     checkpointProof,
 		CheckpointBalances:  balances,
 		From:                int(msg.From),
 		PreparedCerts:       preparedCerts,
-		Type:                vcType,
-	}
-	switch data := msg.VcData.(type) {
-	case nil:
-	case *ViewChangeMsg_Election:
-		if vcType != core.VCTypeElection {
-			return core.ViewChangeMsg{}, fmt.Errorf("view-change type %d has election data", vcType)
-		}
-		if data.Election != nil {
-			out.ElectionData = &core.ElectionVCData{
-				ReqVote:   data.Election.ReqVote,
-				GrantVote: data.Election.GrantVote,
-				GrantTo:   int(data.Election.GrantTo),
-			}
-		}
-	case *ViewChangeMsg_RoundRobin:
-		if vcType != core.VCTypeRoundRobin {
-			return core.ViewChangeMsg{}, fmt.Errorf("view-change type %d has round-robin data", vcType)
-		}
-		if data.RoundRobin != nil {
-			out.RoundRobinData = &core.RoundRobinVCData{GrantVote: data.RoundRobin.GrantVote}
-		}
-	case *ViewChangeMsg_Wrr:
-		if vcType != core.VCTypeWRR {
-			return core.ViewChangeMsg{}, fmt.Errorf("view-change type %d has WRR data", vcType)
-		}
-		if data.Wrr != nil {
-			out.WRRData = &core.WRRVCData{Throughput: data.Wrr.Throughput}
-		}
-	default:
-		return core.ViewChangeMsg{}, fmt.Errorf("unsupported view-change data %T", data)
-	}
-	return out, nil
+		Action:              action,
+	}, nil
 }
 
 func ViewChangeMsgSigToPB(msg core.ViewChangeMsgSig) *ViewChangeMsgSig {
@@ -948,7 +955,7 @@ func NewViewToPB(msg core.NewViewMsg) *NewViewMsg {
 	return &NewViewMsg{
 		PreprepareLog: preprepareLog,
 		ViewChangeLog: viewChangeLog,
-		NewViewNumber: msg.NewViewNumber,
+		NewViewNumber: ViewIDToPB(msg.NewViewNumber),
 		From:          int32(msg.From),
 		Throughput:    msg.Throughput,
 	}
@@ -957,6 +964,10 @@ func NewViewToPB(msg core.NewViewMsg) *NewViewMsg {
 func NewViewFromPB(msg *NewViewMsg) (core.NewViewMsg, error) {
 	if msg == nil {
 		return core.NewViewMsg{}, nil
+	}
+	view, err := ViewIDFromPB(msg.NewViewNumber)
+	if err != nil {
+		return core.NewViewMsg{}, err
 	}
 
 	var preprepareLog []core.PreprepareMsgSig
@@ -991,7 +1002,7 @@ func NewViewFromPB(msg *NewViewMsg) (core.NewViewMsg, error) {
 	return core.NewViewMsg{
 		PreprepareLog: preprepareLog,
 		ViewChangeLog: viewChangeLog,
-		NewViewNumber: msg.NewViewNumber,
+		NewViewNumber: view,
 		Throughput:    msg.Throughput,
 		From:          int(msg.From),
 	}, nil
@@ -1021,7 +1032,7 @@ func NewViewMsgSigFromPB(msg *NewViewMsgSig) (core.NewViewMsgSig, error) {
 func RequestVoteToPB(msg core.RequestVoteMsg) *RequestVoteMsg {
 	return &RequestVoteMsg{
 		From:       int32(msg.From),
-		ViewNumber: msg.ViewNumber,
+		ViewNumber: ViewIDToPB(msg.ViewNumber),
 		Seed:       append([]byte(nil), msg.Seed...),
 		DelaySteps: msg.DelaySteps,
 		Y:          append([]byte(nil), msg.Y...),
@@ -1034,10 +1045,14 @@ func RequestVoteFromPB(msg *RequestVoteMsg) (core.RequestVoteMsg, error) {
 	if msg == nil {
 		return core.RequestVoteMsg{}, nil
 	}
+	view, err := ViewIDFromPB(msg.ViewNumber)
+	if err != nil {
+		return core.RequestVoteMsg{}, err
+	}
 
 	return core.RequestVoteMsg{
 		From:       int(msg.From),
-		ViewNumber: msg.ViewNumber,
+		ViewNumber: view,
 		Seed:       append([]byte(nil), msg.Seed...),
 		DelaySteps: msg.DelaySteps,
 		Y:          append([]byte(nil), msg.Y...),
@@ -1072,7 +1087,7 @@ func RequestVoteMsgSigFromPB(msg *RequestVoteMsgSig) (core.RequestVoteMsgSig, er
 func GrantVoteToPB(msg core.GrantVoteMsg) *GrantVoteMsg {
 	return &GrantVoteMsg{
 		From:       int32(msg.From),
-		ViewNumber: msg.ViewNumber,
+		ViewNumber: ViewIDToPB(msg.ViewNumber),
 	}
 }
 
@@ -1080,10 +1095,14 @@ func GrantVoteFromPB(msg *GrantVoteMsg) (core.GrantVoteMsg, error) {
 	if msg == nil {
 		return core.GrantVoteMsg{}, nil
 	}
+	view, err := ViewIDFromPB(msg.ViewNumber)
+	if err != nil {
+		return core.GrantVoteMsg{}, err
+	}
 
 	return core.GrantVoteMsg{
 		From:       int(msg.From),
-		ViewNumber: msg.ViewNumber,
+		ViewNumber: view,
 	}, nil
 }
 

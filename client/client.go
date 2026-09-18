@@ -15,7 +15,7 @@ import (
 )
 
 type LeaderUpdate struct {
-	view     int64
+	view     core.ViewID
 	leaderId int
 }
 
@@ -25,7 +25,7 @@ type Client struct {
 	config          *config.Config
 	injectSpeed     int64
 	txs             []*core.Transaction
-	currentView     int64
+	currentView     core.ViewID
 	newLeaderQuorum map[LeaderUpdate]int
 	fNodes          int
 
@@ -66,7 +66,7 @@ func NewClient(addr string, name string, config *config.Config, leaderAddr strin
 	c := &Client{
 		addr:            addr,
 		name:            name,
-		currentView:     1,
+		currentView:     core.ViewID{Generation: 1, Counter: 1},
 		config:          config,
 		newLeaderQuorum: make(map[LeaderUpdate]int),
 		fNodes:          (int(config.NodeNum) - 1) / 3,

@@ -8,7 +8,11 @@ import (
 
 // makePreparedCert builds a minimal prepared certificate for seq/view with a distinctive
 // digest so a test can tell a real re-proposal from a null one.
-func makePreparedCert(view, seq int64, digest [32]byte) *core.PreparedCert {
+func testView(counter uint64) core.ViewID {
+	return core.ViewID{Generation: 1, Counter: counter}
+}
+
+func makePreparedCert(view core.ViewID, seq int64, digest [32]byte) *core.PreparedCert {
 	return &core.PreparedCert{
 		PreprepareMsg: core.PreprepareMsgSig{
 			PreprepareMsgMini: core.PreprepareMsgMini{View: view, SeqNum: seq, DigestClientMsg: digest},
@@ -52,10 +56,11 @@ func TestPreparedCertSurvivesConsecutiveLocalNewViewInstalls(t *testing.T) {
 	const suffixLen = 10
 
 	// --- view 1: seqs 1..10 prepare; 1..7 also commit-local ---
+	view1 := testView(1)
 	for seq := int64(1); seq <= suffixLen; seq++ {
-		slot, _ := l.GetorCreateEntry(seq, 1)
-		slot.view = 1
-		slot.recordPreparedIfHigher(1, makePreparedCert(1, seq, digestFor(seq)))
+		slot, _ := l.GetorCreateEntry(seq)
+		slot.view = view1
+		slot.recordPreparedIfHigher(view1, makePreparedCert(view1, seq, digestFor(seq)))
 		if seq <= 7 {
 			slot.committed = true
 		}
@@ -65,18 +70,19 @@ func TestPreparedCertSurvivesConsecutiveLocalNewViewInstalls(t *testing.T) {
 	// O-set suffix locally (ResetPerViewState + RemoveLogEntriesAboveSeq) and then
 	// fails before anyone installs its NewView. maxSeq stays at the suffix length
 	// because every collected VC message carries the same view-1 P-set. ---
-	for v := int64(2); v <= 5; v++ {
+	for counter := uint64(2); counter <= 5; counter++ {
+		view := testView(counter)
 		for seq := int64(1); seq <= suffixLen; seq++ {
-			slot := l.ResetPerViewState(seq, v)
-			slot.preprepare = &core.PreprepareMsgMini{View: v, SeqNum: seq, DigestClientMsg: digestFor(seq)}
-			slot.view = v
+			slot := l.ResetPerViewState(seq, view)
+			slot.preprepare = &core.PreprepareMsgMini{View: view, SeqNum: seq, DigestClientMsg: digestFor(seq)}
+			slot.view = view
 		}
-		retained, committedAbove := l.RemoveLogEntriesAboveSeq(suffixLen, v)
+		retained, committedAbove := l.RemoveLogEntriesAboveSeq(suffixLen, view)
 		if len(retained) != 0 {
-			t.Fatalf("view %d: unexpected retained slots above maxSeq: %v", v, retained)
+			t.Fatalf("view %v: unexpected retained slots above maxSeq: %v", view, retained)
 		}
 		if len(committedAbove) != 0 {
-			t.Fatalf("view %d: committed slots above maxSeq: %v", v, committedAbove)
+			t.Fatalf("view %v: committed slots above maxSeq: %v", view, committedAbove)
 		}
 	}
 
@@ -95,8 +101,8 @@ func TestPreparedCertSurvivesConsecutiveLocalNewViewInstalls(t *testing.T) {
 			t.Fatalf("seq %d P-set digest = %x, want %x (null/overwritten cert)", seq, got, digestFor(seq))
 		}
 		slot, _ := l.GetLogEntry(seq)
-		if slot.preparedView != 1 {
-			t.Fatalf("seq %d preparedView = %d, want 1", seq, slot.preparedView)
+		if slot.preparedView != view1 {
+			t.Fatalf("seq %d preparedView = %v, want %v", seq, slot.preparedView, view1)
 		}
 		// committed is per-view and is deliberately cleared on install: the seq is in
 		// the new view's O-set (maxS covers it precisely because the cert above is
@@ -113,12 +119,13 @@ func TestPreparedCertSurvivesConsecutiveLocalNewViewInstalls(t *testing.T) {
 // clearing committed on a new-view install loses nothing that the P-set does not carry.
 func TestCommittedImpliesPreparedProof(t *testing.T) {
 	l := NewLog()
-	slot, _ := l.GetorCreateEntry(4, 1)
-	slot.view = 1
+	view1 := testView(1)
+	slot, _ := l.GetorCreateEntry(4)
+	slot.view = view1
 
 	// mirror tryAdvancePrepare: the prepared cert is recorded before commitSent, and
 	// tryExecute refuses to set committed without commitSent.
-	slot.recordPreparedIfHigher(1, makePreparedCert(1, 4, digestFor(4)))
+	slot.recordPreparedIfHigher(view1, makePreparedCert(view1, 4, digestFor(4)))
 	slot.commitSent = true
 	slot.committed = true
 
@@ -126,12 +133,12 @@ func TestCommittedImpliesPreparedProof(t *testing.T) {
 		t.Fatal("a committed slot must carry a durable prepared certificate")
 	}
 
-	l.ResetPerViewState(4, 2)
+	l.ResetPerViewState(4, testView(2))
 
 	if slot.committed {
 		t.Fatal("committed should be cleared on a new-view install")
 	}
-	if slot.preparedProof == nil || slot.preparedView != 1 {
+	if slot.preparedProof == nil || slot.preparedView != view1 {
 		t.Fatal("the prepared certificate must survive so the seq lands in the next O-set")
 	}
 }
@@ -141,21 +148,23 @@ func TestCommittedImpliesPreparedProof(t *testing.T) {
 // view rewound so the new primary can re-propose), everything else is deleted.
 func TestRemoveLogEntriesAboveSeqKeepsDurableDropsTransient(t *testing.T) {
 	l := NewLog()
+	view1 := testView(1)
 
 	// seq 5: prepared in view 1 -> durable, must be kept.
-	prepared, _ := l.GetorCreateEntry(5, 1)
-	prepared.view = 1
+	prepared, _ := l.GetorCreateEntry(5)
+	prepared.view = view1
 	prepared.prepareSent = true
 	prepared.commitSent = true
-	prepared.recordPreparedIfHigher(1, makePreparedCert(1, 5, digestFor(5)))
+	prepared.recordPreparedIfHigher(view1, makePreparedCert(view1, 5, digestFor(5)))
 
 	// seq 6: only a stray pre-prepare from the deposed primary -> no durable fact.
-	transient, _ := l.GetorCreateEntry(6, 1)
-	transient.view = 1
-	transient.preprepare = &core.PreprepareMsgMini{View: 1, SeqNum: 6}
+	transient, _ := l.GetorCreateEntry(6)
+	transient.view = view1
+	transient.preprepare = &core.PreprepareMsgMini{View: view1, SeqNum: 6}
 	transient.prepareSent = true
 
-	retained, committedAbove := l.RemoveLogEntriesAboveSeq(4, 7)
+	view7 := testView(7)
+	retained, committedAbove := l.RemoveLogEntriesAboveSeq(4, view7)
 
 	if len(retained) != 1 || retained[0] != 5 {
 		t.Fatalf("retained = %v, want [5]", retained)
@@ -170,14 +179,14 @@ func TestRemoveLogEntriesAboveSeqKeepsDurableDropsTransient(t *testing.T) {
 	if !ok {
 		t.Fatal("seq 5 (durable) should have been kept")
 	}
-	if slot.preparedProof == nil || slot.preparedView != 1 {
+	if slot.preparedProof == nil || slot.preparedView != view1 {
 		t.Fatal("seq 5 lost its prepared certificate")
 	}
 	if slot.commitSent || slot.prepareSent || slot.preprepare != nil {
 		t.Fatal("seq 5 per-view working state was not cleared")
 	}
-	if slot.view != 7 {
-		t.Fatalf("seq 5 view = %d, want 7 (rewound for the new primary)", slot.view)
+	if slot.view != view7 {
+		t.Fatalf("seq 5 view = %v, want %v (rewound for the new primary)", slot.view, view7)
 	}
 	if l.maxSeqNum != 5 {
 		t.Fatalf("maxSeqNum = %d, want 5 (highest retained slot)", l.maxSeqNum)
@@ -187,40 +196,45 @@ func TestRemoveLogEntriesAboveSeqKeepsDurableDropsTransient(t *testing.T) {
 func TestRecordPreparedIfHigherIsMonotonic(t *testing.T) {
 	e := &LogEntry{}
 
-	e.recordPreparedIfHigher(2, makePreparedCert(2, 9, digestFor(9)))
-	if e.preparedView != 2 {
-		t.Fatalf("preparedView = %d, want 2", e.preparedView)
+	view2 := testView(2)
+	e.recordPreparedIfHigher(view2, makePreparedCert(view2, 9, digestFor(9)))
+	if e.preparedView != view2 {
+		t.Fatalf("preparedView = %v, want %v", e.preparedView, view2)
 	}
 
 	// a lower-view cert must not overwrite
-	e.recordPreparedIfHigher(1, makePreparedCert(1, 9, digestFor(1)))
-	if e.preparedView != 2 || e.preparedProof.PreprepareMsg.PreprepareMsgMini.View != 2 {
+	view1 := testView(1)
+	e.recordPreparedIfHigher(view1, makePreparedCert(view1, 9, digestFor(1)))
+	if e.preparedView != view2 || e.preparedProof.PreprepareMsg.PreprepareMsgMini.View != view2 {
 		t.Fatal("lower-view prepared cert overwrote a higher-view one")
 	}
 
 	// a higher-view cert upgrades
-	e.recordPreparedIfHigher(4, makePreparedCert(4, 9, digestFor(4)))
-	if e.preparedView != 4 {
-		t.Fatalf("preparedView = %d, want 4", e.preparedView)
+	view4 := testView(4)
+	e.recordPreparedIfHigher(view4, makePreparedCert(view4, 9, digestFor(4)))
+	if e.preparedView != view4 {
+		t.Fatalf("preparedView = %v, want %v", e.preparedView, view4)
 	}
 }
 
 func TestResetPerViewStatePreservesDurableFacts(t *testing.T) {
 	l := NewLog()
-	slot, _ := l.GetorCreateEntry(3, 1)
-	slot.view = 1
+	view1 := testView(1)
+	slot, _ := l.GetorCreateEntry(3)
+	slot.view = view1
 	slot.committed = true
 	slot.executed = true
 	slot.commitSent = true
 	slot.prepares[2] = core.PrepareMsgSig{}
-	slot.recordPreparedIfHigher(1, makePreparedCert(1, 3, digestFor(3)))
+	slot.recordPreparedIfHigher(view1, makePreparedCert(view1, 3, digestFor(3)))
 
-	got := l.ResetPerViewState(3, 6)
+	view6 := testView(6)
+	got := l.ResetPerViewState(3, view6)
 
-	if got.preparedProof == nil || got.preparedView != 1 || !got.executed {
+	if got.preparedProof == nil || got.preparedView != view1 || !got.executed {
 		t.Fatal("ResetPerViewState dropped a durable fact")
 	}
-	if got.view != 6 || got.commitSent || got.committed || got.preprepare != nil || len(got.prepares) != 0 {
+	if got.view != view6 || got.commitSent || got.committed || got.preprepare != nil || len(got.prepares) != 0 {
 		t.Fatal("ResetPerViewState did not clear per-view working state")
 	}
 }
@@ -229,13 +243,14 @@ func TestResetPerViewStatePreservesDurableFacts(t *testing.T) {
 // maxSeq means the P-sets that produced maxS were incomplete.
 func TestCommittedAboveMaxSeqIsReported(t *testing.T) {
 	l := NewLog()
-	slot, _ := l.GetorCreateEntry(9, 1)
-	slot.view = 1
-	slot.recordPreparedIfHigher(1, makePreparedCert(1, 9, digestFor(9)))
+	view1 := testView(1)
+	slot, _ := l.GetorCreateEntry(9)
+	slot.view = view1
+	slot.recordPreparedIfHigher(view1, makePreparedCert(view1, 9, digestFor(9)))
 	slot.commitSent = true
 	slot.committed = true
 
-	retained, committedAbove := l.RemoveLogEntriesAboveSeq(4, 5)
+	retained, committedAbove := l.RemoveLogEntriesAboveSeq(4, testView(5))
 
 	if len(retained) != 1 || retained[0] != 9 {
 		t.Fatalf("retained = %v, want [9]", retained)

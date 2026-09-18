@@ -202,7 +202,8 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 			throughputIntervalStartSeq:   THROUGHPUTINTERVAL_DELAY,
 			throughputIntervalStart:      time.Time{},
 			throughputObservationStarted: false,
-			viewThroughputs:              make(map[int64]float64),
+			viewThroughputs:              make(map[core.ViewID]float64),
+			maxCounterByGeneration:       make(map[uint64]uint64),
 
 			timedTargetThroughput:   defaultTargetThroughput,
 			timedIntervalStartSeq:   THROUGHPUTINTERVAL_DELAY,
@@ -629,7 +630,7 @@ func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 		} else if prepareMsg.View.LessThan(view) {
 			n.log.Info("Received Prepare for past view (%d,%d) seq %d while current view is (%d,%d), ignoring and for view is (%d,%d)", prepareMsg.View.Generation, prepareMsg.View.Counter, prepareMsg.SeqNum, view.Generation, view.Counter, forView.Generation, forView.Counter)
 		} else if prepareMsg.SeqNum%10 == 0 {
-			n.log.Info("Received Prepare for current view (%d,%d) seq %d but currently in view change, ignoring and for view is (%d,%d)", prepareMsg.View.Generation, prepareMsg.View.Counter, prepareMsg.SeqNum, view.Generation, view.Counter, forView.Generation, forView.Counter)
+			n.log.Info("Received Prepare for current view (%d,%d) seq %d but currently in view change, ignoring and for view is (%d,%d)", prepareMsg.View.Generation, prepareMsg.View.Counter, prepareMsg.SeqNum, forView.Generation, forView.Counter)
 		}
 		// n.viewMu.RUnlock()
 
@@ -920,7 +921,13 @@ func (n *Node) SetViewID(view core.ViewID) {
 func (n *Node) SetForViewID(view core.ViewID) {
 	n.forViewID = view
 }
+func (n *Node) SetCurrAction(action core.Action) {
+	n.currAction = action
+}
 
+func (n *Node) GetCurrAction() core.Action {
+	return n.currAction
+}
 func (n *Node) GetLeaderId() int {
 	return n.leaderId
 }

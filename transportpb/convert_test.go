@@ -60,6 +60,7 @@ func TestEpochMessageRoundTrips(t *testing.T) {
 	epochAggregate := core.EpochAggregateMsg{
 		EpochGeneration: 9,
 		From:            4,
+		CurrentAction:   core.PerformanceElection,
 		EpochData: core.EpochData{
 			Throughput:       123.5,
 			ProposalInterval: 0.25,
@@ -79,9 +80,25 @@ func TestEpochMessageRoundTrips(t *testing.T) {
 		EpochGeneration: epochAggregate.EpochGeneration,
 		From:            epochAggregate.From,
 		EpochData:       epochAggregate.EpochData,
+		CurrentAction:   epochAggregate.CurrentAction,
 	}
-	if gotMini := EpochAggregateMsgMiniToPB(mini); gotMini.EpochGeneration != 9 || gotMini.From != 4 || gotMini.EpochData.Throughput != 123.5 || gotMini.EpochData.VcRate != 0.125 {
+	if gotMini := EpochAggregateMsgMiniToPB(mini); gotMini.EpochGeneration != 9 || gotMini.From != 4 || gotMini.EpochData.Throughput != 123.5 || gotMini.EpochData.VcRate != 0.125 || gotMini.CurrentAction.TriggerMode != TriggerMode_TRIGGER_MODE_PERFORMANCE || gotMini.CurrentAction.Policy != Policy_POLICY_ELECTION {
 		t.Fatalf("epoch aggregate mini conversion = %#v", gotMini)
+	}
+}
+
+func TestViewIDAndActionConversionsRejectMissingOrUnknownValues(t *testing.T) {
+	if _, err := ViewIDFromPB(nil); err == nil {
+		t.Fatal("ViewIDFromPB accepted a missing view")
+	}
+	if _, err := ActionFromPB(nil); err == nil {
+		t.Fatal("ActionFromPB accepted a missing action")
+	}
+	if _, err := ActionFromPB(&Action{TriggerMode: TriggerMode(99)}); err == nil {
+		t.Fatal("ActionFromPB accepted an unknown trigger mode")
+	}
+	if _, err := ActionFromPB(&Action{Policy: Policy(99)}); err == nil {
+		t.Fatal("ActionFromPB accepted an unknown policy")
 	}
 }
 
@@ -118,7 +135,7 @@ func TestRequestVoteMsgSigRoundTrip(t *testing.T) {
 	in := core.RequestVoteMsgSig{
 		RequestVoteMsg: core.RequestVoteMsg{
 			From:       3,
-			ViewNumber: 9,
+			ViewNumber: core.ViewID{Generation: 2, Counter: 9},
 			Seed:       []byte("view-9"),
 			DelaySteps: 123456,
 			Y:          []byte{1, 2, 3},
@@ -141,7 +158,7 @@ func TestGrantVoteMsgSigRoundTrip(t *testing.T) {
 	in := core.GrantVoteMsgSig{
 		GrantVoteMsg: core.GrantVoteMsg{
 			From:       4,
-			ViewNumber: 11,
+			ViewNumber: core.ViewID{Generation: 3, Counter: 11},
 		},
 		Signature: []byte{1, 2, 3},
 	}
@@ -217,7 +234,7 @@ func TestClientMsgRoundTripPreservesMissingTransaction(t *testing.T) {
 func TestPreprepareMsgSigRoundTripIncludesActualMsg(t *testing.T) {
 	in := core.PreprepareMsgSig{
 		PreprepareMsgMini: core.PreprepareMsgMini{
-			View:                       7,
+			View:                       core.ViewID{Generation: 2, Counter: 7},
 			SeqNum:                     42,
 			DigestClientMsg:            [32]byte{1, 2, 3},
 			DigestIndividualClientMsgs: [][32]byte{{4, 5, 6}, {7, 8, 9}},
@@ -264,7 +281,7 @@ func TestPreprepareMiniFromPBRejectsInvalidIndividualDigest(t *testing.T) {
 
 func TestPreprepareRoundTripIncludesClientMessageBatch(t *testing.T) {
 	in := core.PreprepareMsg{
-		View:                       3,
+		View:                       core.ViewID{Generation: 2, Counter: 3},
 		SeqNum:                     17,
 		DigestClientMsg:            [32]byte{1, 2, 3},
 		DigestIndividualClientMsgs: [][32]byte{{4, 5, 6}, {7, 8, 9}},
@@ -307,6 +324,54 @@ func TestPreprepareRoundTripIncludesClientMessageBatch(t *testing.T) {
 	}
 }
 
+func TestPrepareAndCommitRoundTripsPreserveViewID(t *testing.T) {
+	view := core.ViewID{Generation: 4, Counter: 12}
+	digest := [32]byte{1, 2, 3}
+
+	prepare := core.PrepareMsg{View: view, SeqNum: 17, Digest: digest, From: 3}
+	gotPrepare, err := PrepareFromPB(PrepareToPB(prepare))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPrepare != prepare {
+		t.Fatalf("prepare round trip = %#v, want %#v", gotPrepare, prepare)
+	}
+
+	commit := core.CommitMsg{View: view, SeqNum: 17, Digest: digest, From: 4}
+	gotCommit, err := CommitFromPB(CommitToPB(commit))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotCommit != commit {
+		t.Fatalf("commit round trip = %#v, want %#v", gotCommit, commit)
+	}
+}
+
+func TestViewBearingMessagesRejectMissingViewID(t *testing.T) {
+	digest := make([]byte, 32)
+	tests := []struct {
+		name string
+		fn   func() error
+	}{
+		{name: "preprepare", fn: func() error { _, err := PreprepareFromPB(&PreprepareMsg{DigestClientMsg: digest}); return err }},
+		{name: "preprepare mini", fn: func() error { _, err := PreprepareMiniFromPB(&PreprepareMsgMini{DigestClientMsg: digest}); return err }},
+		{name: "prepare", fn: func() error { _, err := PrepareFromPB(&PrepareMsg{Digest: digest}); return err }},
+		{name: "commit", fn: func() error { _, err := CommitFromPB(&CommitMsg{Digest: digest}); return err }},
+		{name: "leader update", fn: func() error { _, err := LeaderIdUpdateFromPB(&LeaderIdUpdate{}); return err }},
+		{name: "view change", fn: func() error { _, err := ViewChangeFromPB(&ViewChangeMsg{}); return err }},
+		{name: "new view", fn: func() error { _, err := NewViewFromPB(&NewViewMsg{}); return err }},
+		{name: "request vote", fn: func() error { _, err := RequestVoteFromPB(&RequestVoteMsg{}); return err }},
+		{name: "grant vote", fn: func() error { _, err := GrantVoteFromPB(&GrantVoteMsg{}); return err }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.fn(); err == nil {
+				t.Fatal("missing view ID was accepted")
+			}
+		})
+	}
+}
+
 func TestPreprepareFromPBRejectsInvalidIndividualDigest(t *testing.T) {
 	msg := PreprepareToPB(core.PreprepareMsg{
 		DigestClientMsg:            [32]byte{1},
@@ -324,7 +389,7 @@ func TestLeaderIdUpdateRoundTrip(t *testing.T) {
 		To:          "client-1",
 		From:        "node-3",
 		NewLeaderId: 4,
-		View:        7,
+		View:        core.ViewID{Generation: 2, Counter: 7},
 	}
 
 	pb := LeaderIdUpdateToPB(in)
@@ -439,7 +504,7 @@ func TestCheckpointMsgSigRoundTrip(t *testing.T) {
 func TestViewChangeMsgSigRoundTrip(t *testing.T) {
 	in := core.ViewChangeMsgSig{
 		ViewChangeMsg: core.ViewChangeMsg{
-			ViewNumber:          8,
+			ViewNumber:          core.ViewID{Generation: 2, Counter: 8},
 			CheckpointSeqNumber: 250,
 			CheckpointDigest:    [32]byte{1, 2, 3},
 			CheckpointProof: []core.CheckpointMsgSig{
@@ -461,7 +526,7 @@ func TestViewChangeMsgSigRoundTrip(t *testing.T) {
 				251: {
 					PreprepareMsg: core.PreprepareMsgSig{
 						PreprepareMsgMini: core.PreprepareMsgMini{
-							View:                       7,
+							View:                       core.ViewID{Generation: 2, Counter: 7},
 							SeqNum:                     251,
 							DigestClientMsg:            [32]byte{7, 8, 9},
 							DigestIndividualClientMsgs: [][32]byte{{10, 11, 12}},
@@ -486,7 +551,7 @@ func TestViewChangeMsgSigRoundTrip(t *testing.T) {
 					PrepareLog: map[int]core.PrepareMsgSig{
 						3: {
 							PrepareMsg: core.PrepareMsg{
-								View:   7,
+								View:   core.ViewID{Generation: 2, Counter: 7},
 								SeqNum: 251,
 								Digest: [32]byte{7, 8, 9},
 								From:   3,
@@ -496,10 +561,7 @@ func TestViewChangeMsgSigRoundTrip(t *testing.T) {
 					},
 				},
 			},
-			Type: core.VCTypeRoundRobin,
-			RoundRobinData: &core.RoundRobinVCData{
-				GrantVote: true,
-			},
+			Action: core.PerformanceRoundRobin,
 		},
 		Signature: []byte{22, 23, 24},
 	}
@@ -516,7 +578,7 @@ func TestViewChangeMsgSigRoundTrip(t *testing.T) {
 func TestViewChangeFromPBRejectsInvalidCheckpointBalance(t *testing.T) {
 	msg := ViewChangeToPB(core.ViewChangeMsg{
 		CheckpointDigest: [32]byte{1},
-		Type:             core.VCTypeRoundRobin,
+		Action:           core.PerformanceRoundRobin,
 	})
 	msg.CheckpointBalances = map[string]string{"alice": "not-an-integer"}
 
@@ -525,15 +587,15 @@ func TestViewChangeFromPBRejectsInvalidCheckpointBalance(t *testing.T) {
 	}
 }
 
-func TestViewChangeFromPBRejectsMismatchedVCData(t *testing.T) {
+func TestViewChangeFromPBRejectsInvalidAction(t *testing.T) {
 	msg := ViewChangeToPB(core.ViewChangeMsg{
 		CheckpointDigest: [32]byte{1},
-		Type:             core.VCTypeRoundRobin,
+		Action:           core.PerformanceRoundRobin,
 	})
-	msg.VcData = &ViewChangeMsg_Election{Election: &ElectionVCData{ReqVote: true}}
+	msg.Action.TriggerMode = TriggerMode(99)
 
 	if _, err := ViewChangeFromPB(msg); err == nil {
-		t.Fatal("ViewChangeFromPB accepted VC data that does not match its type")
+		t.Fatal("ViewChangeFromPB accepted an invalid action")
 	}
 }
 
@@ -543,7 +605,7 @@ func TestNewViewMsgSigRoundTrip(t *testing.T) {
 			PreprepareLog: []core.PreprepareMsgSig{
 				{
 					PreprepareMsgMini: core.PreprepareMsgMini{
-						View:                       8,
+						View:                       core.ViewID{Generation: 2, Counter: 8},
 						SeqNum:                     251,
 						DigestClientMsg:            [32]byte{1, 2, 3},
 						DigestIndividualClientMsgs: [][32]byte{{4, 5, 6}},
@@ -569,20 +631,19 @@ func TestNewViewMsgSigRoundTrip(t *testing.T) {
 			ViewChangeLog: []*core.ViewChangeMsgSig{
 				{
 					ViewChangeMsg: core.ViewChangeMsg{
-						ViewNumber:          8,
+						ViewNumber:          core.ViewID{Generation: 2, Counter: 8},
 						CheckpointSeqNumber: 250,
 						CheckpointDigest:    [32]byte{13, 14, 15},
 						CheckpointProof:     []core.CheckpointMsgSig{},
 						CheckpointBalances:  map[string]*big.Int{},
 						From:                2,
 						PreparedCerts:       map[int64]*core.PreparedCert{},
-						Type:                core.VCTypeRoundRobin,
-						RoundRobinData:      &core.RoundRobinVCData{GrantVote: true},
+						Action:              core.PerformanceRoundRobin,
 					},
 					Signature: []byte{16, 17, 18},
 				},
 			},
-			NewViewNumber: 8,
+			NewViewNumber: core.ViewID{Generation: 2, Counter: 8},
 			Throughput:    1234.5,
 			From:          1,
 		},

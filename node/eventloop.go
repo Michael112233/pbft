@@ -122,7 +122,7 @@ func (n *Node) run() {
 			n.handleLearningAgentDecision(decision)
 		case <-n.clientEventMsgChan:
 			if n.GetNodeID() == n.GetLeaderId() && !n.viewChangeRunning {
-				n.log.Debug("Activated leader stall for view %d", n.GetView())
+				// n.log.Debug("Activated leader stall for view %d", n.GetView())
 				time.Sleep(120 * time.Millisecond)
 				// n.SetStall(true)
 			}

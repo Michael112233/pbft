@@ -185,10 +185,9 @@ func errUnknownMessageType(msgType string) error {
 	return fmt.Errorf("unknown message type %s", msgType)
 }
 
-func preprepareSignPayload(view, seq int64, digest []byte) *transportpb.PreprepareSignPayload {
-
+func preprepareSignPayload(view core.ViewID, seq int64, digest []byte) *transportpb.PreprepareSignPayload {
 	return &transportpb.PreprepareSignPayload{
-		View:            view,
+		View:            transportpb.ViewIDToPB(view),
 		SeqNum:          seq,
 		DigestClientMsg: digest,
 	}
@@ -199,6 +198,7 @@ func epochAggregateSignPayload(msg *transportpb.EpochAggregateMsg) *transportpb.
 		EpochGeneration: msg.EpochGeneration,
 		From:            msg.From,
 		EpochData:       msg.EpochData,
+		CurrentAction:   msg.CurrentAction,
 	}
 }
 
@@ -395,7 +395,11 @@ func (hub *NodeMessageHub) Deliver(ctx context.Context, env *transportpb.Envelop
 		if preprepare == nil {
 			return &transportpb.Ack{Ok: false, Error: "missing preprepare body"}, nil
 		}
-		if !hub.verifySignature(int(env.From), env.Signature, preprepareSignPayload(preprepare.View, preprepare.SeqNum, preprepare.DigestClientMsg)) {
+		view, err := transportpb.ViewIDFromPB(preprepare.View)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, preprepareSignPayload(view, preprepare.SeqNum, preprepare.DigestClientMsg)) {
 			// hub.log.Error("Signature verification failed for PrePrepare message from node ID: %d", env.From)
 			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
 		}

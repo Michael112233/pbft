@@ -12,6 +12,11 @@ type EpochNode interface {
 	QuorumSize() int
 	asyncBroadCast(msgType string, msg interface{}, signature []byte)
 	signEpochAggregateMsg(msg core.EpochAggregateMsgMini) ([]byte, error)
+	GetForViewID() core.ViewID
+	assert(condition bool, message string, args ...interface{})
+	SendLearningDataToAgent(epoch uint64, currAction core.Action, throughput float64, proposalRate float64, vcrRate float64, inactiveNodes uint8)
+	GetCurrAction() core.Action
+	stopEpochTimer()
 }
 type EpochManager struct {
 	epochMsgSig map[uint64]map[int]core.EpochDataMsgSig
@@ -27,9 +32,9 @@ func NewEpochManager(log *logger.Logger, node EpochNode) *EpochManager {
 	}
 }
 
-func (em *EpochManager) CreateEpochMsg() *core.EpochDataMsg {
+func (em *EpochManager) CreateEpochMsg(generation uint64) *core.EpochDataMsg {
 	epochMsg := &core.EpochDataMsg{
-		EpochGeneration: 1, // This should be set to the current epoch generation
+		EpochGeneration: generation,
 		From:            em.node.GetNodeID(),
 	}
 	return epochMsg
@@ -37,6 +42,14 @@ func (em *EpochManager) CreateEpochMsg() *core.EpochDataMsg {
 
 func (em *EpochManager) HandleEpochDataMsg(msg core.EpochDataMsg, signature []byte) {
 	// later will add gen check
+	forView := em.node.GetForViewID()
+	currAction := em.node.GetCurrAction()
+	em.node.assert(msg.EpochGeneration <= forView.Generation, "Received epoch data message for generation %d which is greater than my for view generation %d", msg.EpochGeneration, forView.Generation)
+	if msg.EpochGeneration != forView.Generation {
+		em.log.Info("Received epoch data message for generation %d which is not equal to my for view generation %d, ignoring", msg.EpochGeneration, forView.Generation)
+		return
+	}
+
 	if _, exists := em.epochMsgSig[msg.EpochGeneration]; !exists {
 		em.epochMsgSig[msg.EpochGeneration] = make(map[int]core.EpochDataMsgSig)
 	}
@@ -56,12 +69,14 @@ func (em *EpochManager) HandleEpochDataMsg(msg core.EpochDataMsg, signature []by
 			EpochGeneration:  msg.EpochGeneration,
 			From:             em.node.GetNodeID(),
 			EpochData:        core.EpochData{Throughput: 0, ProposalInterval: 0, VCRate: 0, InactiveNodes: 0}, // Placeholder values
+			CurrentAction:    currAction,
 			EpochDataMsgSigs: epochDataMsgSigs,
 		}
 		epochAggregateMsgMini := core.EpochAggregateMsgMini{
 			EpochGeneration: epochAggregateMsg.EpochGeneration,
 			From:            epochAggregateMsg.From,
 			EpochData:       epochAggregateMsg.EpochData,
+			CurrentAction:   epochAggregateMsg.CurrentAction,
 		}
 		signature, err := em.node.signEpochAggregateMsg(epochAggregateMsgMini)
 		if err != nil {
@@ -70,15 +85,30 @@ func (em *EpochManager) HandleEpochDataMsg(msg core.EpochDataMsg, signature []by
 		}
 		em.log.Info("Epoch aggregate message created for generation %d", msg.EpochGeneration)
 		em.node.asyncBroadCast(core.MsgEpochAggregateMessage, epochAggregateMsg, signature)
+		em.node.stopEpochTimer()
+		go em.node.SendLearningDataToAgent(msg.EpochGeneration, em.node.GetCurrAction(), epochAggregateMsg.EpochData.Throughput, epochAggregateMsg.EpochData.ProposalInterval, epochAggregateMsg.EpochData.VCRate, uint8(epochAggregateMsg.EpochData.InactiveNodes))
 	}
 }
 
 func (em *EpochManager) HandleEpochAggregateMsg(msg core.EpochAggregateMsg, _ []byte) {
-	em.log.Info("Epoch aggregate message received from node %d for generation %d", msg.From, msg.EpochGeneration)
+	// em.log.Info("Epoch aggregate message received from node %d for generation %d", msg.From, msg.EpochGeneration)
+	// it could be less if caught up from amplification but should not happen for our setup
+	// greater is again not ordinary that mean node out of sync
+	forView := em.node.GetForViewID()
+	currAction := em.node.GetCurrAction()
+	if msg.EpochGeneration != forView.Generation {
+		em.log.Info("Received epoch aggregate message for generation %d which is not equal to my for view generation %d, ignoring", msg.EpochGeneration, forView.Generation)
+		return
+	}
+	em.node.assert(msg.CurrentAction == currAction, "Received epoch aggregate message with action %v which does not match current action %v", msg.CurrentAction, currAction)
+	// my epoch may not have expired and may not have send dat so at this point can also stop timer
+	em.node.stopEpochTimer()
+	go em.node.SendLearningDataToAgent(msg.EpochGeneration, currAction, msg.EpochData.Throughput, msg.EpochData.ProposalInterval, msg.EpochData.VCRate, uint8(msg.EpochData.InactiveNodes))
+
 }
 
-func (n *Node) CreateEpochMsg() *core.EpochDataMsg {
-	return n.epochManager.CreateEpochMsg()
+func (n *Node) CreateEpochMsg(generation uint64) *core.EpochDataMsg {
+	return n.epochManager.CreateEpochMsg(generation)
 }
 
 func (n *Node) HandleEpochDataMsg(msg core.EpochDataMsg, signature []byte) {

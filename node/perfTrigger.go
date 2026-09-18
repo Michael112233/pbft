@@ -16,33 +16,58 @@ import (
 // 	}
 // }
 
-func (n *Node) maxRecentViewThroughput(currentView int64) float64 {
+// maxCounterForGeneration returns the highest counter recorded for the given
+// generation, or 0 if no view from that generation has recorded throughput.
+// Backed by maxCounterByGeneration, which is kept up to date on every write
+// to viewThroughputs, so this is O(1) rather than a scan over the map.
+func (n *Node) maxCounterForGeneration(generation uint64) uint64 {
+	return n.throughputPerf.maxCounterByGeneration[generation]
+}
+
+// for proposal delay in new view can make sure if less than 100 then send a default value
+func (n *Node) maxRecentViewThroughput(currentView core.ViewID) float64 {
 	window := int64(3*n.fNodes + 1)
-	startView := currentView - window
-	if startView < 1 {
-		startView = 1
-	}
 
 	maxThroughput := 0.0
 	found := false
 	concatStr := ""
-	for view := startView; view < currentView; view++ {
+
+	generation := currentView.Generation
+	counter := currentView.Counter
+	for i := int64(0); i < window; i++ {
+		counter--
+		for counter < 1 {
+			if generation <= 1 {
+				break
+			}
+			generation--
+			// A generation with no recorded throughput is skipped for free:
+			// its unknown view count is not charged against window, so this
+			// window can span further back in time than 3f+1 actual views.
+			counter = n.maxCounterForGeneration(generation)
+		}
+		if counter < 1 {
+			break
+		}
+
+		view := core.ViewID{Generation: generation, Counter: counter}
 		if throughput, exists := n.throughputPerf.viewThroughputs[view]; exists {
+			// for same generation for few counters throughput maynot exists
 			if !found || throughput > maxThroughput {
 				maxThroughput = throughput
 				found = true
 			}
-			concatStr += fmt.Sprintf("view %d: final throughput %.2f, ", view, throughput)
+			concatStr += fmt.Sprintf("view (%d,%d): final throughput %.2f, ", view.Generation, view.Counter, throughput)
 		} else {
-			concatStr += fmt.Sprintf("view %d: no throughput data, ", view)
+			concatStr += fmt.Sprintf("view (%d,%d): no throughput data, ", view.Generation, view.Counter)
 		}
 	}
 
 	if !found {
-		n.log.Debug(" No throughput data found for views %d to %d, returning default target throughput %.2f", startView, currentView-1, defaultTargetThroughput)
+		n.log.Debug(" No throughput data found for the %d views before (%d,%d), returning default target throughput %.2f", window, currentView.Generation, currentView.Counter, defaultTargetThroughput)
 		return defaultTargetThroughput
 	}
-	n.log.Info("Recent view throughputs for views %d to %d: %s", startView, currentView-1, concatStr)
+	n.log.Info("Recent view throughputs for the %d views before (%d,%d): %s", window, currentView.Generation, currentView.Counter, concatStr)
 
 	return maxThroughput
 }

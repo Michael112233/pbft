@@ -99,14 +99,19 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 		n.log.Info("Received view change for view (%d,%d), which is higher than my for view (%d,%d)", viewChange.ViewNumber.Generation, viewChange.ViewNumber.Counter, forView.Generation, forView.Counter)
 		if viewChange.ViewNumber.Counter == forView.Counter+1 && viewChangeCount == n.fNodes+1 {
 			n.log.Info("Entering view change after receiving f+1 view-change messages for view (%d,%d) which have a plus 1 counter", viewChange.ViewNumber.Generation, viewChange.ViewNumber.Counter)
-			n.enterViewChange(true, n.currAction)
+			forView := n.incrementCounter()
+			n.enterViewChange(forView)
 
-		} else if viewChange.ViewNumber.Generation > forView.Generation && viewChangeCount == n.fNodes+1 {
-			n.assert(viewChange.ViewNumber.Generation == forView.Generation+1, "Received view change for view (%d,%d) which is more than one ahead in generation of my for view (%d,%d)", viewChange.ViewNumber.Generation, viewChange.ViewNumber.Counter, forView.Generation, forView.Counter)
-			n.log.Info("Entering view change after receiving f+1 view-change messages for view (%d,%d) which have a higher generation", viewChange.ViewNumber.Generation, viewChange.ViewNumber.Counter)
-			n.enterViewChange(false, viewChange.Action) // pass higher gen to catchup
+		} else if viewChange.ViewNumber.Generation == forView.Generation+1 && viewChangeCount == n.fNodes+1 {
+			// n.assert(viewChange.ViewNumber.Generation == forView.Generation+1, "Received view change for view (%d,%d) which is more than one ahead in generation of my for view (%d,%d)", viewChange.ViewNumber.Generation, viewChange.ViewNumber.Counter, forView.Generation, forView.Counter)
+
+			n.log.Info("Entering view change after receiving f+1 view-change messages for view (%d,%d) which have a +1 generation", viewChange.ViewNumber.Generation, viewChange.ViewNumber.Counter)
+			forView := n.incrementGeneration(viewChange.Action)
+			n.enterViewChange(forView)
 		} else if viewChange.ViewNumber.Counter > forView.Counter+1 {
 			n.log.Warn("Received view change for view (%d,%d) which is more than one ahead in counter of my for view (%d,%d)", viewChange.ViewNumber.Generation, viewChange.ViewNumber.Counter, forView.Generation, forView.Counter)
+		} else if viewChange.ViewNumber.Generation > forView.Generation+1 {
+			n.log.Error("Received view change for view (%d,%d) which is more than one ahead in generation of my for view (%d,%d)", viewChange.ViewNumber.Generation, viewChange.ViewNumber.Counter, forView.Generation, forView.Counter)
 		}
 	} else {
 		n.log.Error("Received view change for view (%d,%d) which is lower than my for view (%d,%d), just adding to log", viewChange.ViewNumber.Generation, viewChange.ViewNumber.Counter, forView.Generation, forView.Counter)
@@ -140,7 +145,7 @@ func (n *Node) uniqueViewChangeCount(view core.ViewID) int {
 func (n *Node) maybeHandleViewChangeQuorum(forView, view core.ViewID, currAction core.Action, path string) {
 
 	if n.uniqueViewChangeCount(forView) == n.QuorumSize() {
-		n.log.Info("Received 2f+1 view-change messages for view (%d,%d); and path: %s and policy: %s", forView, view, path, currAction.Policy)
+		n.log.Info("Received 2f+1 view-change messages for view (%d,%d); current view (%d,%d); path: %s and currAction: %s", forView.Generation, forView.Counter, view.Generation, view.Counter, path, core.ActiontoString(currAction))
 		switch currAction.Policy {
 		case core.PolicyRoundRobin:
 			n.SelectRoundRobin(forView, view, currAction, path)
@@ -148,7 +153,7 @@ func (n *Node) maybeHandleViewChangeQuorum(forView, view core.ViewID, currAction
 			// n.ElectionLogic(forView, view, currAction, path)
 			n.SelectElection(forView, view, currAction, path)
 		default:
-			n.log.Error("Unknown policy %s for view change quorum handling", currAction.Policy)
+			n.log.Error("Unknown policy %v for view change quorum handling", currAction.Policy)
 		}
 	}
 }

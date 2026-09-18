@@ -91,7 +91,8 @@ func (n *Node) handleLeaderProgressTimeout() {
 		n.log.Warn("Peak TPS test is enabled so ignoring leader progress timeout")
 		return
 	}
-	n.enterViewChange(true, n.currAction)
+	forView := n.incrementCounter()
+	n.enterViewChange(forView)
 }
 
 func (n *Node) handleNewViewTimeout() {
@@ -101,5 +102,6 @@ func (n *Node) handleNewViewTimeout() {
 		n.log.Warn("Peak TPS test is enabled so ignoring new view timeout")
 		return
 	}
-	n.enterViewChange(true, n.currAction)
+	forView := n.incrementCounter()
+	n.enterViewChange(forView)
 }

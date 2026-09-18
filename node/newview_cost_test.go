@@ -199,7 +199,7 @@ func buildDummyClientMsgs(rng *mrand.Rand, count, paddingBytes int) []core.Clien
 	return msgs
 }
 
-func buildDummyPreprepareSig(rng *mrand.Rand, view, seq int64, p dummyParams, withActual bool) core.PreprepareMsgSig {
+func buildDummyPreprepareSig(rng *mrand.Rand, view core.ViewID, seq int64, p dummyParams, withActual bool) core.PreprepareMsgSig {
 	var digests [][32]byte
 	if !p.dropIndividualDigests {
 		digests = make([][32]byte, 0, p.txnsPerBatch)
@@ -223,7 +223,7 @@ func buildDummyPreprepareSig(rng *mrand.Rand, view, seq int64, p dummyParams, wi
 	return sig
 }
 
-func buildDummyPreparedCert(rng *mrand.Rand, view, seq int64, p dummyParams, withActual bool) *core.PreparedCert {
+func buildDummyPreparedCert(rng *mrand.Rand, view core.ViewID, seq int64, p dummyParams, withActual bool) *core.PreparedCert {
 	prepareLog := make(map[int]core.PrepareMsgSig, p.prepareVotesPerCert)
 	digest := fakeDigest(rng)
 	for from := 1; from <= p.prepareVotesPerCert; from++ {
@@ -257,11 +257,15 @@ func buildDummyCheckpointBalances(count int) map[string]*big.Int {
 // buildDummyViewChange builds one ViewChange whose P-set has p.numPreparedCerts
 // entries, mirroring createVCContent when the stable checkpoint is a full
 // interval behind lastExecuted.
-func buildDummyViewChange(rng *mrand.Rand, from int, view, checkpointSeq int64, p dummyParams) core.ViewChangeMsg {
+func buildDummyViewChange(rng *mrand.Rand, from int, view core.ViewID, checkpointSeq int64, p dummyParams) core.ViewChangeMsg {
 	preparedCerts := make(map[int64]*core.PreparedCert, p.numPreparedCerts)
+	preparedView := view
+	if preparedView.Counter > 0 {
+		preparedView.Counter--
+	}
 	for i := 0; i < p.numPreparedCerts; i++ {
 		seq := checkpointSeq + int64(i) + 1
-		preparedCerts[seq] = buildDummyPreparedCert(rng, view-1, seq, p, p.includeActualMsgVCCerts)
+		preparedCerts[seq] = buildDummyPreparedCert(rng, preparedView, seq, p, p.includeActualMsgVCCerts)
 	}
 
 	checkpointProof := make([]core.CheckpointMsgSig, 0, p.prepareVotesPerCert)
@@ -285,14 +289,13 @@ func buildDummyViewChange(rng *mrand.Rand, from int, view, checkpointSeq int64, 
 		CheckpointBalances:  buildDummyCheckpointBalances(p.checkpointAccounts),
 		From:                from,
 		PreparedCerts:       preparedCerts,
-		Type:                core.VCTypeRoundRobin,
-		RoundRobinData:      &core.RoundRobinVCData{GrantVote: false},
+		Action:              core.PerformanceRoundRobin,
 	}
 }
 
 // buildDummyNewView mirrors the message assembled in newview(): an O-set of
 // re-proposed preprepares plus the full 2f+1 ViewChangeLog.
-func buildDummyNewView(rng *mrand.Rand, from int, view, checkpointSeq int64, p dummyParams) core.NewViewMsg {
+func buildDummyNewView(rng *mrand.Rand, from int, view core.ViewID, checkpointSeq int64, p dummyParams) core.NewViewMsg {
 	oSet := make([]core.PreprepareMsgSig, 0, p.numPreparedCerts)
 	for i := 0; i < p.numPreparedCerts; i++ {
 		seq := checkpointSeq + int64(i) + 1
@@ -437,7 +440,7 @@ func TestNewViewCostBreakdown(t *testing.T) {
 	for _, tc := range newViewCostCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			rng := mrand.New(mrand.NewSource(1))
-			msg := buildDummyNewView(rng, 4, 8, 13500, tc.params)
+			msg := buildDummyNewView(rng, 4, testView(8), 13500, tc.params)
 
 			var (
 				pbMsg        *transportpb.NewViewMsg
@@ -500,7 +503,7 @@ func TestViewChangeCostBreakdown(t *testing.T) {
 	for _, tc := range newViewCostCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			rng := mrand.New(mrand.NewSource(1))
-			msg := buildDummyViewChange(rng, 4, 8, 13500, tc.params)
+			msg := buildDummyViewChange(rng, 4, testView(8), 13500, tc.params)
 
 			var (
 				pbMsg        *transportpb.ViewChangeMsg
@@ -884,7 +887,7 @@ func TestNewViewGRPCBroadcast(t *testing.T) {
 		for _, tuning := range tunings {
 			t.Run(shape.name+"/"+tuning.name, func(t *testing.T) {
 				rng := mrand.New(mrand.NewSource(1))
-				msg := buildDummyNewView(rng, 1, 8, 13500, shape.params)
+				msg := buildDummyNewView(rng, 1, testView(8), 13500, shape.params)
 
 				pbMsg := transportpb.NewViewToPB(msg)
 				payloadBytes, err := marshalDeterministic(pbMsg)
@@ -961,7 +964,7 @@ func TestNewViewEnvelopeParallelScaling(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rng := mrand.New(mrand.NewSource(1))
-			msg := buildDummyNewView(rng, 4, 8, 13500, tc.params)
+			msg := buildDummyNewView(rng, 4, testView(8), 13500, tc.params)
 
 			t.Logf("params: %s  (GOMAXPROCS=%d)", tc.params, runtime.GOMAXPROCS(0))
 
@@ -1016,7 +1019,7 @@ func TestNewViewSharedEnvelopeWin(t *testing.T) {
 	hub := &NodeMessageHub{node_ref: &Node{NodeID: 4}}
 	rng := mrand.New(mrand.NewSource(1))
 	params := defaultDummyParams()
-	msg := buildDummyNewView(rng, 4, 8, 13500, params)
+	msg := buildDummyNewView(rng, 4, testView(8), 13500, params)
 	signature := make([]byte, ed25519.SignatureSize)
 
 	const peers = 3

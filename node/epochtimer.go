@@ -28,8 +28,9 @@ func (n *Node) stopEpochTimer() {
 
 func (n *Node) handleEpochTimerTimeout() {
 	n.stopEpochTimer()
-	n.log.Info("Epoch timer fired for view %d", n.view)
-	epochMsg := n.CreateEpochMsg()
+	forView := n.GetForViewID()
+	n.log.Info("Epoch timer fired for view (%d,%d), sending epoch data message", forView.Generation, forView.Counter)
+	epochMsg := n.CreateEpochMsg(forView.Generation)
 	payloadBytes, err := marshalDeterministic(transportpb.EpochDataMsgToPB(*epochMsg))
 	if err != nil {
 		n.log.Error("Failed to marshal epoch data message for signing: %v", err)

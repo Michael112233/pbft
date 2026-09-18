@@ -121,7 +121,7 @@ func (c *LearningAgentHub) Start() error {
 	return nil
 }
 
-func (c *LearningAgentHub) SendLearningData(ctx context.Context, epoch uint64, throughput float64, proposalRate float64, vcrRate float64, inactiveNodes uint8) error {
+func (c *LearningAgentHub) SendLearningData(ctx context.Context, epoch uint64, currAction core.Action, throughput float64, proposalRate float64, vcrRate float64, inactiveNodes uint8) error {
 	if epoch < 0 {
 		return fmt.Errorf("learning-data epoch must be nonnegative: %d", epoch)
 	}
@@ -135,11 +135,12 @@ func (c *LearningAgentHub) SendLearningData(ctx context.Context, epoch uint64, t
 	if client == nil {
 		return errors.New("learning-agent hub is not started")
 	}
+	actionStr := core.ActiontoString(currAction)
 
 	request := &learningagentpb.LearningDecision{
 		NodeId:       int32(c.nodeID),
 		SequenceId:   epoch,
-		NextProtocol: "", // This field can be set based on your requirements
+		NextProtocol: actionStr,
 		Data: map[string]float64{
 			"reward":            throughput,
 			"proposal_interval": proposalRate,
@@ -221,14 +222,14 @@ func (n *Node) ExchangeWithLearningAgent(ctx context.Context, payload []byte) ([
 	}
 	return n.learningAgent.Exchange(ctx, payload)
 }
-func (n *Node) SendLearningDataToAgent(epoch uint64, throughput float64, proposalRate float64, vcrRate float64, inactiveNodes uint8) {
+func (n *Node) SendLearningDataToAgent(epoch uint64, currAction core.Action, throughput float64, proposalRate float64, vcrRate float64, inactiveNodes uint8) {
 	if n.learningAgent == nil {
 		n.log.Error("learning agent is not configured for this node")
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), learningAgentRPCTimeout)
 	defer cancel()
-	err := n.learningAgent.SendLearningData(ctx, epoch, throughput, proposalRate, vcrRate, inactiveNodes)
+	err := n.learningAgent.SendLearningData(ctx, epoch, currAction, throughput, proposalRate, vcrRate, inactiveNodes)
 	if err != nil {
 		n.log.Error("Failed to send learning data to agent: %v", err)
 	}

@@ -26,7 +26,8 @@ func (n *Node) perfTimedVC() {
 	if n.viewChangeRunning {
 		n.log.Warn(" vc already running when timed perf vc called")
 	}
-	n.enterViewChange()
+	forView := n.incrementCounter()
+	n.enterViewChange(forView)
 	// }
 }
 

@@ -235,24 +235,28 @@ func TestHandleIncomingEnvelopeDispatchesLeaderUpdate(t *testing.T) {
 	}()
 
 	client := &Client{
-		log: logger.NewLogger(0, "client"),
+		log:             logger.NewLogger(0, "client"),
+		fNodes:          1,
+		newLeaderQuorum: make(map[LeaderUpdate]int),
 	}
 	hub := &ClientMessageHub{
 		client_ref: client,
 		log:        client.log,
 	}
 
-	hub.handleIncomingEnvelope("localhost:28200", &transportpb.Envelope{
-		MsgType: core.MsgLeaderIdUpdateMessage,
-		Body: &transportpb.Envelope_LeaderIdUpdate{
-			LeaderIdUpdate: transportpb.LeaderIdUpdateToPB(core.LeaderIdUpdate{
-				From:        "localhost:28200",
-				To:          "localhost:20000",
-				NewLeaderId: 2,
-				View:        1,
-			}),
-		},
-	})
+	for range 2 {
+		hub.handleIncomingEnvelope("localhost:28200", &transportpb.Envelope{
+			MsgType: core.MsgLeaderIdUpdateMessage,
+			Body: &transportpb.Envelope_LeaderIdUpdate{
+				LeaderIdUpdate: transportpb.LeaderIdUpdateToPB(core.LeaderIdUpdate{
+					From:        "localhost:28200",
+					To:          "localhost:20000",
+					NewLeaderId: 2,
+					View:        core.ViewID{Generation: 1, Counter: 1},
+				}),
+			},
+		})
+	}
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {

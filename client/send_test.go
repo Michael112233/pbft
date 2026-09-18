@@ -9,6 +9,7 @@ import (
 
 	"github.com/michael112233/pbft/core"
 	pbftcrypto "github.com/michael112233/pbft/crypto"
+	"github.com/michael112233/pbft/logger"
 	"github.com/michael112233/pbft/transportpb"
 	"google.golang.org/protobuf/proto"
 )
@@ -157,6 +158,8 @@ func TestForEachTransactionBatchHonorsInjectSpeed(t *testing.T) {
 }
 
 func TestRequestPacerUsesOneTimelineForNormalAndRetryTraffic(t *testing.T) {
+	t.Chdir(t.TempDir())
+	log := logger.NewLogger(0, "client")
 	currentTime := time.Unix(100, 0)
 	pacer := requestPacer{
 		now: func() time.Time {
@@ -171,12 +174,13 @@ func TestRequestPacerUsesOneTimelineForNormalAndRetryTraffic(t *testing.T) {
 	recordSend := func() {
 		sendTimes = append(sendTimes, currentTime)
 	}
+	interval := 40 * time.Millisecond
 
 	// A full normal batch consumes 40 ms, the half-sized retry consumes 20 ms,
 	// and the following normal batch must use that same shared timeline.
-	pacer.pace(100, 100, clientSendInterval, recordSend)
-	pacer.pace(50, 100, clientSendInterval, recordSend)
-	pacer.pace(100, 100, clientSendInterval, recordSend)
+	pacer.pace(100, 100, interval, log, recordSend)
+	pacer.pace(50, 100, interval, log, recordSend)
+	pacer.pace(100, 100, interval, log, recordSend)
 
 	if len(sendTimes) != 3 {
 		t.Fatalf("recorded %d sends, want 3", len(sendTimes))
@@ -190,6 +194,8 @@ func TestRequestPacerUsesOneTimelineForNormalAndRetryTraffic(t *testing.T) {
 }
 
 func TestRequestPacerSerializesConcurrentProducers(t *testing.T) {
+	t.Chdir(t.TempDir())
+	log := logger.NewLogger(0, "client")
 	pacer := requestPacer{}
 	firstEntered := make(chan struct{})
 	releaseFirst := make(chan struct{})
@@ -200,7 +206,7 @@ func TestRequestPacerSerializesConcurrentProducers(t *testing.T) {
 	var overlap atomic.Bool
 
 	go func() {
-		pacer.pace(1, 1, time.Nanosecond, func() {
+		pacer.pace(1, 1, time.Nanosecond, log, func() {
 			if active.Add(1) != 1 {
 				overlap.Store(true)
 			}
@@ -213,7 +219,7 @@ func TestRequestPacerSerializesConcurrentProducers(t *testing.T) {
 
 	<-firstEntered
 	go func() {
-		pacer.pace(1, 1, time.Nanosecond, func() {
+		pacer.pace(1, 1, time.Nanosecond, log, func() {
 			if active.Add(1) != 1 {
 				overlap.Store(true)
 			}
