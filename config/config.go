@@ -65,7 +65,17 @@ type Config struct {
 	// DefaultAction names the action (trigger mode + leader policy) every node
 	// starts in, e.g. "FixedRoundRobin". Empty keeps the legacy PerformanceRoundRobin.
 	DefaultAction string `json:"default_action"`
+
+	// ScenarioMode cycles through Scenarios, moving to the next one every
+	// ScenarioGenerations generations. Needs EpochMode, since only epochs move
+	// the generation.
+	ScenarioMode        bool     `json:"scenario_mode"`
+	Scenarios           []string `json:"scenarios"`
+	ScenarioGenerations uint64   `json:"scenario_generations"`
+	ScenariosEnum       []core.Scenario
 }
+
+const DefaultScenarioGenerations = 100
 
 // InitialAction returns the action nodes start in.
 func (c *Config) InitialAction() core.Action {
@@ -111,6 +121,11 @@ func ReadCfg(filename string) *Config {
 		}
 	}
 
+	if err := config.ParseScenarios(); err != nil {
+		fmt.Printf("Invalid scenario config: %v\n", err)
+		os.Exit(1)
+	}
+
 	// config.FaultyNodesNum = (config.NodeNum - 1) / 3
 
 	// // 设置TCP缓冲区默认值（256KB = 256 * 1024 bytes）
@@ -122,4 +137,36 @@ func ReadCfg(filename string) *Config {
 	// }
 
 	return config
+}
+
+// ParseScenarios fills ScenariosEnum and rejects scenario configs that could
+// never take effect or would clash with other netem users.
+func (c *Config) ParseScenarios() error {
+	if !c.ScenarioMode {
+		return nil
+	}
+	if len(c.Scenarios) == 0 {
+		return fmt.Errorf("scenarios must be non-empty when scenario_mode is enabled")
+	}
+	if !c.EpochMode {
+		return fmt.Errorf("scenario_mode needs epoch_mode, otherwise the generation never changes")
+	}
+	if c.Netem.Enabled {
+		return fmt.Errorf("scenario_mode and netem.enabled both manage the qdisc on %s", c.Netem.Interface)
+	}
+	if c.ScenarioGenerations == 0 {
+		c.ScenarioGenerations = DefaultScenarioGenerations
+	}
+	c.ScenariosEnum = make([]core.Scenario, len(c.Scenarios))
+	for i, name := range c.Scenarios {
+		scenario, ok := core.StringToScenario(name)
+		if !ok {
+			return fmt.Errorf("unknown scenario %q", name)
+		}
+		if scenario == core.ScenarioProposalDelay && (c.ProposalDelayNode < 1 || int64(c.ProposalDelayNode) > c.NodeNum) {
+			return fmt.Errorf("ProposalDelay needs proposal_delay_node in 1..%d, got %d", c.NodeNum, c.ProposalDelayNode)
+		}
+		c.ScenariosEnum[i] = scenario
+	}
+	return nil
 }

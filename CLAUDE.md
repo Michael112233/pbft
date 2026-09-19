@@ -153,7 +153,7 @@ harness for measuring that cost.
 
 ## Epoch → learning agent → generation switch
 
-1. `epochTimerInterval` (60 s, `node/epochtimer.go`) fires; the node sends an
+1. `epochTimerInterval` (45 s, `node/epochtimer.go`) fires; the node sends an
    `EpochDataMsg` to **node 4** (hardcoded aggregator).
 2. Node 4 collects 2f+1 of them and broadcasts an `EpochAggregateMsg`
    (`epochManager.go`). Payload fields are still placeholder zeros.
@@ -181,6 +181,15 @@ With it off, the node stays in its initial action for the whole run.
 - `oracle_mode`, `oracle_actions`, `oracle_random`, `oracle_seed` — replace the
   learning agent with the local oracle.
 - `epoch_mode` — enable the epoch/generation machinery at all.
+- `scenario_mode`, `scenarios`, `scenario_generations` (default 100) — cycle through
+  fault scenarios (`Healthy`, `ProposalDelay`, `NetworkDelay`; `core/scenario.go`), one
+  per `scenario_generations` generations, derived from the generation in
+  `SetForViewID` → `maybeSwitchScenario` (`node/scenario.go`). A switch turns everything
+  off, then enables the new fault: ProposalDelay turns on the 100 ms `tryPropose` sleep on
+  `proposal_delay_node`; NetworkDelay has node 4 run
+  `sudo -n scripts/netem_scenario.sh up 170 <n>` from a worker goroutine (`down` on
+  every switch and on `Stop`). Requires `epoch_mode`; incompatible with `netem.enabled`
+  and with the script's `netem_delay`.
 - `leader_type` (`roundrobin` | `election` | `wrr`) — legacy `VCType`, separate from
   the per-action `Policy`; prefer `default_action`.
 - `performance`, `performance_trigger`, `performance_timed_trigger` — throughput
@@ -210,7 +219,8 @@ With it off, the node stays in its initial action for the whole run.
 
 - **Hardcoded node ids.** Node 4 is the epoch aggregator (`epochtimer.go`); node 3 is
   forced to be the only election candidate to avoid split votes
-  (`handleElectionVDFResult`). Both are experiment scaffolding, not protocol.
+  (`handleElectionVDFResult`); node 4 also owns the scenario-mode netem qdisc
+  (`scenarioNetemNodeID`). All are experiment scaffolding, not protocol.
 - `viewtimers.go` still defines unused `leaderProgressTimeout` / `newViewTimeout`
   constants; the live values come from `TriggerManager`.
 - A lot of superseded logic is commented out rather than deleted. Check whether a

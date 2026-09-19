@@ -90,6 +90,9 @@ func (p *Pool) GCUpTo(stableSeq int64) int {
 	return removed
 }
 
+// claude once suggest bucket version to sped up gc Better: drop a whole map
+// Bucket the pool by checkpoint window, one map per 250-seq window (bucket = (seq-1)/CHECKPOINT_INTERVAL).
+// but will need to measure if it isworth it
 func (p *Pool) Len() int {
 	return len(p.existsMap)
 }

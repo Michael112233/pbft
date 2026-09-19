@@ -1,0 +1,6 @@
+with netem enable scenario mode not run as alt_run_project add qdisc from script so competing
+
+scenario mode run when epoch enabled
+
+node 4 owns netem and down call then up for netem
+proposal delayonly for node 1

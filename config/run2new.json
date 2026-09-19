@@ -68,9 +68,13 @@
   "oracle_actions": ["FixedRoundRobin", "PeriodicRoundRobin", "PeriodicElection", "PerformanceRoundRobin", "PerformanceElection"],
   "oracle_random": false,
   "oracle_seed": 42,
-  "epoch_mode": false,
+  "epoch_mode": true,
   "default_action": "PerformanceRoundRobin",
-  "netem_delay": false
+  "netem_delay": false,
+
+  "scenarios" : ["Healthy", "ProposalDelay", "NetworkDelay"],
+  "scenario_mode": true,
+  "scenario_generations": 100
 
 
   

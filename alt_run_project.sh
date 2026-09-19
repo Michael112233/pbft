@@ -30,6 +30,13 @@ fi
 
 # Optional bool in the config: "netem_delay": true enables setup_netem + start_netem_schedule.
 NETEM_DELAY=$(python3 -c 'import json, sys; print("1" if json.load(open(sys.argv[1])).get("netem_delay", False) is True else "0")' "$CONFIG_PATH")
+# "scenario_mode": true lets node 4 own the lo qdisc (scripts/netem_scenario.sh); its
+# teardown would wipe the qdisc the netem_delay schedule relies on.
+SCENARIO_MODE=$(python3 -c 'import json, sys; print("1" if json.load(open(sys.argv[1])).get("scenario_mode", False) is True else "0")' "$CONFIG_PATH")
+if [ "$NETEM_DELAY" = "1" ] && [ "$SCENARIO_MODE" = "1" ]; then
+    echo "Error: netem_delay and scenario_mode cannot both be true in $CONFIG_PATH." >&2
+    exit 1
+fi
 
 NODE_COUNT=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["node_num"])' "$CONFIG_PATH")
 if ! [[ "$NODE_COUNT" =~ ^[1-9][0-9]*$ ]]; then

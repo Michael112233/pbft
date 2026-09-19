@@ -129,6 +129,15 @@ type Node struct {
 	peakTpsTest             bool
 	proposalDelay           bool
 	stallState              StallState
+
+	// scenario mode (node/scenario.go); loop-owned except the netem worker channel
+	scenarioMode    bool
+	currScenario    core.Scenario
+	scenarioApplied bool
+	netemScriptPath string
+	netemCmdCh      chan netemCmd
+	netemWorkerDone chan struct{}
+	netemStopOnce   sync.Once
 	gc                      bool
 	latencyLog              bool
 }
@@ -213,7 +222,8 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		lm: NewLatencyMonitor(),
 
 		dead:                    cfg.NodesDead[nodeID],
-		proposalDelay:           cfg.ProposalDelayNode == nodeID,
+		proposalDelay:           !cfg.ScenarioMode && cfg.ProposalDelayNode == nodeID, // scenario mode owns it otherwise
+		scenarioMode:            cfg.ScenarioMode,
 		performanceTimedTrigger: cfg.PerformanceTimedTrigger,
 		peakTpsTest:             cfg.PeakTpsTest,
 		stallState:              StallState{stall: false, view: 1},
@@ -266,6 +276,10 @@ func (n *Node) Start() error {
 		n.log.Info("learning-agent startup handshake succeeded")
 	}
 	n.throughputMeasurementStart()
+	if err := n.startScenario(); err != nil {
+		n.log.Error("failed to start scenario mode: %v", err)
+		return err
+	}
 	n.startEventLoop()
 	n.messageHub.Start(n, &sync.WaitGroup{})
 
@@ -321,6 +335,7 @@ func (n *Node) Stop() {
 		n.messageHub.Close()
 	}
 	n.stopEventLoop()
+	n.stopScenario()
 	n.throughputMeasurementStop()
 
 	n.clientReceiveRateStopOnce.Do(func() {
@@ -918,8 +933,11 @@ func (n *Node) SetViewID(view core.ViewID) {
 	n.viewID = view
 }
 
+// SetForViewID is the only place the generation moves (all three generation
+// switch paths end here), so it also drives the scenario switch.
 func (n *Node) SetForViewID(view core.ViewID) {
 	n.forViewID = view
+	n.maybeSwitchScenario(view.Generation)
 }
 func (n *Node) SetCurrAction(action core.Action) {
 	n.currAction = action
@@ -1012,6 +1030,10 @@ func (n *Node) QuorumSize() int {
 
 func (n *Node) ProposalDelayEnabled() bool {
 	return n.proposalDelay
+}
+
+func (n *Node) SetProposalDelay(enabled bool) {
+	n.proposalDelay = enabled
 }
 
 type StallState struct {
