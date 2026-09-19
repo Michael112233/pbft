@@ -16,7 +16,7 @@ fi
 "$DIR/export_client_report.sh" "$SESSION" "$REPORT" || echo "Warning: client report export failed." >&2
 
 # Give the processes time to write their files before they are killed.
-sleep 3
+sleep 5
 
 if tmux has-session -t "$SESSION" 2>/dev/null; then
     echo "Killing tmux session '$SESSION'..."

@@ -25,8 +25,8 @@ const (
 	defaultPBFTRequestTimeout          = 5 * time.Second
 	defaultPBFTRequestTimeoutJitterMax = 500 * time.Millisecond
 	CHECKPOINT_INTERVAL                = 250
-	defaultTargetThroughput            = 0.90 * 265
-	targetThroughputMaxFactor          = 0.90
+	defaultTargetThroughput            = 0.92 * 265
+	targetThroughputMaxFactor          = 0.92
 	ALPHA                              = 1 / float64(10) // for exponential moving average calculation of throughput
 	D                                  = 3
 	THROUGHPUTINTERVAL_DELAY           = 3
@@ -392,7 +392,7 @@ func (n *Node) tryPropose(fullBatch bool) {
 	// 	return
 	// }
 	if n.ProposalDelayEnabled() {
-		time.Sleep(70 * time.Millisecond)
+		time.Sleep(130 * time.Millisecond)
 	}
 
 	reqs := n.pendingRequests.Dequeue(n.GetBatchSize())

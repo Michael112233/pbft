@@ -2,11 +2,6 @@ package node
 
 import "time"
 
-const (
-	leaderProgressTimeout = 150 * time.Millisecond
-	newViewTimeout        = 150 * time.Millisecond
-)
-
 // was 90
 
 // resetOneShotTimer starts a timer or moves its deadline forward. All timer
@@ -82,9 +77,11 @@ func (n *Node) acceptNewViewTimers() {
 
 func (n *Node) acceptNewViewTimersLeader() {
 	n.stopNewViewTimer()
+	n.stopLeaderProgressTimer() // defensive , previously didnt had it and code still work
 }
 
 func (n *Node) handleLeaderProgressTimeout() {
+	n.assert(!n.IsLeader(), "leader progress timer expired for leader")
 	n.stopLeaderProgressTimer()
 	n.log.Error("Leader progress timer expired; entering view change")
 	if n.cfg.PeakTpsTest {

@@ -18,7 +18,7 @@ func TestLeaderProgressTimerStartsAndStops(t *testing.T) {
 
 	select {
 	case <-n.leaderProgressTimerCh:
-	case <-time.After(5 * leaderProgressTimeout):
+	case <-time.After(5 * 100 * time.Millisecond):
 		t.Fatal("leader progress timer did not expire")
 	}
 

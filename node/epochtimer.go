@@ -9,7 +9,7 @@ import (
 	"github.com/michael112233/pbft/transportpb"
 )
 
-const epochTimerInterval = 60 * time.Second
+const epochTimerInterval = 45 * time.Second
 
 // startEpochTimer starts the epoch timer. It is only ever touched from the
 // node event loop, so no locking is needed.

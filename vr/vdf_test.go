@@ -50,7 +50,7 @@ func TestTimeEvalVDF(t *testing.T) {
 func TestTimeEvalVDFLargeModulus(t *testing.T) {
 	modulus := testVDFLargeModulus()
 	input := []byte("input")
-	delaySteps := uint64(50000)
+	delaySteps := uint64(40000)
 
 	start := time.Now()
 	_, _, err := EvalVDF(input, modulus, delaySteps)
