@@ -94,16 +94,6 @@ func ReadCfg(filename string) *Config {
 		fmt.Printf("Invalid netem config: %v\n", err)
 		os.Exit(1)
 	}
-	if config.LeaderType == "roundrobin" {
-		config.LeaderTypeEnum = core.VCTypeRoundRobin
-	} else if config.LeaderType == "election" {
-		config.LeaderTypeEnum = core.VCTypeElection
-	} else if config.LeaderType == "wrr" {
-		config.LeaderTypeEnum = core.VCTypeWRR
-	} else {
-		fmt.Printf("Invalid leader type in config: %s\n", config.LeaderType)
-		os.Exit(1)
-	}
 
 	if config.DefaultAction != "" && core.ActiontoString(core.StringtoAction(config.DefaultAction)) != config.DefaultAction {
 		fmt.Printf("Invalid default_action in config: %s\n", config.DefaultAction)

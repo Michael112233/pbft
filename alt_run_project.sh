@@ -28,6 +28,9 @@ if ! python3 -c 'import grpc, google.protobuf' >/dev/null 2>&1; then
     exit 1
 fi
 
+# Optional bool in the config: "netem_delay": true enables setup_netem + start_netem_schedule.
+NETEM_DELAY=$(python3 -c 'import json, sys; print("1" if json.load(open(sys.argv[1])).get("netem_delay", False) is True else "0")' "$CONFIG_PATH")
+
 NODE_COUNT=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["node_num"])' "$CONFIG_PATH")
 if ! [[ "$NODE_COUNT" =~ ^[1-9][0-9]*$ ]]; then
     echo "Error: node_num in $CONFIG_PATH must be a positive integer." >&2
@@ -233,7 +236,9 @@ for i in $(seq 1 "$NODE_COUNT"); do
 done
 
 sleep 5
-# setup_netem
+if [ "$NETEM_DELAY" = "1" ]; then
+    setup_netem
+fi
 # Optional: start client in another window
 
 tmux new-window -t "$SESSION" -n "client" \
@@ -241,7 +246,9 @@ tmux new-window -t "$SESSION" -n "client" \
 
 # sleep 2
 # start_repeating_netem_spikes
-# start_netem_schedule
+if [ "$NETEM_DELAY" = "1" ]; then
+    start_netem_schedule
+fi
 # start_freq_trace
 
 echo "All nodes started."
@@ -253,6 +260,7 @@ fi
 #   ./alt_run_project.sh [config.json]
 #
 #   config.json  optional, default: config/run2new.json
+#   "netem_delay": true in the config runs setup_netem + start_netem_schedule (default false)
 #   NO_ATTACH=1  optional env var, skip the final "tmux attach" (default 0)
 #
 # Examples:
