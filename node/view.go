@@ -23,7 +23,33 @@ func (n *Node) incrementGeneration(action core.Action) core.ViewID {
 	n.resetEpochTimer()
 	n.SetCurrAction(action)
 	n.SwitchTriggerMode(action.TriggerMode) // its is some what parallel state with curr action both update together onn generation update
+	n.epochManager.GCBelow(forView.Generation + 1)
 	return core.ViewID{Generation: forView.Generation + 1, Counter: 1}
+}
+
+// pruneViewChangeState drops per-view bookkeeping for every view <= installed once
+// installed is the node's viewID. Safe because views only move forward and
+// HandleViewChangeRoundRobin discards any ViewChange for a view <= viewID on arrival,
+// so nothing can re-populate or read those entries again: verifyNewView / newview /
+// maybeHandleViewChangeQuorum only look up the view being moved to, which is > installed
+// until the moment it is installed. Entries for views above installed are kept, since
+// f+1 amplification and an in-flight view change still need them (a ViewChange can be
+// logged for a higher view while we are still in an older one).
+//
+// The map only ever holds views in flight, so the scan is over a handful of keys.
+func (n *Node) pruneViewChangeState(installed core.ViewID) {
+	for view := range n.viewChangeMsgsLog {
+		if view.LessThanOrEqual(installed) {
+			delete(n.viewChangeMsgsLog, view)
+		}
+	}
+	// only written, never read (leaderForView is hardcoded); kept as a record of the
+	// current view's leader only
+	for view := range n.leaderIdForView {
+		if view.LessThan(installed) {
+			delete(n.leaderIdForView, view)
+		}
+	}
 }
 
 func (n *Node) enterViewChange(forView core.ViewID) {
@@ -427,7 +453,7 @@ func (n *Node) newview() {
 		Action:        n.GetCurrAction(),
 		From:          n.GetNodeID(),
 		PreprepareLog: O,
-		ViewChangeLog: n.viewChangeMsgsLog[view],
+		ViewChangeLog: n.viewChangeMsgsLog[view], // even if delete in prune this ref isnot lost till we done with it
 		Throughput:    maxRecentThroughput,
 	}
 	// pbMsg := transportpb.NewViewToPB(newViewMsg)
@@ -438,6 +464,7 @@ func (n *Node) newview() {
 	// }
 	// signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
 	n.asyncBroadCast(core.MsgNewViewMessage, newViewMsg, nil)
+	n.pruneViewChangeState(view)
 	duration := time.Since(timeStart)
 	n.log.Info("Time taken to process new view is %d ms", duration.Milliseconds())
 
@@ -610,6 +637,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 		n.throughputPerf.throughputObservationStarted = false
 	}
 	n.sequenceNumber = maxSeq
+	n.pruneViewChangeState(view)
 	n.handleNewViewUpdatePerf(maxSeq, view, newViewMsg.Throughput)
 	n.pendingRequests.Reset()
 	// here we may have buffer

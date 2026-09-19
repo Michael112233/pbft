@@ -161,7 +161,6 @@ func (l *Log) GCLog(stableCheckpointSeq int64) {
 	for seq := l.low; seq <= stableCheckpointSeq; seq++ {
 		slotkey := slotKey{seqNum: seq}
 		delete(l.log, slotkey)
-		// here can delete entries from pool referencing this seq number as well if needed
 	}
 	l.low = stableCheckpointSeq + 1
 	l.high = l.low + 2*CHECKPOINT_INTERVAL - 1
@@ -209,4 +208,7 @@ func (l *Log) RemoveLogEntriesAboveSeq(seqNum int64, newView core.ViewID) (retai
 
 func (n *Node) GCLog(stableCheckpointSeq int64) {
 	n.consensusLog.GCLog(stableCheckpointSeq)
+	
+	_ = n.pool.GCUpTo(stableCheckpointSeq)
+	// n.log.Info("GC: stable checkpoint seq=%d, dropped %d pool requests, %d remain, %d log slots", stableCheckpointSeq, removed, n.pool.Len(), n.consensusLog.GetLogLen())
 }

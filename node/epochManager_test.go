@@ -86,3 +86,13 @@ func TestEpochManagerBroadcastsSignedAggregateAtQuorum(t *testing.T) {
 		t.Fatalf("collected epoch signatures = %#v", node.broadcastMsg.EpochDataMsgSigs)
 	}
 }
+
+func TestEpochManagerGCBelow(t *testing.T) {
+	em := &EpochManager{epochMsgSig: map[uint64]map[int]core.EpochDataMsgSig{
+		1: {1: {}}, 2: {1: {}}, 3: {1: {}},
+	}}
+	em.GCBelow(3)
+	if len(em.epochMsgSig) != 1 || em.epochMsgSig[3] == nil {
+		t.Fatalf("only generation 3 may remain, got %v", em.epochMsgSig)
+	}
+}

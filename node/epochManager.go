@@ -90,6 +90,18 @@ func (em *EpochManager) HandleEpochDataMsg(msg core.EpochDataMsg, signature []by
 	}
 }
 
+// GCBelow drops the collected epoch data for every generation < gen. Called when the
+// node moves to generation gen. Safe because HandleEpochDataMsg only stores and reads
+// entries for forView.Generation and ignores any lower generation, and generations
+// never decrease, so nothing can touch those entries again.
+func (em *EpochManager) GCBelow(gen uint64) {
+	for g := range em.epochMsgSig {
+		if g < gen {
+			delete(em.epochMsgSig, g)
+		}
+	}
+}
+
 func (em *EpochManager) HandleEpochAggregateMsg(msg core.EpochAggregateMsg, _ []byte) {
 	// em.log.Info("Epoch aggregate message received from node %d for generation %d", msg.From, msg.EpochGeneration)
 	// it could be less if caught up from amplification but should not happen for our setup
