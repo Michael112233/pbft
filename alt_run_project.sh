@@ -2,7 +2,8 @@
 set -e
 
 SESSION="pbft"
-CONFIG_PATH="config/run2new.json"
+CONFIG_PATH="${1:-config/run2new.json}"
+NO_ATTACH="${NO_ATTACH:-0}"
 
 # GOMAXPROCS sweep knobs (see plan: Step0 baseline + A3).
 # Empty (default) = unchanged behavior, GOMAXPROCS defaults to the full CPU affinity mask.
@@ -195,7 +196,7 @@ echo "Keys directory cleaned."
 echo "Building setup..."
 go build -o crypto_main setup_crypto/crypto_main.go
 chmod +x crypto_main
-./crypto_main
+./crypto_main --config "$CONFIG_PATH"
 
 echo "Building PBFT project..."
 rm -f pbft_main
@@ -228,7 +229,7 @@ echo "Follow all learning-agent node logs with: tail -f logs/learning-agent-node
 # Start every Go node in its own window.
 for i in $(seq 1 "$NODE_COUNT"); do
     tmux new-window -t "$SESSION" -n "node$i" \
-        "cd \"$CURRENT_DIR\" && ${NODE_ENV_PREFIX}./pbft_main -r node -m loopbackip -n $i; status=\$?; echo; echo \"node$i exited with status \$status\"; exec bash"
+        "cd \"$CURRENT_DIR\" && ${NODE_ENV_PREFIX}./pbft_main --config \"$CONFIG_PATH\" -r node -m loopbackip -n $i; status=\$?; echo; echo \"node$i exited with status \$status\"; exec bash"
 done
 
 sleep 5
@@ -236,7 +237,7 @@ sleep 5
 # Optional: start client in another window
 
 tmux new-window -t "$SESSION" -n "client" \
-    "cd \"$CURRENT_DIR\" && ${CLIENT_ENV_PREFIX}./pbft_main -r client -m loopbackip; status=\$?; echo; echo \"client exited with status \$status\"; exec bash"
+    "cd \"$CURRENT_DIR\" && ${CLIENT_ENV_PREFIX}./pbft_main --config \"$CONFIG_PATH\" -r client -m loopbackip; status=\$?; echo; echo \"client exited with status \$status\"; exec bash"
 
 # sleep 2
 # start_repeating_netem_spikes
@@ -244,6 +245,20 @@ tmux new-window -t "$SESSION" -n "client" \
 # start_freq_trace
 
 echo "All nodes started."
-echo "Attaching to tmux session: $SESSION"
-
-tmux attach -t "$SESSION"
+if [ "$NO_ATTACH" != "1" ]; then
+    echo "Attaching to tmux session: $SESSION"
+    tmux attach -t "$SESSION"
+fi
+# Usage:
+#   ./alt_run_project.sh [config.json]
+#
+#   config.json  optional, default: config/run2new.json
+#   NO_ATTACH=1  optional env var, skip the final "tmux attach" (default 0)
+#
+# Examples:
+#   ./alt_run_project.sh                                    # default config, attach to tmux
+#   ./alt_run_project.sh config/experiments/a.json          # custom config, attach to tmux
+#   NO_ATTACH=1 ./alt_run_project.sh config/experiments/a.json   # custom config, no attach
+#
+# Multiple experiments in a row (runs this script, waits, stop_experiment.sh, saves logs to results/<name>/):
+#   ./run_experiments.sh 300 config/experiments/a.json config/experiments/b.json

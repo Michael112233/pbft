@@ -30,3 +30,11 @@ fi
 # Usage examples:
 #./stop_experiment.sh                 # session pbft, report.json
 #./stop_experiment.sh pbft myrun.json # custom session and report name
+
+# Remove the netem qdisc set up by alt_run_project.sh (if any).
+NETEM_INTERFACE="lo"
+if command -v tc >/dev/null 2>&1 && tc qdisc show dev "$NETEM_INTERFACE" 2>/dev/null | grep -Eq 'prio|netem'; then
+    echo "Removing netem qdisc on $NETEM_INTERFACE..."
+    sudo -n tc qdisc del dev "$NETEM_INTERFACE" root 2>/dev/null \
+        || echo "Warning: could not remove qdisc (needs passwordless sudo); run: sudo tc qdisc del dev $NETEM_INTERFACE root" >&2
+fi

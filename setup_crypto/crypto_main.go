@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 
 	"crypto/ed25519"
@@ -11,9 +12,7 @@ import (
 	"github.com/michael112233/pbft/crypto"
 )
 
-const (
-	cfgPath = "config/run2new.json"
-)
+var cfgPath = flag.String("config", "config/run2new.json", "path to the experiment config json")
 
 type KeyPair struct {
 	PublicKey  ed25519.PublicKey
@@ -21,7 +20,8 @@ type KeyPair struct {
 }
 
 func main() {
-	cfg := config.ReadCfg(cfgPath)
+	flag.Parse()
+	cfg := config.ReadCfg(*cfgPath)
 	nodeNum := int(cfg.NodeNum)
 
 	// create keys directory if it doesn't exist
