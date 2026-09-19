@@ -16,3 +16,5 @@ Tick (seconds)	Target compared	% of max
 11	0.9 × 1.01¹⁰	99.4% (raised to 100.4% after this tick)
 12	0.9 × 1.01¹¹	100.4%
 At tick 12 the target is 100.4% of the max. Even a node running exactly at max throughput fails it (the check is throughput <= target), so nobody survives past 12 s. Your observed throughput sits at ~99.95% of the max (271.7 vs 271.8), which is why the trigger fired at exactly the 12th tick.
+
+at 170ms delay 3rtt tkes 500ms so in one second with 10 window you commit 20 batch 10 batch every 0.5s so 300 pulse on client every 0.5s

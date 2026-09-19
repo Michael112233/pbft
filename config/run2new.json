@@ -1,0 +1,77 @@
+{
+  "max_tx_num": 1000000,
+  "inject_speed": 200,
+  "max_block_size": 1,
+  "client_msg_padding_bytes": 0,
+  "node_num": 4,
+  "nodes_dead": {
+    "1": false,
+    "2": false,
+    "3": false,
+    "4": false
+  },
+  "nodes_in_dark": {
+    "1": false,
+    "2": false,
+    "3": false,
+    "4": false
+  },
+    "performance": true,
+  "period": 60000,
+  "number_of_periods": 20,
+  "peak_tps_test": false,
+  "far_node_id": 0,
+  "far_node_delay_ms": 0,
+  "netem": {
+  "enabled": false,
+  "interface": "lo",
+  "socket_path": "logs/netem-controller.sock",
+  "pid_path": "logs/netem-controller.sock.pid",
+  "limit": 100000,
+  "rules": [
+    {
+      "id": "delay-after-seq-2",
+      "event": {
+        "type": "execution",
+        "node_id": 1,
+        "seq": 2
+      },
+      "action": {
+        "delay_ms": 250,
+        "lifetime": "until_next_event"
+      }
+    }
+  ]
+},
+ 
+  "proposal_delay_node": 1,
+  "proposal_delay_ms": 2000,
+  "gc": true,
+  "logging": true,
+  "carry_state": true,
+  "dummy_account_count": 100000,
+  "log_shares": true,
+  "retry_sleep": 200,
+  "max_inflight_seq": 10,
+  "node_latency_logger": true,
+  "complete_suite": false,
+  "serial_client": false,
+  "pending_queue_capacity": 2000,
+  "max_batch_size": 30,
+  "max_batch_delay": 100,
+  "consensus_chan_size": 5000,
+  "min_vdf_delay": 100,
+  "max_vdf_delay": 1000,
+  "parallel_workers": true,
+
+  "oracle_mode": true,
+  "oracle_actions": ["FixedRoundRobin", "PeriodicRoundRobin", "PeriodicElection", "PerformanceRoundRobin", "PerformanceElection"],
+  "oracle_random": false,
+  "oracle_seed": 42,
+  "epoch_mode": false,
+  "default_action": "PerformanceRoundRobin",
+  "netem_delay": false
+
+
+  
+}

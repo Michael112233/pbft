@@ -60,6 +60,7 @@ func (n *Node) exeLoop() {
 		slot.executed = true
 		n.lastExecuted++
 		if n.lastExecuted == 1 && n.cfg.EpochMode {
+			n.log.Info("Epoch timer set")
 			n.startEpochTimer()
 		}
 		// if n.lastExecuted == 1 {

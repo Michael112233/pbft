@@ -392,7 +392,7 @@ func (n *Node) tryPropose(fullBatch bool) {
 	// 	return
 	// }
 	if n.ProposalDelayEnabled() {
-		time.Sleep(130 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	reqs := n.pendingRequests.Dequeue(n.GetBatchSize())
@@ -475,7 +475,7 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 	}
 
 	if preprepareMsg.SeqNum < n.consensusLog.low {
-		n.log.Info("Received PrePrepare for seq %d which is below low watermark %d, ignoring", preprepareMsg.SeqNum, n.consensusLog.low)
+		// n.log.Info("Received PrePrepare for seq %d which is below low watermark %d, ignoring", preprepareMsg.SeqNum, n.consensusLog.low)
 		return
 	}
 	if preprepareMsg.SeqNum > n.consensusLog.high {
@@ -647,7 +647,7 @@ func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 	}
 
 	if prepareMsg.SeqNum < n.consensusLog.low {
-		n.log.Info("Received Prepare for seq %d which is below low watermark %d, ignoring", prepareMsg.SeqNum, n.consensusLog.low)
+		// n.log.Info("Received Prepare for seq %d which is below low watermark %d, ignoring", prepareMsg.SeqNum, n.consensusLog.low)
 		return
 	}
 	if prepareMsg.SeqNum > n.consensusLog.high {
@@ -786,7 +786,7 @@ func (n *Node) HandleCommit(commitMsg core.CommitMsg) {
 	}
 
 	if commitMsg.SeqNum < n.consensusLog.low {
-		n.log.Info("Received Commit for seq %d which is below low watermark %d, ignoring", commitMsg.SeqNum, n.consensusLog.low)
+		// n.log.Info("Received Commit for seq %d which is below low watermark %d, ignoring", commitMsg.SeqNum, n.consensusLog.low)
 		return
 	}
 	if commitMsg.SeqNum > n.consensusLog.high {
