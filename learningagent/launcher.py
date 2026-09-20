@@ -9,7 +9,7 @@ import sys
 import time
 
 from learningagent.address import SUPPORTED_MODES, server_address
-from learningagent.server import run_server
+from learningagent.server import DEFAULT_CONFIG_PATH, run_server
 
 
 LOGGER = logging.getLogger(__name__)
@@ -34,6 +34,7 @@ def _run_server_process(
     mode: str,
     stop_event,
     log_dir: Path | None,
+    config_path: str,
 ) -> None:
     log_file = (
         log_dir / f"learning-agent-node-{node_id}.log"
@@ -41,7 +42,7 @@ def _run_server_process(
         else None
     )
     _configure_logging(log_file)
-    run_server(node_id, mode, stop_event)
+    run_server(node_id, mode, stop_event, config_path)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -54,6 +55,11 @@ def _parse_args() -> argparse.Namespace:
         "--log-dir",
         type=Path,
         help="write launcher and per-node INFO logs to this directory",
+    )
+    parser.add_argument(
+        "--config",
+        default=DEFAULT_CONFIG_PATH,
+        help="PBFT experiment config the nodes run with (scenario schedule)",
     )
     args = parser.parse_args()
     if args.node_count < 1:
@@ -84,7 +90,7 @@ def main() -> int:
         address = server_address(node_id, args.mode)
         process = context.Process(
             target=_run_server_process,
-            args=(node_id, args.mode, stop_event, args.log_dir),
+            args=(node_id, args.mode, stop_event, args.log_dir, args.config),
             name=f"learning-agent-{node_id}",
         )
         process.start()

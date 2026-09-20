@@ -226,7 +226,7 @@ fi
 
 # Start all Python servers under one launcher in the first tmux window.
 tmux new-session -d -s "$SESSION" -n "learning-agents" \
-    "cd \"$CURRENT_DIR\" && python3 -m learningagent.launcher --node-count $NODE_COUNT --mode loopbackip --log-dir \"$CURRENT_DIR/logs\"; status=\$?; echo; echo \"learning-agent launcher exited with status \$status\"; exec bash"
+    "cd \"$CURRENT_DIR\" && python3 -m learningagent.launcher --node-count $NODE_COUNT --mode loopbackip --log-dir \"$CURRENT_DIR/logs\" --config \"$CONFIG_PATH\"; status=\$?; echo; echo \"learning-agent launcher exited with status \$status\"; exec bash"
 
 echo "Learning-agent launcher log: $CURRENT_DIR/logs/learning-agent-launcher.log"
 echo "Learning-agent node logs: $CURRENT_DIR/logs/learning-agent-node-<id>.log"

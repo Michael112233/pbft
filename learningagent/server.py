@@ -6,15 +6,10 @@ import queue
 import signal
 import threading
 from concurrent import futures
-from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 from typing import Protocol
 
-try:
-    from enum import StrEnum  # Python 3.11+
-except ImportError:
-    from strenum import StrEnum  # Python 3.10
 from sklearn.ensemble import RandomForestRegressor
 from collections import deque
 import grpc
@@ -22,13 +17,21 @@ import grpc
 from learningagent import learning_agent_pb2
 from learningagent import learning_agent_pb2_grpc
 from learningagent.address import SUPPORTED_MODES, node_address, server_address
+from learningagent.protocols import PROTOCOLS, LearningData, ProtocolName
+from learningagent.scenario_sync import load_scenario_schedule, scenario_for_sequence
+from learningagent.simulate_quadrf import generate_state, generate_reward
 
 LOGGER = logging.getLogger(__name__)
 GRACEFUL_STOP_SECONDS = 5
 NODE_RPC_TIMEOUT_SECONDS = 1.0
 MAX_REPLAY_LENGTH = -1
 LEARNING_DATA_REWARD_KEY = "reward"
-LEARNING_DATA_STATE_KEYS = ("shadow_count",)
+# Must match the keys the node puts in LearningDecision.Data
+# (node/learning_agent_client.go) and the feature order of the synthetic state
+# vector [vc_rate, proposal_interval, u] in simulate_quadrf.generate_state.
+LEARNING_DATA_STATE_KEYS = ("vc_rate", "proposal_interval", "inactive_nodes")
+DEFAULT_CONFIG_PATH = "config/run2new.json"
+Quad_RF = True
 
 # True: refit every candidate arm on a fresh bootstrap at every predict() call
 #   (matches literal Thompson sampling; O(K) fits per decision).
@@ -47,25 +50,6 @@ class StopEvent(Protocol):
     def wait(self, timeout: float | None = None) -> bool: ...
 
     def set(self) -> None: ...
-
-
-class ProtocolName(StrEnum):
-    PeriodicRoundRobin = "periodic_round_robin"
-    PeriodicElection = "periodic_election"
-    PerformanceRoundRobin = "performance_round_robin"
-    PerformanceElection = "performance_election"
-    FixedRoundRobin = "fixed_round_robin"
-
-
-PROTOCOLS = [p.value for p in ProtocolName]
-
-
-@dataclass(frozen=True, slots=True)
-class LearningData:
-    sequence_id: int
-    current_protocol: ProtocolName
-    reward: float
-    state: NDArray[np.float64]  # 1d array
 
 
 DecisionQueue = queue.Queue[LearningData | None]
@@ -178,9 +162,9 @@ class QuadRF:
                         "inf"
                     )  # Assign a high value to encourage exploration
             else:
-                # if RESAMPLE_ON_PREDICT:
+                if RESAMPLE_ON_PREDICT:
                 # Fresh Thompson/bootstrap sample for EVERY candidate arm.
-                # self.train(prev_protocol, protocol)
+                    self.train(prev_protocol, protocol)
 
                 prediction = self.models[prev_protocol][protocol].predict(model_input)
                 point_estimate = float(prediction[0])
@@ -475,7 +459,7 @@ class EpsilonGreedyBandit:
         return protocols[selected_index]
 
 
-def run_decision_worker(
+def run_decision_worker_multirf(
     node_id: int,
     node_stub: learning_agent_pb2_grpc.LearningAgentNodeStub,
     request_queue: DecisionQueue,
@@ -613,6 +597,116 @@ def run_decision_worker(
         finally:
             request_queue.task_done()
 
+def run_decision_worker_quadrf(
+    node_id: int,
+    node_stub: learning_agent_pb2_grpc.LearningAgentNodeStub,
+    request_queue: DecisionQueue,
+    cmab: QuadRF,
+    scenarios: list,
+    scenario_span: int,
+) -> None:
+    """Drive QuadRF from real node traffic but synthetic state and reward.
+
+    The state and reward the node reports are logged and then ignored; both come
+    from simulate_quadrf instead, keyed on the scenario the node is running (see
+    scenario_sync). The decision is sent back to the node, which applies it.
+    """
+    sequence_id = 0
+    selected_protocol: ProtocolName | None = ProtocolName.FixedRoundRobin
+    last_scenario = None
+    while True:
+
+        task = request_queue.get()
+
+        try:
+            if task is None:
+                return
+            try:
+                # The node sends one epoch per generation, in order, with no gaps.
+                assert task.sequence_id == sequence_id + 1, (
+                    f"node {node_id} decision sequence {task.sequence_id} out of order "
+                    f"(expected {sequence_id + 1})"
+                )
+                sequence_id = task.sequence_id
+                scenario = scenario_for_sequence(sequence_id, scenarios, scenario_span)
+                if scenario != last_scenario:
+                    LOGGER.info(
+                        "node %d scenario %s -> %s at sequence %d",
+                        node_id,
+                        last_scenario.value if last_scenario else "none",
+                        scenario.value,
+                        sequence_id,
+                    )
+                    last_scenario = scenario
+                    # indicates scenario switch point
+                prev_protocol = selected_protocol
+                state = generate_state(scenario, prev_protocol)
+                # predict() returns a bare string (its keys come from PROTOCOLS),
+                # so wrap it the way simulate_quadrf.main does.
+                selected_protocol = ProtocolName(cmab.predict(state, prev_protocol))
+                reward = generate_reward(selected_protocol, scenario)
+                learning_data = LearningData(
+                    sequence_id=task.sequence_id,
+                    current_protocol=selected_protocol,
+                    reward=reward,
+                    state=state,
+                )
+                cmab.record_state_action_reward(learning_data, prev_protocol)
+                LOGGER.info(
+                    "node %d sequence %d scenario %s prev %s -> selected %s "
+                    "synthetic_state %s synthetic_reward %.2f "
+                    "(ignored node_reward %.2f node_state %s)",
+                    node_id,
+                    sequence_id,
+                    scenario.value,
+                    prev_protocol,
+                    selected_protocol,
+                    np.array2string(state, precision=2),
+                    reward,
+                    task.reward,
+                    np.array2string(np.asarray(task.state), precision=2),
+                )
+
+                ack = node_stub.SendDecision(
+                    learning_agent_pb2.LearningDecision(
+                        node_id=node_id,
+                        sequence_id=sequence_id,
+                        next_protocol=selected_protocol.value,
+                    ),
+                    timeout=NODE_RPC_TIMEOUT_SECONDS,
+                )
+                if ack.accepted:
+                    LOGGER.info(
+                        "node %d accepted decision sequence %d protocol %s",
+                        node_id,
+                        sequence_id,
+                        selected_protocol,
+                    )
+                else:
+                    LOGGER.warning(
+                        "node %d rejected decision sequence %d protocol %s: %s",
+                        node_id,
+                        sequence_id,
+                        selected_protocol,
+                        ack.error,
+                    )
+            except grpc.RpcError as error:
+                            LOGGER.error(
+                                "node %d decision sequence %d RPC failed: %s",
+                                node_id,
+                                task.sequence_id,
+                                error,
+                            )
+                            continue
+            except Exception:
+                LOGGER.exception(
+                    "node %d decision sequence %d failed unexpectedly",
+                    node_id,
+                    task.sequence_id,
+                )
+        finally:
+            request_queue.task_done()
+
 
 class LearningAgentService(learning_agent_pb2_grpc.LearningAgentServicer):
     def __init__(
@@ -727,12 +821,26 @@ def build_server(
     return server, bound_port
 
 
-def run_server(node_id: int, mode: str, stop_event: StopEvent) -> None:
+def run_server(
+    node_id: int,
+    mode: str,
+    stop_event: StopEvent,
+    config_path: str = DEFAULT_CONFIG_PATH,
+) -> None:
     address = server_address(node_id, mode)
     callback_address = node_address(node_id, mode)
+    # Read the same schedule the nodes use; raises here if it disagrees.
+    scenarios, scenario_span = load_scenario_schedule(config_path)
+    LOGGER.info(
+        "node %d scenario schedule from %s: %s every %d generations",
+        node_id,
+        config_path,
+        ", ".join(scenario.value for scenario in scenarios),
+        scenario_span,
+    )
     node_channel = grpc.insecure_channel(callback_address)
     decision_queue: DecisionQueue = queue.Queue()
-    cmab = MultiRF(5)
+    cmab = QuadRF(seed=5) if Quad_RF else MultiRF(seed=5)
     bandit = EpsilonGreedyBandit(epsilon=0.1, alpha=0.1, seed=5)
     server = None
     worker = None
@@ -741,12 +849,27 @@ def run_server(node_id: int, mode: str, stop_event: StopEvent) -> None:
         node_stub = learning_agent_pb2_grpc.LearningAgentNodeStub(node_channel)
         server, _ = build_server(node_id, address, node_stub, decision_queue)
         server.start()
-        worker = threading.Thread(
-            target=run_decision_worker,
-            args=(node_id, node_stub, decision_queue, bandit, cmab),
-            name=f"learning-agent-node-callback-{node_id}",
-            daemon=False,
-        )
+        if Quad_RF:
+            worker = threading.Thread(
+                target=run_decision_worker_quadrf,
+                args=(
+                    node_id,
+                    node_stub,
+                    decision_queue,
+                    cmab,
+                    scenarios,
+                    scenario_span,
+                ),
+                name=f"learning-agent-node-callback-{node_id}",
+                daemon=False,
+            )
+        else:
+            worker = threading.Thread(
+                target=run_decision_worker_multirf,
+                args=(node_id, node_stub, decision_queue, bandit, cmab),
+                name=f"learning-agent-node-callback-{node_id}",
+                daemon=False,
+            )
         worker.start()
         worker_started = True
         LOGGER.info(
@@ -775,6 +898,11 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run one node's learning-agent server")
     parser.add_argument("--node-id", type=int, required=True)
     parser.add_argument("--mode", choices=SUPPORTED_MODES, required=True)
+    parser.add_argument(
+        "--config",
+        default=DEFAULT_CONFIG_PATH,
+        help="PBFT experiment config the nodes run with (scenario schedule)",
+    )
     return parser.parse_args()
 
 
@@ -791,7 +919,7 @@ def main() -> int:
 
     signal.signal(signal.SIGINT, request_stop)
     signal.signal(signal.SIGTERM, request_stop)
-    run_server(args.node_id, args.mode, stop_event)
+    run_server(args.node_id, args.mode, stop_event, args.config)
     return 0
 
 

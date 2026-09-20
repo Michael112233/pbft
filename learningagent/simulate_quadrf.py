@@ -2,17 +2,14 @@
 
 from collections import Counter
 
-try:
-    from enum import StrEnum  # Python 3.11+
-except ImportError:
-    from strenum import StrEnum  # Python 3.10
 from time import time
 
 import numpy as np
 
-from learningagent.server import LearningData, MultiRF, ProtocolName, QuadRF
+from learningagent.protocols import LearningData, ProtocolName
+from learningagent.scenario_sync import SCENARIOS, Scenario, scenario_for_sequence
 
-SIMULATION_STEPS = 1000
+SIMULATION_STEPS = 600
 RANDOM_SEED = 5
 MIN_SHADOW_COUNT = 6
 MAX_SHADOW_COUNT = 10
@@ -21,21 +18,11 @@ SHIFTED_SHADOW_COUNT = 0
 INIT_PROTOCOL = ProtocolName.FixedRoundRobin
 
 
-class Scenario(StrEnum):
-    Healthy = "healthy"
-    ProposalDelay = "proposal_delay"
-    NetworkDelay = "network_delay"
-    NetworkDelayFCrash = "network_delay_f_crash"
-
-
-SCENARIOS = [s.value for s in Scenario]
-
 ROTATING_SCENARIOS = [Scenario.Healthy, Scenario.ProposalDelay, Scenario.NetworkDelay]
+SCENARIO_SPAN = 100
 
 
 def generate_state(
-    step: int,
-    rng: np.random.Generator,
     scenario: Scenario,
     protocol: ProtocolName,
 ) -> np.ndarray:
@@ -153,8 +140,6 @@ def generate_state(
 def generate_reward(
     protocol: ProtocolName,
     scenario: Scenario,
-    step: int,
-    rng: np.random.Generator,
 ) -> float:
     """Generate synthetic throughput for the selected protocol."""
     if scenario == Scenario.Healthy:
@@ -258,8 +243,11 @@ def generate_reward(
 
 
 def main() -> None:
+    # Imported here, not at module scope: server.py imports this module for its
+    # synthetic state and reward, so a top-level import would be circular.
+    from learningagent.server import QuadRF
+
     model = QuadRF(seed=RANDOM_SEED)
-    data_rng = np.random.default_rng(RANDOM_SEED)
     selected_protocol = INIT_PROTOCOL
     selections: Counter[ProtocolName] = Counter()
     rewards: dict[ProtocolName, list[float]] = {p: [] for p in ProtocolName}
@@ -269,13 +257,13 @@ def main() -> None:
         timeStart = time()
 
         last_scenario = scenario
-        scenario = ROTATING_SCENARIOS[((step - 1) // 100) % len(ROTATING_SCENARIOS)]
+        scenario = scenario_for_sequence(step, ROTATING_SCENARIOS, SCENARIO_SPAN)
         if scenario != last_scenario:
             print(f"\nScenario changed to {scenario.value} at step {step}")
         prev_protocol = selected_protocol
-        state = generate_state(step, data_rng, scenario, prev_protocol)
+        state = generate_state(scenario, prev_protocol)
         selected_protocol = ProtocolName(model.predict(state, prev_protocol))
-        reward = generate_reward(selected_protocol, scenario, step, data_rng)
+        reward = generate_reward(selected_protocol, scenario)
         sequence_id = step
 
         model.record_state_action_reward(
@@ -288,7 +276,7 @@ def main() -> None:
             prev_protocol,
         )
         # should train when use ucb
-        model.train(prev_protocol, selected_protocol)
+        # model.train(prev_protocol, selected_protocol)
         timeEnd = time()
 
         selections[selected_protocol] += 1
