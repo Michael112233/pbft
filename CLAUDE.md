@@ -20,6 +20,35 @@ combinations (`FixedRoundRobin`, `PeriodicRoundRobin`, `PeriodicElection`,
 `PerformanceElection`, `PerformanceRoundRobin`) with `ActiontoString` /
 `StringtoAction`.
 
+## Scope
+
+The research question is: **no single (trigger, policy) action is best in every
+condition, so let the protocol learn which one to run.** The system is put through a
+sequence of fault scenarios (`Healthy`, `ProposalDelay`, `NetworkDelay`) and a
+contextual multi-armed bandit picks, once per generation, which of the five actions to
+switch to; the goal is convergence to the scenario's best action and fast
+re-convergence when the scenario changes. The live agent is `QuadRF`
+(`learningagent/server.py`): a CMAB with one `RandomForestRegressor` per
+**(previous action, candidate action)** pair — so the context is the current state
+*plus* a one-step dependency on the action just run — selected by Thompson sampling
+(a fresh bootstrap resample of every candidate arm at predict time; untried pairs get
+`+inf` to force exploration). CMAB is the current approach; other ML approaches are
+expected to follow, which is why the agent sits behind a gRPC boundary and the
+protocol side only ever receives an action name.
+
+Expected convergence per scenario:
+
+| Scenario | Expected action | Why |
+|---|---|---|
+| `Healthy` | `FixedRoundRobin` | nothing is wrong; cheapest rotation, leader removed only when it stalls |
+| `ProposalDelay` | `PerformanceRoundRobin` | a slow-but-live leader passes the fixed timer, only the throughput bar catches it |
+| `NetworkDelay` | `PeriodicRoundRobin` | the 150 ms timers expire faster than a view change completes, so the system cascades and no leader is ever installed; the 10 s period gives each leader time to make progress |
+
+The agent currently decides on a **synthetic** state and reward; the real
+`node_reward`/`node_state` arrive as zeros and are logged as `ignored`, because the
+`EpochAggregateMsg` payload is still placeholder. Replacing the synthetic data with
+the real aggregate is planned work.
+
 ## Build and run
 
 ```bash
