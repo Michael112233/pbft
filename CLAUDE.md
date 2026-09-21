@@ -44,6 +44,14 @@ Expected convergence per scenario:
 | `ProposalDelay` | `PerformanceRoundRobin` | a slow-but-live leader passes the fixed timer, only the throughput bar catches it |
 | `NetworkDelay` | `PeriodicRoundRobin` | the 150 ms timers expire faster than a view change completes, so the system cascades and no leader is ever installed; the 10 s period gives each leader time to make progress |
 
+Planned scenario — **network delay combined with `f` crashed nodes** — expected to
+converge to `PeriodicElection`, because it is the one action that answers both halves:
+the 10 s period keeps the system making progress under delay (as above), and Election
+skips the crashed nodes for free — candidacy requires broadcasting RequestVote after
+the VDF race (`node/election.go`), which a crashed node never does, so it can never be
+elected. RoundRobin has no such filter and burns a full timeout every time the rotation
+lands on a dead node.
+
 The agent currently decides on a **synthetic** state and reward; the real
 `node_reward`/`node_state` arrive as zeros and are logged as `ignored`, because the
 `EpochAggregateMsg` payload is still placeholder. Replacing the synthetic data with
