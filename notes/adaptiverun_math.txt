@@ -1,0 +1,27 @@
+The window average is 7,591 tx/s, not far below your 7,760 estimate. The gap is mostly node 1 leading more often than you assumed, plus one epoch where node 1 was never removed.
+
+**Numbers** (from `report.json`, elapsed 18239–22739 s):
+- Window average: 7,591 tx/s.
+- Healthy baseline, gen 301–400: 8,059 tx/s, so the window is 5.8% below healthy.
+- Your model, applied to that 8,059 baseline, gives about 7,730. The real average is about 140 tx/s (1.8%) below that.
+
+**Does the perf timer remove node 1 every time?** Yes. All 196 node-1 stints in gen 402–500 lasted 1.3–1.4 s and executed about 12 slots (about 9 slots/s). The 1.3 s is 1.0 s of timer plus 0.3–0.4 s before the window opens, because `THROUGHPUTINTERVAL_DELAY` waits for 3 executed slots and node 1 does 10 slots/s. In the `Perf timer` lines, throughput is around 9 slots/s against a bar of about 250. This is a small cost: 0.35 s across 196 stints is about 0.26% of the time.
+
+**Where the loss comes from** (in slots/s, from view installs on node 2; healthy is about 271.5 and the window averaged 250.8):
+
+| Source | Share of time | Loss (slots/s) |
+|---|---|---|
+| Node 1 stints | 5.8% (you assumed about 4%) | 15.2 |
+| Gen 401, node 1 stuck as leader for the whole 45 s | 1.0% | 2.6 |
+| View-change overhead on healthy leaders | (268.5 vs 271.5 slots/s) | 2.8 |
+
+- **Node 1 leads 196 times, not the 144 you'd expect.** The generation switch resets the counter to 1, so node 1 leads the first view of every epoch. A 45 s epoch also isn't a multiple of the 31.3 s rotation, so it runs 1.35 s (node 1), 3 × 10 s (nodes 2, 3, 4), 1.35 s (node 1), 10 s, then a truncated view. That is two node-1 stints per epoch. This is the largest loss.
+- **Gen 401 is the one-off.** It ran under `FixedRoundRobin`, and the model only switched to `PerformanceRoundRobin` after that epoch. Node 1 kept the leader seat the whole time, at about 10 slots/s. That is 449 slots in 45 s. The Fixed trigger never removes a slow leader that is still making progress. Only this first epoch is affected.
+- **Healthy leaders run about 8.5 s on average, not 10 s.** The bar starts at 0.92 × the recent max and grows 1% per second, so it crosses 100% after about 8.4 raises. The views split into 283 at 10 s, 105 at 9 s and about 100 truncated by the epoch boundary. The 268.5 vs 271.5 slots/s gap is roughly 0.1 s lost per view change.
+- **There is one view-change cascade.** View (402,2) lasted 0.23 s with 0 slots before (402,3) took over. It happened only in the first generation, so it costs almost nothing.
+
+To get closer to your 97%/4% model, you could keep the counter from restarting at 1 on a generation switch, so node 1 doesn't lead first every epoch. Removing the 3-slot delay for the perf window would help only slightly. I haven't changed any code.
+
+The slot numbers above and the tx/s numbers disagree slightly (7.6% vs 5.8% below healthy). Batch sizes differ, and the client backlog that builds up during node 1's stints is likely drained in fuller batches afterwards.
+
+I used a helper script, `views.py`, in my scratchpad to extract the per-view timings. I can turn it into a proper analysis script in `scripts/` if you want.
