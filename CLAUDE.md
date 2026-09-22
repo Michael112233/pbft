@@ -69,7 +69,7 @@ go build -o pbft_main main.go          # nodes and client share one binary
 go test ./node -count=1                # some learning-agent tests are currently broken
 ```
 
-- Config path is hardcoded to `config/run2new.json` in `main.go`.
+- Config path is not hardcoded to `config/run2new.json` it uses --config
 - `main.go` → `controller/controller.go` → `node.NewNode` / `client`.
 - `setup_crypto/crypto_main.go` regenerates `keys/*.pem`; the run scripts do this
   every time, so keys always show as modified in git.

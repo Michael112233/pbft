@@ -1,6 +1,8 @@
 package node
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"math/big"
 	"sync"
@@ -116,6 +118,15 @@ func (n *Node) evalElectionVDF(
 	}
 }
 
+// electionCandidateForView deterministically picks the one node in 1..nodeNum
+// allowed to stand as candidate for view. It hashes the same "view-%d-%d" string
+// the VRF uses as its seed, so every node computes the same id with no messages.
+// Experiment scaffolding to avoid split votes, not part of the protocol.
+func electionCandidateForView(view core.ViewID, nodeNum int) int {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("view-%d-%d", view.Generation, view.Counter)))
+	return int(binary.BigEndian.Uint64(sum[:8])%uint64(nodeNum)) + 1
+}
+
 func (n *Node) handleElectionVDFResult(result electionVDFResult) {
 	if result.err != nil {
 		n.log.Error("VDF evaluation failed for view (%d,%d): %v", result.view.Generation, result.view.Counter, result.err)
@@ -139,8 +150,7 @@ func (n *Node) handleElectionVDFResult(result electionVDFResult) {
 		n.log.Debug("Already voted for view %d, ignoring completed VDF", result.view)
 		return
 	}
-	nodeId := n.GetNodeID()
-	if nodeId != 3 { // avoiding split vote
+	if candidate := electionCandidateForView(result.view, int(n.cfg.NodeNum)); n.GetNodeID() != candidate { // avoiding split vote
 		return
 	}
 	n.electionManager.votedFor[result.view] = n.GetNodeID()

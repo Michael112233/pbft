@@ -182,7 +182,13 @@ start_freq_trace() {
     echo "Kill it manually once the experiment finishes: kill $FREQ_TRACE_PID"
 }
 
-pkill -f pbft_main || true
+if [ -n "${RUN_ISOLATED:-}" ]; then
+    # scripts/run_isolated.sh gives each run its own tmux server (TMUX_TMPDIR), which owns all
+    # of the run's processes. pkill -f would also kill the other runs' pbft_main.
+    tmux kill-server 2>/dev/null || true
+else
+    pkill -f pbft_main || true
+fi
 echo "Cleaning up log files..."
 mkdir -p logs
 rm -f logs/*.log
