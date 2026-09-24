@@ -34,26 +34,32 @@ func TestScenarioEffects(t *testing.T) {
 	down := netemCmd{up: false}
 	up := netemCmd{up: true, delayMs: scenarioNetworkDelayMS}
 	const delayNode = 1
+	deadNodes := map[int]bool{1: false, 2: true, 3: false, 4: false}
 	cases := []struct {
 		name      string
 		nodeID    int
 		next      core.Scenario
 		wantDelay bool
+		wantDead  bool
 		wantNetem []netemCmd
 	}{
-		{"healthy delay node", 1, core.ScenarioHealthy, false, nil},
-		{"healthy netem node", 4, core.ScenarioHealthy, false, []netemCmd{down}},
-		{"proposal delay on delay node", 1, core.ScenarioProposalDelay, true, nil},
-		{"proposal delay on other node", 2, core.ScenarioProposalDelay, false, nil},
-		{"proposal delay netem node tears down", 4, core.ScenarioProposalDelay, false, []netemCmd{down}},
-		{"network delay netem node", 4, core.ScenarioNetworkDelay, false, []netemCmd{down, up}},
-		{"network delay other node", 2, core.ScenarioNetworkDelay, false, nil},
-		{"network delay clears proposal delay", 1, core.ScenarioNetworkDelay, false, nil},
+		{"healthy delay node", 1, core.ScenarioHealthy, false, false, nil},
+		{"healthy netem node", 4, core.ScenarioHealthy, false, false, []netemCmd{down}},
+		{"healthy revives dead node", 2, core.ScenarioHealthy, false, false, nil},
+		{"proposal delay on delay node", 1, core.ScenarioProposalDelay, true, false, nil},
+		{"proposal delay on other node", 2, core.ScenarioProposalDelay, false, false, nil},
+		{"proposal delay netem node tears down", 4, core.ScenarioProposalDelay, false, false, []netemCmd{down}},
+		{"network delay netem node", 4, core.ScenarioNetworkDelay, false, false, []netemCmd{down, up}},
+		{"network delay other node", 2, core.ScenarioNetworkDelay, false, false, nil},
+		{"network delay clears proposal delay", 1, core.ScenarioNetworkDelay, false, false, nil},
+		{"f crash kills dead node", 2, core.ScenarioNetworkDelayFCrash, false, true, nil},
+		{"f crash leaves live node", 1, core.ScenarioNetworkDelayFCrash, false, false, nil},
+		{"f crash netem node", 4, core.ScenarioNetworkDelayFCrash, false, false, []netemCmd{down, up}},
 	}
 	for _, c := range cases {
-		gotDelay, gotNetem := scenarioEffects(c.nodeID, delayNode, c.next)
-		if gotDelay != c.wantDelay || !reflect.DeepEqual(gotNetem, c.wantNetem) {
-			t.Errorf("%s: got (%t, %v), want (%t, %v)", c.name, gotDelay, gotNetem, c.wantDelay, c.wantNetem)
+		gotDelay, gotDead, gotNetem := scenarioEffects(c.nodeID, delayNode, deadNodes, c.next)
+		if gotDelay != c.wantDelay || gotDead != c.wantDead || !reflect.DeepEqual(gotNetem, c.wantNetem) {
+			t.Errorf("%s: got (%t, %t, %v), want (%t, %t, %v)", c.name, gotDelay, gotDead, gotNetem, c.wantDelay, c.wantDead, c.wantNetem)
 		}
 	}
 }

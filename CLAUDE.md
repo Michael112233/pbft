@@ -24,7 +24,8 @@ combinations (`FixedRoundRobin`, `PeriodicRoundRobin`, `PeriodicElection`,
 
 The research question is: **no single (trigger, policy) action is best in every
 condition, so let the protocol learn which one to run.** The system is put through a
-sequence of fault scenarios (`Healthy`, `ProposalDelay`, `NetworkDelay`) and a
+sequence of fault scenarios (`Healthy`, `ProposalDelay`, `NetworkDelay`,
+`NetworkDelayFCrash`) and a
 contextual multi-armed bandit picks, once per generation, which of the five actions to
 switch to; the goal is convergence to the scenario's best action and fast
 re-convergence when the scenario changes. The live agent is `QuadRF`
@@ -44,13 +45,16 @@ Expected convergence per scenario:
 | `ProposalDelay` | `PerformanceRoundRobin` | a slow-but-live leader passes the fixed timer, only the throughput bar catches it |
 | `NetworkDelay` | `PeriodicRoundRobin` | the 150 ms timers expire faster than a view change completes, so the system cascades and no leader is ever installed; the 10 s period gives each leader time to make progress |
 
-Planned scenario — **network delay combined with `f` crashed nodes** — expected to
+`NetworkDelayFCrash` — **network delay combined with `f` crashed nodes** — expected to
 converge to `PeriodicElection`, because it is the one action that answers both halves:
 the 10 s period keeps the system making progress under delay (as above), and Election
 skips the crashed nodes for free — candidacy requires broadcasting RequestVote after
 the VDF race (`node/election.go`), which a crashed node never does, so it can never be
 elected. RoundRobin has no such filter and burns a full timeout every time the rotation
-lands on a dead node.
+lands on a dead node. In experiments the race winner is not used: to avoid split votes
+the candidate comes from a deterministic per-view formula (`electionCandidateForView`)
+that picks randomly among the nodes except node 2, standing in for "only live nodes
+finish the race" (see Gotchas).
 
 The agent currently decides on a **synthetic** state and reward; the real
 `node_reward`/`node_state` arrive as zeros and are logged as `ignored`, because the
@@ -219,14 +223,19 @@ With it off, the node stays in its initial action for the whole run.
   learning agent with the local oracle.
 - `epoch_mode` — enable the epoch/generation machinery at all.
 - `scenario_mode`, `scenarios`, `scenario_generations` (default 100) — cycle through
-  fault scenarios (`Healthy`, `ProposalDelay`, `NetworkDelay`; `core/scenario.go`), one
+  fault scenarios (`Healthy`, `ProposalDelay`, `NetworkDelay`, `NetworkDelayFCrash`;
+  `core/scenario.go`), one
   per `scenario_generations` generations, derived from the generation in
   `SetForViewID` → `maybeSwitchScenario` (`node/scenario.go`). A switch turns everything
   off, then enables the new fault: ProposalDelay turns on the 100 ms `tryPropose` sleep on
   `proposal_delay_node`; NetworkDelay has node 4 run
   `sudo -n scripts/netem_scenario.sh up 170 <n>` from a worker goroutine (`down` on
-  every switch and on `Stop`). Requires `epoch_mode`; incompatible with `netem.enabled`
-  and with the script's `netem_delay`.
+  every switch and on `Stop`); NetworkDelayFCrash applies the same delay and sets `dead`
+  on every `nodes_dead` node (1..f of them, never node 4 — validated in
+  `config.go`). In scenario mode the scenario owns both `proposalDelay` and `dead`, so
+  `proposal_delay_node` and `nodes_dead` only take effect inside their scenario.
+  Requires `epoch_mode`; incompatible with `netem.enabled` and with the script's
+  `netem_delay`.
 - `leader_type` (`roundrobin` | `election` | `wrr`) — legacy `VCType`, separate from
   the per-action `Policy`; prefer `default_action`.
 - `performance`, `performance_trigger`, `performance_timed_trigger` — throughput
@@ -259,10 +268,13 @@ With it off, the node stays in its initial action for the whole run.
 
 ## Gotchas
 
-- **Hardcoded node ids.** Node 4 is the epoch aggregator (`epochtimer.go`); node 3 is
-  forced to be the only election candidate to avoid split votes
-  (`handleElectionVDFResult`); node 4 also owns the scenario-mode netem qdisc
-  (`scenarioNetemNodeID`). All are experiment scaffolding, not protocol.
+- **Hardcoded node ids.** Node 4 is the epoch aggregator (`epochtimer.go`); only one
+  node per view may stand as election candidate, to avoid split votes — picked
+  uniformly at random from 1..n **excluding node 2** by hashing the view
+  (`electionCandidateForView`, checked in `handleElectionVDFResult`), because
+  experiments always put node 2 in `nodes_dead` (`electionExcludedNodeID`); node 4
+  also owns the scenario-mode netem qdisc (`scenarioNetemNodeID`). All are
+  experiment scaffolding, not protocol.
 - `viewtimers.go` still defines unused `leaderProgressTimeout` / `newViewTimeout`
   constants; the live values come from `TriggerManager`.
 - A lot of superseded logic is commented out rather than deleted. Check whether a

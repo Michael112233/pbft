@@ -276,7 +276,7 @@ func (hub *NodeMessageHub) ClientNodeChannel(stream transportpb.PBFTTransport_Cl
 			}
 			return err
 		}
-		if hub.node_ref.dead {
+		if hub.node_ref.dead.Load() {
 			// hub.log.Info("Node is dead. Ignoring message from client stream.")
 			continue
 		}
@@ -361,7 +361,7 @@ func (hub *NodeMessageHub) Deliver(ctx context.Context, env *transportpb.Envelop
 	// }
 	switch env.MsgType {
 	case core.MsgEventMessage:
-		if hub.node_ref.dead {
+		if hub.node_ref.dead.Load() {
 			return &transportpb.Ack{Ok: false, Error: "node is dead"}, nil
 		}
 		event := env.GetEvent()
@@ -910,7 +910,7 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}, signat
 }
 
 func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, signature []byte) {
-	if hub.node_ref.dead {
+	if hub.node_ref.dead.Load() {
 		// hub.log.Info("Node is dead. Not sending message. msgType=%s target=%s", msgType, ip)
 		return
 	}

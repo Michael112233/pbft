@@ -43,11 +43,11 @@ func TestClientStreamEventDispatch(t *testing.T) {
 	t.Chdir(t.TempDir())
 	for _, dead := range []bool{false, true} {
 		n := &Node{
-			dead:               dead,
 			log:                logger.NewLogger(98765, "node"),
 			clientEventMsgChan: make(chan core.EventMsg, 2),
 			eventLoopStopCh:    make(chan struct{}),
 		}
+		n.dead.Store(dead)
 		hub := &NodeMessageHub{node_ref: n, log: n.log}
 		eventType := "live-event"
 		if dead {
@@ -131,7 +131,11 @@ func TestDeliverEvent(t *testing.T) {
 		},
 		{
 			name: "dead node",
-			node: &Node{dead: true, clientEventMsgChan: make(chan core.EventMsg, 1), eventLoopStopCh: make(chan struct{})},
+			node: func() *Node {
+				n := &Node{clientEventMsgChan: make(chan core.EventMsg, 1), eventLoopStopCh: make(chan struct{})}
+				n.dead.Store(true)
+				return n
+			}(),
 			env: &transportpb.Envelope{
 				MsgType: core.MsgEventMessage,
 				Body: &transportpb.Envelope_Event{

@@ -6,7 +6,7 @@
   "node_num": 4,
   "nodes_dead": {
     "1": false,
-    "2": false,
+    "2": true,
     "3": false,
     "4": false
   },
@@ -18,7 +18,7 @@
   },
     "performance": true,
   "period": 60000,
-  "number_of_periods": 3800,
+  "number_of_periods": 4500,
   "peak_tps_test": false,
   "far_node_id": 0,
   "far_node_delay_ms": 0,
@@ -61,19 +61,19 @@
   "max_batch_delay": 100,
   "consensus_chan_size": 5000,
   "min_vdf_delay": 100,
-  "max_vdf_delay": 40000,
+  "max_vdf_delay": 20000,
   "parallel_workers": true,
 
   "oracle_mode": false,
   "oracle_actions": ["FixedRoundRobin", "PeriodicRoundRobin", "PeriodicElection", "PerformanceRoundRobin", "PerformanceElection"],
   "oracle_random": false,
   "oracle_seed": 42,
-  "epoch_mode": false,
-  "default_action": "PerformanceRoundRobin",
+  "epoch_mode": true,
+  "default_action": "FixedRoundRobin",
   "netem_delay": false,
 
-  "scenarios" : ["Healthy", "ProposalDelay", "NetworkDelay"],
-  "scenario_mode": false,
+  "scenarios" : ["ProposalDelay", "NetworkDelay", "NetworkDelayFCrash", "ProposalDelay", "NetworkDelay", "NetworkDelayFCrash", "Healthy"],
+  "scenario_mode": true,
   "scenario_generations": 100
 
 

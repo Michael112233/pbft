@@ -54,3 +54,25 @@ func TestEvalElectionVDFReportsCompletion(t *testing.T) {
 
 	n.electionManager.electionVDFWorkers.Wait()
 }
+
+func TestElectionCandidateForViewSkipsExcludedNode(t *testing.T) {
+	const nodeNum = 4
+	counts := map[int]int{}
+	for gen := uint64(1); gen <= 30; gen++ {
+		for counter := uint64(1); counter <= 100; counter++ {
+			counts[electionCandidateForView(core.ViewID{Generation: gen, Counter: counter}, nodeNum)]++
+		}
+	}
+	if counts[electionExcludedNodeID] != 0 {
+		t.Fatalf("excluded node %d picked %d times", electionExcludedNodeID, counts[electionExcludedNodeID])
+	}
+	for id := 1; id <= nodeNum; id++ {
+		if id == electionExcludedNodeID {
+			continue
+		}
+		// 3000 draws over 3 ids: ~1000 each.
+		if counts[id] < 850 || counts[id] > 1150 {
+			t.Errorf("node %d picked %d times, want ~1000 (counts %v)", id, counts[id], counts)
+		}
+	}
+}

@@ -118,13 +118,28 @@ func (n *Node) evalElectionVDF(
 	}
 }
 
-// electionCandidateForView deterministically picks the one node in 1..nodeNum
-// allowed to stand as candidate for view. It hashes the same "view-%d-%d" string
-// the VRF uses as its seed, so every node computes the same id with no messages.
-// Experiment scaffolding to avoid split votes, not part of the protocol.
+// electionExcludedNodeID is never picked as election candidate: experiments
+// always crash node 2 (nodes_dead), and a dead candidate would cost a full
+// new-view timeout. Experiment scaffolding, like the other hardcoded ids.
+const electionExcludedNodeID = 2
+
+// electionCandidateForView deterministically picks the one node in 1..nodeNum,
+// excluding electionExcludedNodeID, allowed to stand as candidate for view. It
+// hashes the same "view-%d-%d" string the VRF uses as its seed, so every node
+// computes the same id with no messages. Experiment scaffolding to avoid split
+// votes, not part of the protocol.
 func electionCandidateForView(view core.ViewID, nodeNum int) int {
 	sum := sha256.Sum256([]byte(fmt.Sprintf("view-%d-%d", view.Generation, view.Counter)))
-	return int(binary.BigEndian.Uint64(sum[:8])%uint64(nodeNum)) + 1
+	h := binary.BigEndian.Uint64(sum[:8])
+	if electionExcludedNodeID < 1 || electionExcludedNodeID > nodeNum || nodeNum < 2 {
+		return int(h%uint64(nodeNum)) + 1
+	}
+	// Uniform over the nodeNum-1 remaining ids: draw 1..nodeNum-1, shift past the excluded one.
+	id := int(h%uint64(nodeNum-1)) + 1
+	if id >= electionExcludedNodeID {
+		id++
+	}
+	return id
 }
 
 func (n *Node) handleElectionVDFResult(result electionVDFResult) {

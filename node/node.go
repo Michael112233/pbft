@@ -124,7 +124,8 @@ type Node struct {
 	throughputPerf ThroughputPerf
 	lm             *LatencyMonitor
 
-	dead bool
+	// dead is read by the hub's gRPC goroutines; scenario mode toggles it at runtime.
+	dead atomic.Bool
 
 	performanceTimedTrigger bool
 	peakTpsTest             bool
@@ -222,7 +223,6 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		},
 		lm: NewLatencyMonitor(),
 
-		dead:                    cfg.NodesDead[nodeID],
 		proposalDelay:           !cfg.ScenarioMode && cfg.ProposalDelayNode == nodeID, // scenario mode owns it otherwise
 		scenarioMode:            cfg.ScenarioMode,
 		performanceTimedTrigger: cfg.PerformanceTimedTrigger,
@@ -233,6 +233,7 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		gc:         cfg.GC,
 	}
 
+	n.dead.Store(!cfg.ScenarioMode && cfg.NodesDead[nodeID]) // scenario mode owns it otherwise
 	n.ArmBatchTimer()
 	n.StopBatchTimer()
 	checkpointManager := NewCheckpointManager(log, n)
@@ -376,7 +377,11 @@ func (n *Node) GetNodeID() int {
 }
 
 func (n *Node) Dead() {
-	n.dead = true
+	n.dead.Store(true)
+}
+
+func (n *Node) SetDead(dead bool) {
+	n.dead.Store(dead)
 }
 
 func (n *Node) tryPropose(fullBatch bool) {

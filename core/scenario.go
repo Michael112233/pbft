@@ -9,6 +9,8 @@ const (
 	ScenarioHealthy Scenario = iota
 	ScenarioProposalDelay
 	ScenarioNetworkDelay
+	// ScenarioNetworkDelayFCrash is NetworkDelay plus the nodes_dead nodes crashed.
+	ScenarioNetworkDelayFCrash
 )
 
 func ScenarioToString(scenario Scenario) string {
@@ -19,6 +21,8 @@ func ScenarioToString(scenario Scenario) string {
 		return "ProposalDelay"
 	case ScenarioNetworkDelay:
 		return "NetworkDelay"
+	case ScenarioNetworkDelayFCrash:
+		return "NetworkDelayFCrash"
 	default:
 		return "UnknownScenario"
 	}
@@ -32,6 +36,8 @@ func StringToScenario(scenarioStr string) (Scenario, bool) {
 		return ScenarioProposalDelay, true
 	case "NetworkDelay":
 		return ScenarioNetworkDelay, true
+	case "NetworkDelayFCrash":
+		return ScenarioNetworkDelayFCrash, true
 	default:
 		return ScenarioHealthy, false
 	}

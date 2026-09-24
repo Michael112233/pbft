@@ -166,7 +166,37 @@ func (c *Config) ParseScenarios() error {
 		if scenario == core.ScenarioProposalDelay && (c.ProposalDelayNode < 1 || int64(c.ProposalDelayNode) > c.NodeNum) {
 			return fmt.Errorf("ProposalDelay needs proposal_delay_node in 1..%d, got %d", c.NodeNum, c.ProposalDelayNode)
 		}
+		if scenario == core.ScenarioNetworkDelayFCrash {
+			if err := c.validateScenarioDeadNodes(); err != nil {
+				return err
+			}
+		}
 		c.ScenariosEnum[i] = scenario
+	}
+	return nil
+}
+
+// validateScenarioDeadNodes checks the nodes_dead set NetworkDelayFCrash will
+// crash: 1..f nodes, none of them node 4, which aggregates epochs (no
+// aggregate means no generation switch, so the scenario could never end) and
+// owns the netem qdisc.
+func (c *Config) validateScenarioDeadNodes() error {
+	f := int((c.NodeNum - 1) / 3)
+	var dead []int
+	for id, isDead := range c.NodesDead {
+		if !isDead {
+			continue
+		}
+		if id < 1 || int64(id) > c.NodeNum {
+			return fmt.Errorf("NetworkDelayFCrash: nodes_dead has node %d outside 1..%d", id, c.NodeNum)
+		}
+		if id == 4 {
+			return fmt.Errorf("NetworkDelayFCrash: node 4 cannot be dead, it is the epoch aggregator")
+		}
+		dead = append(dead, id)
+	}
+	if len(dead) == 0 || len(dead) > f {
+		return fmt.Errorf("NetworkDelayFCrash needs 1..%d nodes set in nodes_dead, got %v", f, dead)
 	}
 	return nil
 }
