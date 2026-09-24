@@ -25,11 +25,12 @@ const (
 	defaultPBFTRequestTimeout          = 5 * time.Second
 	defaultPBFTRequestTimeoutJitterMax = 500 * time.Millisecond
 	CHECKPOINT_INTERVAL                = 250
-	defaultTargetThroughput            = 0.92 * 265
-	targetThroughputMaxFactor          = 0.92
-	ALPHA                              = 1 / float64(10) // for exponential moving average calculation of throughput
-	D                                  = 3
-	THROUGHPUTINTERVAL_DELAY           = 3
+	defaultTargetThroughput            = 0.92 * 160
+	// 8000/batch size
+	targetThroughputMaxFactor = 0.92
+	ALPHA                     = 1 / float64(10) // for exponential moving average calculation of throughput
+	D                         = 3
+	THROUGHPUTINTERVAL_DELAY  = 3
 )
 
 type Node struct {
@@ -138,8 +139,8 @@ type Node struct {
 	netemCmdCh      chan netemCmd
 	netemWorkerDone chan struct{}
 	netemStopOnce   sync.Once
-	gc                      bool
-	latencyLog              bool
+	gc              bool
+	latencyLog      bool
 }
 
 func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
@@ -459,6 +460,14 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 	// view := n.GetView()
 	view := n.GetViewID()
 	forView := n.GetForViewID()
+	// carry_state off: VC certs and the O-set carry no request bodies, so the pool is
+	// the only place a new-view install can find them. Keep every batch the leader
+	// sends, including ones dropped below (view change running, other view). Seqs
+	// below low are covered by a stable checkpoint and never needed; seqs above high
+	// are kept, since a lagging node can jump its checkpoint past them and execute them.
+	if !n.cfg.CarryState && preprepareMsg.SeqNum >= n.consensusLog.low {
+		n.pool.AddBatchIfNewer(preprepareMsg.ClientMsg, preprepareMsg.DigestIndividualClientMsgs, preprepareMsg.SeqNum, preprepareMsg.View)
+	}
 	if n.viewChangeRunning {
 		if preprepareMsg.View.GreaterThan(view) {
 			// buffer
@@ -542,7 +551,9 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 	}
 	n.slotPreprepare(slot, &prepareMsgMini, signature, false)
 	slot.view = preprepareMsg.View
-	n.pool.AddBatch(preprepareMsg.ClientMsg, preprepareMsg.DigestIndividualClientMsgs, preprepareMsg.SeqNum, preprepareMsg.View)
+	if n.cfg.CarryState {
+		n.pool.AddBatch(preprepareMsg.ClientMsg, preprepareMsg.DigestIndividualClientMsgs, preprepareMsg.SeqNum, preprepareMsg.View)
+	}
 	msg := core.PrepareMsg{
 		View:   preprepareMsg.View,
 		SeqNum: preprepareMsg.SeqNum,
@@ -748,7 +759,7 @@ func (n *Node) buildPreparedCert(slot *LogEntry) *core.PreparedCert {
 		if actualReqs, ok := n.pool.GetBatch(slot.preprepare.DigestIndividualClientMsgs); ok {
 			preprepareV.ActualMsg = actualReqs
 		} else {
-			n.log.Error("buildPreparedCert: actual requests for seq %d not in pool", slot.preprepare.SeqNum)
+			// n.log.Error("buildPreparedCert: actual requests for seq %d not in pool", slot.preprepare.SeqNum)
 		}
 	}
 	prepareLog := make(map[int]core.PrepareMsgSig, len(slot.prepares))

@@ -36,6 +36,38 @@ func (p *Pool) AddBatch(reqs []core.ClientMsgSignature, digests [][32]byte, seqN
 	}
 }
 
+// AddBatchIfNewer is AddBatch for bodies taken from PrePrepares the node may not act
+// on (view change running, other view). It never lowers an entry's seqNum, and it
+// skips a batch whose request and digest counts differ instead of panicking.
+//
+// Plain AddBatch would be unsafe here because GCUpTo deletes by the stored seqNum:
+//  1. Request R is proposed at seq 100 in view 5; view 5 dies before R prepares anywhere.
+//  2. The client retries and the view-6 leader proposes R at seq 300. Pool: R -> seq 300.
+//  3. The old view-5 PrePrepare for seq 100 reaches this node late (in flight or
+//     buffered). AddBatch would overwrite R -> seq 100.
+//  4. Checkpoint 250 stabilizes; GCUpTo(250) deletes R because 100 <= 250.
+//  5. Seq 300 commits, GetBatch fails ("some req for batch not found") and execution
+//     halts at seq 300 permanently.
+//
+// Skipping the lower-seq write at step 3 prevents this.
+func (p *Pool) AddBatchIfNewer(reqs []core.ClientMsgSignature, digests [][32]byte, seqNum int64, view core.ViewID) {
+	if len(reqs) != len(digests) {
+		p.log.Error("AddBatchIfNewer: %d requests but %d digests for seq %d, skipping", len(reqs), len(digests), seqNum)
+		return
+	}
+	for i, req := range reqs {
+		if data, exists := p.existsMap[digests[i]]; exists && data.seqNum >= seqNum {
+			continue
+		}
+		p.existsMap[digests[i]] = PoolData{
+			req:      req,
+			executed: false,
+			seqNum:   seqNum,
+			view:     view,
+		}
+	}
+}
+
 func (p *Pool) GetBatch(digests [][32]byte) ([]core.ClientMsgSignature, bool) {
 	reqs := make([]core.ClientMsgSignature, len(digests))
 	for i, digest := range digests {

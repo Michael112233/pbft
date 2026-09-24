@@ -438,7 +438,10 @@ func (n *Node) newview() {
 		n.slotPreprepare(slot, &preprepareMsg.PreprepareMsgMini, preprepareMsg.Signature, true)
 		slot.view = view
 		// check if after all the flow if order of actual message same as digest of individual client messages in preprepare message
-		n.pool.AddBatch(preprepareMsg.ActualMsg, preprepareMsg.PreprepareMsgMini.DigestIndividualClientMsgs, preprepareMsg.PreprepareMsgMini.SeqNum, view)
+		// without carry_state the O-set has no bodies; they are already in the pool from HandlePrePrepare
+		if n.cfg.CarryState {
+			n.pool.AddBatch(preprepareMsg.ActualMsg, preprepareMsg.PreprepareMsgMini.DigestIndividualClientMsgs, preprepareMsg.PreprepareMsgMini.SeqNum, view)
+		}
 
 	}
 	retained, committedAbove := n.consensusLog.RemoveLogEntriesAboveSeq(maxSeq, view)
@@ -624,7 +627,10 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 		n.asyncBroadCast(core.MsgPrepareMessage, msg, signature)
 
 		// check if after all the flow if order of actual message same as digest of individual client messages in preprepare message
-		n.pool.AddBatch(preprepareMsg.ActualMsg, preprepareMsg.PreprepareMsgMini.DigestIndividualClientMsgs, preprepareMsg.PreprepareMsgMini.SeqNum, view)
+		// without carry_state the O-set has no bodies; they are already in the pool from HandlePrePrepare
+		if n.cfg.CarryState {
+			n.pool.AddBatch(preprepareMsg.ActualMsg, preprepareMsg.PreprepareMsgMini.DigestIndividualClientMsgs, preprepareMsg.PreprepareMsgMini.SeqNum, view)
+		}
 
 	}
 	// we not remove prepared entries , but i hope usually nothing to retain

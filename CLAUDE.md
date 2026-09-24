@@ -125,8 +125,8 @@ leader.
 timer stays armed underneath as a floor; on top of it:
 
 - On every NewView, `resetTimedPerfWindow` sets the bar to
-  `0.90 * maxRecentThroughput` (`targetThroughputMaxFactor`), where the max is taken
-  over a window of the last `3f+1` views (`maxRecentViewThroughput`).
+  `0.92 * maxRecentThroughput` (`targetThroughputMaxFactor`. This factor can vary between 0.9 and 0.99 so see the code for current value), where the max is taken
+  over a window of the last `3f+1` views (`maxRecentViewThroughput`). 
 - A 1 s timer (`perfTimerInterval`) samples throughput since the window opened.
   Above the bar → the bar is multiplied by `1.01` (`perfTimedTargetGrowth`) and the
   timer re-arms. At or below the bar → immediate view change.
@@ -234,6 +234,11 @@ With it off, the node stays in its initial action for the whole run.
 - `peak_tps_test` — suppresses all timer-driven view changes; used to measure the
   ceiling.
 - `netem` — event-driven delay injection via `cmd/netem-controller`.
+- `carry_state` — when false, VC certs and the NewView O-set carry no request bodies
+  (`ActualMsg`); bodies come only from the pool, filled in `HandlePrePrepare` for
+  every PrePrepare received. `some req for batch not found` in a node log should
+  never appear then; if it does, a node is missing a request body for a seq it has
+  to execute.
 - Others: `node_num`, `max_batch_size`, `inject_speed`, `parallel_workers`,
   `nodes_dead`, `gc`, `min_vdf_delay` / `max_vdf_delay` (election VDF range).
 - `nodes_in_dark` is present in the JSON but has no field in `config.go`, so it is

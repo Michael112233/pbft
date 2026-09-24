@@ -277,7 +277,7 @@ func (hub *NodeMessageHub) ClientNodeChannel(stream transportpb.PBFTTransport_Cl
 			return err
 		}
 		if hub.node_ref.dead {
-			hub.log.Info("Node is dead. Ignoring message from client stream.")
+			// hub.log.Info("Node is dead. Ignoring message from client stream.")
 			continue
 		}
 		switch env.MsgType {

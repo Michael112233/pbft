@@ -86,6 +86,43 @@ setup_netem() {
     echo "Node-to-node netem filters configured with an initial 0ms delay."
 }
 
+setup_netem_node1() {
+    if ! command -v tc >/dev/null 2>&1; then
+        echo "Error: tc is required. Install the Linux iproute2 package first." >&2
+        exit 1
+    fi
+
+    if (( NODE_COUNT < 1 || NODE_COUNT > 8 )); then
+        echo "Error: NODE_COUNT must be between 1 and 8 in loopbackip mode." >&2
+        exit 1
+    fi
+
+    echo "Authenticating sudo for netem configuration..."
+    sudo -v
+
+    echo "Configuring node1<->all-nodes netem filters on $NETEM_INTERFACE..."
+    sudo tc qdisc del dev "$NETEM_INTERFACE" root 2>/dev/null || true
+    sudo tc qdisc add dev "$NETEM_INTERFACE" root handle 1: prio bands 3 \
+        priomap 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+    sudo tc qdisc add dev "$NETEM_INTERFACE" parent 1:3 handle 30: \
+        netem limit "$NETEM_LIMIT" delay 35ms
+
+    local node1_ip other_id other_ip
+    node1_ip="127.0.0.2"
+    for ((other_id = 1; other_id <= NODE_COUNT; other_id++)); do
+        other_ip="127.0.0.$((other_id + 1))"
+        if [ "$other_ip" = "$node1_ip" ]; then
+            continue
+        fi
+        sudo tc filter add dev "$NETEM_INTERFACE" parent 1: protocol ip prio 10 flower \
+            src_ip "$node1_ip/32" dst_ip "$other_ip/32" classid 1:3
+        sudo tc filter add dev "$NETEM_INTERFACE" parent 1: protocol ip prio 10 flower \
+            src_ip "$other_ip/32" dst_ip "$node1_ip/32" classid 1:3
+    done
+
+    echo "Node1<->all-nodes netem filters configured with a 35ms delay in both directions."
+}
+
 start_netem_schedule() {
     : > "$NETEM_DELAY_LOG"
 
@@ -262,6 +299,9 @@ tmux new-window -t "$SESSION" -n "client" \
 if [ "$NETEM_DELAY" = "1" ]; then
     start_netem_schedule
 fi
+
+# sleep 2
+# setup_netem_node1
 # start_freq_trace
 
 echo "All nodes started."

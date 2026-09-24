@@ -9,7 +9,7 @@ import numpy as np
 from learningagent.protocols import LearningData, ProtocolName
 from learningagent.scenario_sync import SCENARIOS, Scenario, scenario_for_sequence
 
-SIMULATION_STEPS = 600
+SIMULATION_STEPS = 1000
 RANDOM_SEED = 5
 MIN_SHADOW_COUNT = 6
 MAX_SHADOW_COUNT = 10
@@ -18,8 +18,9 @@ SHIFTED_SHADOW_COUNT = 0
 INIT_PROTOCOL = ProtocolName.FixedRoundRobin
 
 
-ROTATING_SCENARIOS = [Scenario.Healthy, Scenario.ProposalDelay, Scenario.NetworkDelay]
+ROTATING_SCENARIOS = [Scenario.ProposalDelay, Scenario.NetworkDelay, Scenario.NetworkDelayFCrash, Scenario.ProposalDelay, Scenario.NetworkDelay, Scenario.NetworkDelayFCrash, Scenario.Healthy]
 SCENARIO_SPAN = 100
+CYCLING_SCENARIOS = True
 
 
 def generate_state(
@@ -304,7 +305,7 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 
-# python -m learningagent.simulate_multirf
+# python -m learningagent.simulate_quadrf   (run from the repo root)
 
 # interesting result when at shift just change state then fixed is selected but initlal data showed state 0 fixed give 1400
 # but if reward fixed with state zero still 1100 then periodic selected again but if reward high then fixed selected for all next steps
