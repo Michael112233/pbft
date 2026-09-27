@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	PBFTTransport_Deliver_FullMethodName           = "/pbft.transport.v1.PBFTTransport/Deliver"
 	PBFTTransport_ClientNodeChannel_FullMethodName = "/pbft.transport.v1.PBFTTransport/ClientNodeChannel"
+	PBFTTransport_Probe_FullMethodName             = "/pbft.transport.v1.PBFTTransport/Probe"
 )
 
 // PBFTTransportClient is the client API for PBFTTransport service.
@@ -29,6 +30,9 @@ const (
 type PBFTTransportClient interface {
 	Deliver(ctx context.Context, in *Envelope, opts ...grpc.CallOption) (*Ack, error)
 	ClientNodeChannel(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[Envelope, Envelope], error)
+	// Probe is answered by the hub without touching the event loop; the caller
+	// times the call to measure RTT.
+	Probe(ctx context.Context, in *ProbeReq, opts ...grpc.CallOption) (*ProbeResp, error)
 }
 
 type pBFTTransportClient struct {
@@ -62,12 +66,25 @@ func (c *pBFTTransportClient) ClientNodeChannel(ctx context.Context, opts ...grp
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type PBFTTransport_ClientNodeChannelClient = grpc.BidiStreamingClient[Envelope, Envelope]
 
+func (c *pBFTTransportClient) Probe(ctx context.Context, in *ProbeReq, opts ...grpc.CallOption) (*ProbeResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProbeResp)
+	err := c.cc.Invoke(ctx, PBFTTransport_Probe_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PBFTTransportServer is the server API for PBFTTransport service.
 // All implementations must embed UnimplementedPBFTTransportServer
 // for forward compatibility.
 type PBFTTransportServer interface {
 	Deliver(context.Context, *Envelope) (*Ack, error)
 	ClientNodeChannel(grpc.BidiStreamingServer[Envelope, Envelope]) error
+	// Probe is answered by the hub without touching the event loop; the caller
+	// times the call to measure RTT.
+	Probe(context.Context, *ProbeReq) (*ProbeResp, error)
 	mustEmbedUnimplementedPBFTTransportServer()
 }
 
@@ -83,6 +100,9 @@ func (UnimplementedPBFTTransportServer) Deliver(context.Context, *Envelope) (*Ac
 }
 func (UnimplementedPBFTTransportServer) ClientNodeChannel(grpc.BidiStreamingServer[Envelope, Envelope]) error {
 	return status.Error(codes.Unimplemented, "method ClientNodeChannel not implemented")
+}
+func (UnimplementedPBFTTransportServer) Probe(context.Context, *ProbeReq) (*ProbeResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method Probe not implemented")
 }
 func (UnimplementedPBFTTransportServer) mustEmbedUnimplementedPBFTTransportServer() {}
 func (UnimplementedPBFTTransportServer) testEmbeddedByValue()                       {}
@@ -130,6 +150,24 @@ func _PBFTTransport_ClientNodeChannel_Handler(srv interface{}, stream grpc.Serve
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type PBFTTransport_ClientNodeChannelServer = grpc.BidiStreamingServer[Envelope, Envelope]
 
+func _PBFTTransport_Probe_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProbeReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PBFTTransportServer).Probe(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PBFTTransport_Probe_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PBFTTransportServer).Probe(ctx, req.(*ProbeReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PBFTTransport_ServiceDesc is the grpc.ServiceDesc for PBFTTransport service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -140,6 +178,10 @@ var PBFTTransport_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Deliver",
 			Handler:    _PBFTTransport_Deliver_Handler,
+		},
+		{
+			MethodName: "Probe",
+			Handler:    _PBFTTransport_Probe_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

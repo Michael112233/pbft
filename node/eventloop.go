@@ -45,6 +45,7 @@ func (n *Node) run() {
 	defer n.stopViewTimers()
 	defer n.stopPerfTimer()
 	defer n.stopEpochTimer()
+	defer n.stopAggregateGraceTimer()
 
 	for {
 		clientRequestCh := n.receiveVerifiedClientRequestCh
@@ -98,6 +99,10 @@ func (n *Node) run() {
 			n.handlePerfTimerTimeout()
 		case <-n.epochTimerCh:
 			n.handleEpochTimerTimeout()
+		case <-n.aggregateGraceTimerCh:
+			n.handleAggregateGraceTimeout()
+		case s := <-n.rttSampleCh:
+			n.rttVec.add(s)
 		case electionMsg := <-n.electionMsgChan:
 			switch electionMsg.MsgType {
 			case core.MsgRequestVoteMessage:

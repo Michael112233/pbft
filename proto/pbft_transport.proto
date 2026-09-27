@@ -21,6 +21,16 @@ enum TriggerMode {
 enum Policy {
   POLICY_ROUND_ROBIN = 0;
   POLICY_ELECTION = 1;
+  POLICY_AWARE = 2;
+}
+
+// One node's RTT vector as held in the Aware matrix. rtt_ms[j] is the RTT in
+// milliseconds from `node` to node j+1; 0 means unknown. gen is the epoch
+// generation the vector was aggregated in.
+message AwareRow {
+  int32 node = 1;
+  uint64 gen = 2;
+  repeated double rtt_ms = 3;
 }
 
 message Action {
@@ -179,6 +189,7 @@ message ViewChangeMsg {
   bytes checkpoint_digest = 9;
   repeated CheckpointMsgSig checkpoint_proof = 10;
   map<string, string> checkpoint_balances = 11;
+  repeated AwareRow aware_rows = 12;
 }
 
 message ViewChangeMsgSig {
@@ -193,6 +204,7 @@ message NewViewMsg {
   int32 from = 4;
   double throughput = 5;
   Action action = 6;
+  repeated AwareRow aware_rows = 7;
 }
 
 message NewViewMsgSig {
@@ -235,6 +247,7 @@ message EpochData {
 message EpochDataMsg {
   uint64 epoch_generation = 1;
   int32 from = 2;
+  repeated double rtt_ms = 3;
 }
 
 message EpochDataMsgSig {
@@ -288,7 +301,18 @@ message Ack {
   string error = 2;
 }
 
+message ProbeReq {
+  int32 from = 1;
+}
+
+message ProbeResp {
+  int32 from = 1;
+}
+
 service PBFTTransport {
   rpc Deliver(Envelope) returns (Ack);
   rpc ClientNodeChannel(stream Envelope) returns (stream Envelope);
+  // Probe is answered by the hub without touching the event loop; the caller
+  // times the call to measure RTT.
+  rpc Probe(ProbeReq) returns (ProbeResp);
 }

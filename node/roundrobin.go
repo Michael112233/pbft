@@ -35,6 +35,7 @@ func (n *Node) VC(forView, view core.ViewID, currAction core.Action) {
 		From:                n.GetNodeID(),
 		PreparedCerts:       preparedCerts,
 		Action:              currAction,
+		AwareRows:           n.awareRowsForMessage(currAction),
 	}
 
 	pbMsg := transportpb.ViewChangeToPB(vcPayload)
@@ -107,6 +108,8 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 
 			n.log.Info("Entering view change after receiving f+1 view-change messages for view (%d,%d) which have a +1 generation", viewChange.ViewNumber.Generation, viewChange.ViewNumber.Counter)
 			forView := n.incrementGeneration(viewChange.Action)
+			// TODO(safety): catch-up trusts the rows carried by this one view change.
+			n.maybeAdoptAwareRows(forView.Generation, viewChange.Action, viewChange.AwareRows)
 			n.enterViewChange(forView)
 		} else if viewChange.ViewNumber.Counter > forView.Counter+1 {
 			n.log.Warn("Received view change for view (%d,%d) which is more than one ahead in counter of my for view (%d,%d)", viewChange.ViewNumber.Generation, viewChange.ViewNumber.Counter, forView.Generation, forView.Counter)
@@ -152,6 +155,8 @@ func (n *Node) maybeHandleViewChangeQuorum(forView, view core.ViewID, currAction
 		case core.PolicyElection:
 			n.ElectionLogic(forView, view, currAction, path)
 			// n.SelectElection(forView, view, currAction, path)
+		case core.PolicyAware:
+			n.SelectAware(forView, view, currAction, path)
 		default:
 			n.log.Error("Unknown policy %v for view change quorum handling", currAction.Policy)
 		}

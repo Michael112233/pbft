@@ -6,7 +6,7 @@
   "node_num": 4,
   "nodes_dead": {
     "1": false,
-    "2": true,
+    "2": false,
     "3": false,
     "4": false
   },
@@ -44,7 +44,7 @@
   ]
 },
  
-  "proposal_delay_node": 1,
+  "proposal_delay_node": 0,
   "proposal_delay_ms": 2000,
   "gc": true,
   "logging": true,
@@ -68,12 +68,12 @@
   "oracle_actions": ["FixedRoundRobin", "PeriodicRoundRobin", "PeriodicElection", "PerformanceRoundRobin", "PerformanceElection"],
   "oracle_random": false,
   "oracle_seed": 42,
-  "epoch_mode": true,
+  "epoch_mode": false,
   "default_action": "FixedRoundRobin",
   "netem_delay": false,
 
   "scenarios" : ["ProposalDelay", "NetworkDelay", "NetworkDelayFCrash", "ProposalDelay", "NetworkDelay", "NetworkDelayFCrash", "Healthy"],
-  "scenario_mode": true,
+  "scenario_mode": false,
   "scenario_generations": 100
 
 

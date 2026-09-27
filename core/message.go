@@ -192,6 +192,9 @@ type ViewChangeMsg struct {
 	From                int
 	PreparedCerts       map[int64]*PreparedCert
 	Action              Action
+	// AwareRows lets a node that is pulled into the next generation by f+1
+	// amplification adopt the Aware matrix it missed. Pilot only: not trusted-safe.
+	AwareRows []AwareRow
 }
 
 type ViewChangeMsgSig struct {
@@ -206,6 +209,7 @@ type NewViewMsg struct {
 	Action        Action
 	Throughput    float64
 	From          int
+	AwareRows     []AwareRow
 }
 
 type NewViewMsgSig struct {
@@ -247,6 +251,15 @@ type EpochData struct {
 type EpochDataMsg struct {
 	EpochGeneration uint64
 	From            int
+	RTTms           []float64 // RTTms[j] = RTT to node j+1 in milliseconds, 0 = unknown
+}
+
+// AwareRow is one node's RTT vector in the Aware matrix, tagged with the epoch
+// generation it was aggregated in (used for carry-forward and staleness).
+type AwareRow struct {
+	Node  int
+	Gen   uint64
+	RTTms []float64
 }
 
 type EpochDataMsgSig struct {
@@ -282,6 +295,7 @@ type Policy int
 const (
 	PolicyRoundRobin Policy = iota
 	PolicyElection
+	PolicyAware // values must match the proto Policy enum; ActionToPB casts
 )
 
 type Action struct {
@@ -295,6 +309,7 @@ var (
 	PeriodicElection      Action = Action{TriggerMode: PeriodicTrigger, Policy: PolicyElection}
 	PerformanceElection   Action = Action{TriggerMode: PerfTrigger, Policy: PolicyElection}
 	PerformanceRoundRobin Action = Action{TriggerMode: PerfTrigger, Policy: PolicyRoundRobin}
+	FixedAware            Action = Action{TriggerMode: FixedTrigger, Policy: PolicyAware}
 )
 
 func ActiontoString(action Action) string {
@@ -309,6 +324,8 @@ func ActiontoString(action Action) string {
 		return "PerformanceElection"
 	case PerformanceRoundRobin:
 		return "PerformanceRoundRobin"
+	case FixedAware:
+		return "FixedAware"
 	default:
 		return "UnknownAction"
 	}
@@ -326,6 +343,8 @@ func StringtoAction(actionStr string) Action {
 		return PerformanceElection
 	case "PerformanceRoundRobin":
 		return PerformanceRoundRobin
+	case "FixedAware":
+		return FixedAware
 	default:
 		return FixedRoundRobin // default action
 	}

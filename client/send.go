@@ -172,11 +172,16 @@ func (c *Client) InjectTxs() {
 				c.log.Info("upto %d transactions injected", injected)
 			}
 
-			c.TransactionManager.AddTransaction(batch)
+			createdAt := time.Now()
 			if c.config.SerialClient {
+				c.TransactionManager.AddTransaction(batch, createdAt)
 				c.altSendRequestTransactionsForSerialClient(batch, normalRequestMessageType)
 			} else {
-				c.sendRequestTransactions(batch, normalRequestMessageType)
+				// Register inside the pacer callback, right before the send, so the
+				// pacer's slot wait is reported as client queueing, not latency.
+				c.pacedSendRequestTransactions(batch, normalRequestMessageType, func(sent []core.ClientMsgSignature) {
+					c.TransactionManager.AddTransaction(sent, createdAt)
+				})
 			}
 			// c.sendRequestTransactions(batch, normalRequestMessageType)
 
@@ -219,6 +224,14 @@ func forEachTransactionBatch(txs []core.ClientMsgSignature, batchSize int, visit
 }
 
 func (c *Client) sendRequestTransactions(txs []core.ClientMsgSignature, requestMessageType string) {
+	c.pacedSendRequestTransactions(txs, requestMessageType, nil)
+}
+
+// pacedSendRequestTransactions sends txs in paced batches. beforeSend, if set, runs
+// under the pacer right before each batch goes out (after any slot wait); the
+// normal path uses it to register the batch, the retry path passes nil so retried
+// transactions keep their registration and retry count.
+func (c *Client) pacedSendRequestTransactions(txs []core.ClientMsgSignature, requestMessageType string, beforeSend func([]core.ClientMsgSignature)) {
 	//retry path never send less than zero
 	if len(txs) == 0 {
 		return
@@ -239,6 +252,9 @@ func (c *Client) sendRequestTransactions(txs []core.ClientMsgSignature, requestM
 			leader := c.leaderAddr
 			c.leaderMu.RUnlock()
 
+			if beforeSend != nil { // retry send nil
+				beforeSend(batch)
+			}
 			c.messageHub.Send(
 				core.MsgRequestMessage,
 				c.addr,

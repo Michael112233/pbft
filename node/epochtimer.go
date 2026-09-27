@@ -31,6 +31,10 @@ func (n *Node) handleEpochTimerTimeout() {
 	forView := n.GetForViewID()
 	n.log.Info("Epoch timer fired for view (%d,%d), sending epoch data message", forView.Generation, forView.Counter)
 	epochMsg := n.CreateEpochMsg(forView.Generation)
+	if n.cfg.LatencyProbe {
+		epochMsg.RTTms = n.rttVec.snapshot(int(n.cfg.NodeNum), n.GetNodeID(), time.Now())
+		n.log.Info("AWARE: sending rtt vector gen=%d rtt_ms=%v", forView.Generation, epochMsg.RTTms)
+	}
 	payloadBytes, err := marshalDeterministic(transportpb.EpochDataMsgToPB(*epochMsg))
 	if err != nil {
 		n.log.Error("Failed to marshal epoch data message for signing: %v", err)

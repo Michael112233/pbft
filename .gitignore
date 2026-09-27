@@ -56,3 +56,5 @@ go1.26.3.linux-amd64.tar.gz.1
 
 # per-run tmux sockets (scripts/run_isolated.sh)
 .tmux/
+
+latency_sim/references

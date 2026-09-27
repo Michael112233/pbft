@@ -27,6 +27,10 @@ func (*stubPBFTTransportClient) ClientNodeChannel(context.Context, ...grpc.CallO
 	return nil, errors.New("unexpected ClientNodeChannel call")
 }
 
+func (*stubPBFTTransportClient) Probe(context.Context, *transportpb.ProbeReq, ...grpc.CallOption) (*transportpb.ProbeResp, error) {
+	return nil, errors.New("unexpected Probe call")
+}
+
 type recordingClientStream struct {
 	grpc.ClientStream
 	sent chan *transportpb.Envelope

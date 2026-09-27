@@ -1,6 +1,8 @@
 package node
 
 import (
+	"sort"
+
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/crypto"
 	"github.com/michael112233/pbft/logger"
@@ -10,6 +12,7 @@ import (
 type EpochNode interface {
 	GetNodeID() int
 	QuorumSize() int
+	NodeCount() int
 	asyncBroadCast(msgType string, msg interface{}, signature []byte)
 	signEpochAggregateMsg(msg core.EpochAggregateMsgMini) ([]byte, error)
 	GetForViewID() core.ViewID
@@ -17,18 +20,27 @@ type EpochNode interface {
 	SendLearningDataToAgent(epoch uint64, currAction core.Action, throughput float64, proposalRate float64, vcrRate float64, inactiveNodes uint8)
 	GetCurrAction() core.Action
 	stopEpochTimer()
+	startAggregateGraceTimer()
+	stopAggregateGraceTimer()
+	applyAwareAggregate(gen uint64, sigs []core.EpochDataMsgSig)
 }
 type EpochManager struct {
 	epochMsgSig map[uint64]map[int]core.EpochDataMsgSig
-	node        EpochNode
-	log         *logger.Logger
+	// aggregateSent guards flushAggregate: the aggregate for a generation goes
+	// out exactly once, from either the all-n path or the grace timer.
+	aggregateSent map[uint64]bool
+	// graceGen is the generation the running grace timer was started for.
+	graceGen uint64
+	node     EpochNode
+	log      *logger.Logger
 }
 
 func NewEpochManager(log *logger.Logger, node EpochNode) *EpochManager {
 	return &EpochManager{
-		epochMsgSig: make(map[uint64]map[int]core.EpochDataMsgSig),
-		node:        node,
-		log:         log,
+		epochMsgSig:   make(map[uint64]map[int]core.EpochDataMsgSig),
+		aggregateSent: make(map[uint64]bool),
+		node:          node,
+		log:           log,
 	}
 }
 
@@ -40,54 +52,95 @@ func (em *EpochManager) CreateEpochMsg(generation uint64) *core.EpochDataMsg {
 	return epochMsg
 }
 
+// HandleEpochDataMsg collects epoch data on the aggregator. At 2f+1 messages it
+// starts the grace timer; the aggregate goes out when all n arrived or the
+// timer fires, whichever comes first.
 func (em *EpochManager) HandleEpochDataMsg(msg core.EpochDataMsg, signature []byte) {
 	// later will add gen check
 	forView := em.node.GetForViewID()
-	currAction := em.node.GetCurrAction()
 	em.node.assert(msg.EpochGeneration <= forView.Generation, "Received epoch data message for generation %d which is greater than my for view generation %d", msg.EpochGeneration, forView.Generation)
 	if msg.EpochGeneration != forView.Generation {
 		em.log.Info("Received epoch data message for generation %d which is not equal to my for view generation %d, ignoring", msg.EpochGeneration, forView.Generation)
 		return
 	}
-
-	if _, exists := em.epochMsgSig[msg.EpochGeneration]; !exists {
-		em.epochMsgSig[msg.EpochGeneration] = make(map[int]core.EpochDataMsgSig)
+	gen := msg.EpochGeneration
+	if em.aggregateSent[gen] {
+		return
 	}
-	em.epochMsgSig[msg.EpochGeneration][msg.From] = core.EpochDataMsgSig{
+
+	if _, exists := em.epochMsgSig[gen]; !exists {
+		em.epochMsgSig[gen] = make(map[int]core.EpochDataMsgSig)
+	}
+	em.epochMsgSig[gen][msg.From] = core.EpochDataMsgSig{
 		EpochDataMsg: msg,
 		Signature:    append([]byte(nil), signature...),
 	}
 
-	if len(em.epochMsgSig[msg.EpochGeneration]) == em.node.QuorumSize() {
-		epochMsgSigs := em.epochMsgSig[msg.EpochGeneration]
-		epochDataMsgSigs := make([]core.EpochDataMsgSig, 0, len(epochMsgSigs))
-		for _, epochMsgSig := range epochMsgSigs {
-			epochDataMsgSigs = append(epochDataMsgSigs, epochMsgSig)
-		}
-
-		epochAggregateMsg := core.EpochAggregateMsg{
-			EpochGeneration:  msg.EpochGeneration,
-			From:             em.node.GetNodeID(),
-			EpochData:        core.EpochData{Throughput: 0, ProposalInterval: 0, VCRate: 0, InactiveNodes: 0}, // Placeholder values
-			CurrentAction:    currAction,
-			EpochDataMsgSigs: epochDataMsgSigs,
-		}
-		epochAggregateMsgMini := core.EpochAggregateMsgMini{
-			EpochGeneration: epochAggregateMsg.EpochGeneration,
-			From:            epochAggregateMsg.From,
-			EpochData:       epochAggregateMsg.EpochData,
-			CurrentAction:   epochAggregateMsg.CurrentAction,
-		}
-		signature, err := em.node.signEpochAggregateMsg(epochAggregateMsgMini)
-		if err != nil {
-			em.log.Error("Failed to sign epoch aggregate message: %v", err)
-			return
-		}
-		em.log.Info("Epoch aggregate message created for generation %d", msg.EpochGeneration)
-		em.node.asyncBroadCast(core.MsgEpochAggregateMessage, epochAggregateMsg, signature)
-		em.node.stopEpochTimer()
-		go em.node.SendLearningDataToAgent(msg.EpochGeneration, em.node.GetCurrAction(), epochAggregateMsg.EpochData.Throughput, epochAggregateMsg.EpochData.ProposalInterval, epochAggregateMsg.EpochData.VCRate, uint8(epochAggregateMsg.EpochData.InactiveNodes))
+	count := len(em.epochMsgSig[gen])
+	switch {
+	case count >= em.node.NodeCount():
+		em.flushAggregate(gen)
+	case count == em.node.QuorumSize():
+		em.log.Info("Epoch data quorum reached for generation %d; starting aggregate grace timer", gen)
+		em.graceGen = gen
+		em.node.startAggregateGraceTimer()
 	}
+}
+
+// onGraceTimeout sends the aggregate for the generation the grace timer was
+// started for, if the node is still in it.
+func (em *EpochManager) onGraceTimeout() {
+	gen := em.graceGen
+	if gen != em.node.GetForViewID().Generation {
+		em.log.Info("Aggregate grace timer fired for generation %d but node moved on; dropping", gen)
+		return
+	}
+	em.log.Info("Aggregate grace timer fired for generation %d with %d/%d epoch data messages", gen, len(em.epochMsgSig[gen]), em.node.NodeCount())
+	em.flushAggregate(gen)
+}
+
+// flushAggregate builds, signs and broadcasts the aggregate for gen once.
+func (em *EpochManager) flushAggregate(gen uint64) {
+	if em.aggregateSent[gen] || len(em.epochMsgSig[gen]) < em.node.QuorumSize() {
+		return
+	}
+	em.aggregateSent[gen] = true
+	em.node.stopAggregateGraceTimer()
+
+	epochMsgSigs := em.epochMsgSig[gen]
+	epochDataMsgSigs := make([]core.EpochDataMsgSig, 0, len(epochMsgSigs))
+	for _, epochMsgSig := range epochMsgSigs {
+		epochDataMsgSigs = append(epochDataMsgSigs, epochMsgSig)
+	}
+	sort.Slice(epochDataMsgSigs, func(i, j int) bool {
+		return epochDataMsgSigs[i].EpochDataMsg.From < epochDataMsgSigs[j].EpochDataMsg.From
+	})
+
+	currAction := em.node.GetCurrAction()
+	epochAggregateMsg := core.EpochAggregateMsg{
+		EpochGeneration:  gen,
+		From:             em.node.GetNodeID(),
+		EpochData:        core.EpochData{Throughput: 0, ProposalInterval: 0, VCRate: 0, InactiveNodes: 0}, // Placeholder values
+		CurrentAction:    currAction,
+		EpochDataMsgSigs: epochDataMsgSigs,
+	}
+	epochAggregateMsgMini := core.EpochAggregateMsgMini{
+		EpochGeneration: epochAggregateMsg.EpochGeneration,
+		From:            epochAggregateMsg.From,
+		EpochData:       epochAggregateMsg.EpochData,
+		CurrentAction:   epochAggregateMsg.CurrentAction,
+	}
+	signature, err := em.node.signEpochAggregateMsg(epochAggregateMsgMini)
+	if err != nil {
+		em.log.Error("Failed to sign epoch aggregate message: %v", err)
+		return
+	}
+	em.log.Info("Epoch aggregate message created for generation %d with %d epoch data messages", gen, len(epochDataMsgSigs))
+	em.node.asyncBroadCast(core.MsgEpochAggregateMessage, epochAggregateMsg, signature)
+	em.node.stopEpochTimer()
+	// The aggregator never receives its own broadcast, so it applies the matrix here.
+	em.node.applyAwareAggregate(gen, epochDataMsgSigs)
+	go em.node.SendLearningDataToAgent(gen, currAction, epochAggregateMsg.EpochData.Throughput, epochAggregateMsg.EpochData.ProposalInterval, epochAggregateMsg.EpochData.VCRate, uint8(epochAggregateMsg.EpochData.InactiveNodes))
 }
 
 // GCBelow drops the collected epoch data for every generation < gen. Called when the
@@ -98,6 +151,11 @@ func (em *EpochManager) GCBelow(gen uint64) {
 	for g := range em.epochMsgSig {
 		if g < gen {
 			delete(em.epochMsgSig, g)
+		}
+	}
+	for g := range em.aggregateSent {
+		if g < gen {
+			delete(em.aggregateSent, g)
 		}
 	}
 }
@@ -115,6 +173,9 @@ func (em *EpochManager) HandleEpochAggregateMsg(msg core.EpochAggregateMsg, _ []
 	em.node.assert(msg.CurrentAction == currAction, "Received epoch aggregate message with action %v which does not match current action %v", msg.CurrentAction, currAction)
 	// my epoch may not have expired and may not have send dat so at this point can also stop timer
 	em.node.stopEpochTimer()
+	// TODO(safety): the embedded epoch data signatures are not verified, and the
+	// aggregate signature does not cover them, so the aggregator can forge vectors.
+	em.node.applyAwareAggregate(msg.EpochGeneration, msg.EpochDataMsgSigs)
 	go em.node.SendLearningDataToAgent(msg.EpochGeneration, currAction, msg.EpochData.Throughput, msg.EpochData.ProposalInterval, msg.EpochData.VCRate, uint8(msg.EpochData.InactiveNodes))
 
 }

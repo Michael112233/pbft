@@ -68,6 +68,8 @@ type Node struct {
 	perfTimerCh           <-chan time.Time
 	epochTimer            *time.Timer
 	epochTimerCh          <-chan time.Time
+	aggregateGraceTimer   *time.Timer
+	aggregateGraceTimerCh <-chan time.Time
 	pool                  *Pool
 	consensusLog          *Log
 	checkpointManager     *CheckpointManager
@@ -123,6 +125,16 @@ type Node struct {
 
 	throughputPerf ThroughputPerf
 	lm             *LatencyMonitor
+
+	// Aware policy: loop-owned matrix/candidates and local RTT vector, fed by the
+	// latency prober goroutine through rttSampleCh.
+	aware          *awareState
+	rttVec         *rttVector
+	rttSampleCh    chan rttSample
+	proberStop     chan struct{}
+	proberDone     chan struct{}
+	proberStarted  atomic.Bool
+	proberStopOnce sync.Once
 
 	// dead is read by the hub's gRPC goroutines; scenario mode toggles it at runtime.
 	dead atomic.Bool
@@ -223,6 +235,12 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		},
 		lm: NewLatencyMonitor(),
 
+		aware:       newAwareState(),
+		rttVec:      newRTTVector(cfg.AwareRTTWindow()),
+		rttSampleCh: make(chan rttSample, rttSampleChanSize),
+		proberStop:  make(chan struct{}),
+		proberDone:  make(chan struct{}),
+
 		proposalDelay:           !cfg.ScenarioMode && cfg.ProposalDelayNode == nodeID, // scenario mode owns it otherwise
 		scenarioMode:            cfg.ScenarioMode,
 		performanceTimedTrigger: cfg.PerformanceTimedTrigger,
@@ -284,6 +302,7 @@ func (n *Node) Start() error {
 	}
 	n.startEventLoop()
 	n.messageHub.Start(n, &sync.WaitGroup{})
+	n.startLatencyProber()
 
 	if n.cfg.Logging {
 		if n.memoryLoggerStarted.CompareAndSwap(false, true) {
@@ -332,6 +351,8 @@ func (n *Node) Stop() {
 	}
 	// Stop all expire timers to prevent resource leaks
 	// n.StopAllExpireTimers()
+	// The prober uses hub connections, so it stops before the hub closes.
+	n.stopLatencyProber()
 	// Close network resources to stop listeners and connections
 	if n.messageHub != nil && n.messageHub.node_ref != nil {
 		n.messageHub.Close()
@@ -1042,6 +1063,10 @@ func (n *Node) asyncBroadcastCommit(view core.ViewID, seq int64, digest [32]byte
 
 func (n *Node) QuorumSize() int {
 	return 2*n.fNodes + 1
+}
+
+func (n *Node) NodeCount() int {
+	return int(n.cfg.NodeNum)
 }
 
 func (n *Node) ProposalDelayEnabled() bool {

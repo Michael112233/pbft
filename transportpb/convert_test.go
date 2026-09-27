@@ -40,12 +40,12 @@ func TestEventMessageRoundTrip(t *testing.T) {
 }
 
 func TestEpochMessageRoundTrips(t *testing.T) {
-	epochDataMsg := core.EpochDataMsg{EpochGeneration: 9, From: 3}
+	epochDataMsg := core.EpochDataMsg{EpochGeneration: 9, From: 3, RTTms: []float64{70.2, 0.85, 0, 0.9}}
 	gotDataMsg, err := EpochDataMsgFromPB(EpochDataMsgToPB(epochDataMsg))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gotDataMsg != epochDataMsg {
+	if !reflect.DeepEqual(gotDataMsg, epochDataMsg) {
 		t.Fatalf("epoch data message round trip = %#v, want %#v", gotDataMsg, epochDataMsg)
 	}
 	epochDataMsgSig := core.EpochDataMsgSig{EpochDataMsg: epochDataMsg, Signature: []byte{1, 2, 3}}
@@ -669,5 +669,40 @@ func TestNewViewFromPBRejectsInvalidAction(t *testing.T) {
 
 	if _, err := NewViewFromPB(msg); err == nil {
 		t.Fatal("NewViewFromPB accepted an invalid action")
+	}
+}
+
+func TestFixedAwareAndAwareRowsRoundTrip(t *testing.T) {
+	rows := []core.AwareRow{
+		{Node: 1, Gen: 4, RTTms: []float64{0, 70.0, 70.1, 69.9}},
+		{Node: 2, Gen: 3, RTTms: []float64{70.0, 0, 0.8, 0.9}},
+	}
+	vc := core.ViewChangeMsg{
+		ViewNumber:       core.ViewID{Generation: 5, Counter: 1},
+		CheckpointDigest: [32]byte{1},
+		From:             3,
+		PreparedCerts:    map[int64]*core.PreparedCert{},
+		Action:           core.FixedAware,
+		AwareRows:        rows,
+	}
+	gotVC, err := ViewChangeFromPB(ViewChangeToPB(vc))
+	if err != nil {
+		t.Fatalf("ViewChangeFromPB: %v", err)
+	}
+	if gotVC.Action != core.FixedAware || !reflect.DeepEqual(gotVC.AwareRows, rows) {
+		t.Fatalf("view change round trip: action=%v rows=%+v", gotVC.Action, gotVC.AwareRows)
+	}
+
+	nv := core.NewViewMsg{NewViewNumber: core.ViewID{Generation: 5, Counter: 1}, Action: core.FixedAware, From: 3, AwareRows: rows}
+	gotNV, err := NewViewFromPB(NewViewToPB(nv))
+	if err != nil {
+		t.Fatalf("NewViewFromPB: %v", err)
+	}
+	if gotNV.Action != core.FixedAware || !reflect.DeepEqual(gotNV.AwareRows, rows) {
+		t.Fatalf("new view round trip: action=%v rows=%+v", gotNV.Action, gotNV.AwareRows)
+	}
+
+	if core.StringtoAction("FixedAware") != core.FixedAware || core.ActiontoString(core.FixedAware) != "FixedAware" {
+		t.Fatal("FixedAware string round trip failed")
 	}
 }

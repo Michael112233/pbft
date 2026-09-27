@@ -73,6 +73,17 @@ type Config struct {
 	Scenarios           []string `json:"scenarios"`
 	ScenarioGenerations uint64   `json:"scenario_generations"`
 	ScenariosEnum       []core.Scenario
+
+	// Latency-aware leader policy (Aware). Zero values fall back to the defaults
+	// in config/aware.go.
+	LatencyProbe         bool   `json:"latency_probe"`
+	AwareProbeIntervalMs int    `json:"aware_probe_interval_ms"`
+	AwareProbeTimeoutMs  int    `json:"aware_probe_timeout_ms"`
+	AwareRTTWindowS      int    `json:"aware_rtt_window_s"`
+	AwareGraceMs         int    `json:"aware_grace_ms"`
+	AwareStalenessEpochs uint64  `json:"aware_staleness_epochs"`
+	AwareAlpha           float64 `json:"aware_alpha"`
+	AwareEpsilonMs       float64 `json:"aware_epsilon_ms"`
 }
 
 const DefaultScenarioGenerations = 100

@@ -11,6 +11,10 @@ import (
 type epochNodeStub struct {
 	nodeID       int
 	quorum       int
+	nodeCount    int
+	graceStarts  int
+	broadcasts   int
+	appliedGens  []uint64
 	forView      core.ViewID
 	currAction   core.Action
 	signedMini   core.EpochAggregateMsgMini
@@ -21,6 +25,16 @@ type epochNodeStub struct {
 func (n *epochNodeStub) GetNodeID() int { return n.nodeID }
 
 func (n *epochNodeStub) QuorumSize() int { return n.quorum }
+
+func (n *epochNodeStub) NodeCount() int { return n.nodeCount }
+
+func (n *epochNodeStub) startAggregateGraceTimer() { n.graceStarts++ }
+
+func (n *epochNodeStub) stopAggregateGraceTimer() {}
+
+func (n *epochNodeStub) applyAwareAggregate(gen uint64, _ []core.EpochDataMsgSig) {
+	n.appliedGens = append(n.appliedGens, gen)
+}
 
 func (n *epochNodeStub) GetForViewID() core.ViewID { return n.forView }
 
@@ -46,25 +60,28 @@ func (n *epochNodeStub) asyncBroadCast(msgType string, msg interface{}, signatur
 	if msgType != core.MsgEpochAggregateMessage {
 		return
 	}
+	n.broadcasts++
 	n.broadcastMsg = msg.(core.EpochAggregateMsg)
 	n.broadcastSig = append([]byte(nil), signature...)
 }
 
-func TestEpochManagerBroadcastsSignedAggregateAtQuorum(t *testing.T) {
+func TestEpochManagerBroadcastsSignedAggregateAfterGraceTimeout(t *testing.T) {
 	t.Chdir(t.TempDir())
 	node := &epochNodeStub{
 		nodeID:     4,
 		quorum:     2,
+		nodeCount:  3,
 		forView:    core.ViewID{Generation: 7, Counter: 3},
 		currAction: core.PerformanceElection,
 	}
 	manager := NewEpochManager(logger.NewLogger(4, "node"), node)
 
 	manager.HandleEpochDataMsg(core.EpochDataMsg{EpochGeneration: 7, From: 3}, []byte("sig-3"))
-	if node.broadcastMsg.EpochGeneration != 0 {
-		t.Fatal("aggregate broadcast before quorum")
-	}
 	manager.HandleEpochDataMsg(core.EpochDataMsg{EpochGeneration: 7, From: 1}, []byte("sig-1"))
+	if node.broadcasts != 0 || node.graceStarts != 1 {
+		t.Fatalf("at quorum want grace timer started and no broadcast, got broadcasts=%d graceStarts=%d", node.broadcasts, node.graceStarts)
+	}
+	manager.onGraceTimeout()
 
 	if node.broadcastMsg.EpochGeneration != 7 || node.broadcastMsg.From != 4 {
 		t.Fatalf("broadcast aggregate = %#v", node.broadcastMsg)
@@ -84,6 +101,49 @@ func TestEpochManagerBroadcastsSignedAggregateAtQuorum(t *testing.T) {
 	}
 	if !bytes.Equal(collectedSignatures[1], []byte("sig-1")) || !bytes.Equal(collectedSignatures[3], []byte("sig-3")) {
 		t.Fatalf("collected epoch signatures = %#v", node.broadcastMsg.EpochDataMsgSigs)
+	}
+	if len(node.appliedGens) != 1 || node.appliedGens[0] != 7 {
+		t.Fatalf("aggregator must apply the aware matrix locally once, got %v", node.appliedGens)
+	}
+}
+
+func TestEpochManagerFlushesAtAllNodesAndOnlyOnce(t *testing.T) {
+	t.Chdir(t.TempDir())
+	node := &epochNodeStub{nodeID: 4, quorum: 3, nodeCount: 4, forView: core.ViewID{Generation: 2, Counter: 1}, currAction: core.FixedAware}
+	manager := NewEpochManager(logger.NewLogger(4, "node"), node)
+
+	for _, from := range []int{1, 2, 3} {
+		manager.HandleEpochDataMsg(core.EpochDataMsg{EpochGeneration: 2, From: from, RTTms: []float64{1, 2, 3, 4}}, []byte("s"))
+	}
+	if node.broadcasts != 0 || node.graceStarts != 1 {
+		t.Fatalf("after 2f+1: broadcasts=%d graceStarts=%d", node.broadcasts, node.graceStarts)
+	}
+	manager.HandleEpochDataMsg(core.EpochDataMsg{EpochGeneration: 2, From: 4}, []byte("s"))
+	if node.broadcasts != 1 || len(node.broadcastMsg.EpochDataMsgSigs) != 4 {
+		t.Fatalf("all n must flush immediately with 4 vectors, broadcasts=%d msgs=%d", node.broadcasts, len(node.broadcastMsg.EpochDataMsgSigs))
+	}
+	for i, sig := range node.broadcastMsg.EpochDataMsgSigs {
+		if sig.EpochDataMsg.From != i+1 {
+			t.Fatalf("aggregate must be ordered by sender, got %v at %d", sig.EpochDataMsg.From, i)
+		}
+	}
+	manager.onGraceTimeout()
+	manager.HandleEpochDataMsg(core.EpochDataMsg{EpochGeneration: 2, From: 1}, []byte("s"))
+	if node.broadcasts != 1 {
+		t.Fatalf("aggregate sent %d times, want exactly once", node.broadcasts)
+	}
+}
+
+func TestEpochManagerGraceTimeoutIgnoredAfterGenerationMoved(t *testing.T) {
+	t.Chdir(t.TempDir())
+	node := &epochNodeStub{nodeID: 4, quorum: 2, nodeCount: 3, forView: core.ViewID{Generation: 5, Counter: 1}, currAction: core.FixedAware}
+	manager := NewEpochManager(logger.NewLogger(4, "node"), node)
+	manager.HandleEpochDataMsg(core.EpochDataMsg{EpochGeneration: 5, From: 1}, []byte("s"))
+	manager.HandleEpochDataMsg(core.EpochDataMsg{EpochGeneration: 5, From: 2}, []byte("s"))
+	node.forView = core.ViewID{Generation: 6, Counter: 1}
+	manager.onGraceTimeout()
+	if node.broadcasts != 0 {
+		t.Fatal("stale grace timer must not send an aggregate for an old generation")
 	}
 }
 

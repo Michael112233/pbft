@@ -133,7 +133,7 @@ func addTestTransactions(tm *TransactionManager, ids ...int64) {
 			Data: core.ClientMsg{Id: id},
 		})
 	}
-	tm.AddTransaction(batch)
+	tm.AddTransaction(batch, time.Now())
 }
 
 func transactionExists(tm *TransactionManager, id int64) bool {
@@ -142,4 +142,47 @@ func transactionExists(tm *TransactionManager, id int64) bool {
 	defer s.mu.RUnlock()
 	_, exists := s.txns[id]
 	return exists
+}
+
+func TestAddTransactionMeasuresLatencyFromSendAndQueueSeparately(t *testing.T) {
+	tm := newTestTransactionManager()
+	createdAt := time.Now().Add(-24 * time.Millisecond) // batch waited a pacer slot before send
+	batch := []core.ClientMsgSignature{{Data: core.ClientMsg{Id: 1}}, {Data: core.ClientMsg{Id: 2}}}
+	tm.AddTransaction(batch, createdAt)
+
+	for _, id := range []int64{1, 2} {
+		s := tm.getShard(id)
+		txn := s.txns[id]
+		if txn.createdTimestamp != createdAt.UnixNano() {
+			t.Fatalf("txn %d created = %d, want %d", id, txn.createdTimestamp, createdAt.UnixNano())
+		}
+		if wait := time.Duration(txn.startTimestamp - txn.createdTimestamp); wait < 24*time.Millisecond {
+			t.Fatalf("txn %d start must be the send time, got only %s after creation", id, wait)
+		}
+	}
+	if len(tm.queueSamples) != 1 || time.Duration(tm.queueSamples[0]) < 24*time.Millisecond {
+		t.Fatalf("want one queue sample per batch of >= 24ms, got %v", tm.queueSamples)
+	}
+
+	if !tm.CommitTps(core.CommitTps{ClientMsg: core.ClientMsgReply{Id: 1}}) {
+		t.Fatal("CommitTps did not commit txn 1")
+	}
+	path := filepath.Join(t.TempDir(), "latency.json")
+	if err := tm.LatencySummary(path); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got LatencySummaryResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.LatencyMeasuredFrom != "send" || got.Count != 1 || got.QueueBatches != 1 {
+		t.Fatalf("summary = %+v", got)
+	}
+	if got.QueueP50Ms < 24 || got.P50Ms >= got.QueueP50Ms {
+		t.Fatalf("latency %.2fms must exclude the %.2fms queue wait", got.P50Ms, got.QueueP50Ms)
+	}
 }

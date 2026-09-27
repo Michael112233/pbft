@@ -458,6 +458,7 @@ func (n *Node) newview() {
 		PreprepareLog: O,
 		ViewChangeLog: n.viewChangeMsgsLog[view], // even if delete in prune this ref isnot lost till we done with it
 		Throughput:    maxRecentThroughput,
+		AwareRows:     n.awareRowsForMessage(n.GetCurrAction()),
 	}
 	// pbMsg := transportpb.NewViewToPB(newViewMsg)
 	// payloadBytes, err := marshalDeterministic(pbMsg)
@@ -579,6 +580,8 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	// oldView := n.view
 	if newViewMsg.NewViewNumber.Generation > forView.Generation {
 		n.incrementGeneration(newViewMsg.Action)
+		// TODO(safety): catch-up trusts the rows carried by this one new view.
+		n.maybeAdoptAwareRows(newViewMsg.NewViewNumber.Generation, newViewMsg.Action, newViewMsg.AwareRows)
 	}
 	n.SetViewID(newViewMsg.NewViewNumber)
 	n.SetForViewID(newViewMsg.NewViewNumber)

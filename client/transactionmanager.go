@@ -20,15 +20,16 @@ const (
 )
 
 type transactionDetails struct {
-	mu              sync.Mutex // per-txn lock for long operations
-	startTimestamp  int64
-	finishTimestamp int64
-	latency         int64
-	done            bool
-	committed       bool
-	clientMsgSig    core.ClientMsgSignature
-	nextRetryTime   time.Time
-	retryCount      int
+	mu               sync.Mutex // per-txn lock for long operations
+	createdTimestamp int64      // when the batch was taken from the signer pipeline
+	startTimestamp   int64      // when the batch was handed to the network (latency starts here)
+	finishTimestamp  int64
+	latency          int64
+	done             bool
+	committed        bool
+	clientMsgSig     core.ClientMsgSignature
+	nextRetryTime    time.Time
+	retryCount       int
 }
 
 type shard struct {
@@ -64,6 +65,9 @@ type TransactionManager struct {
 
 	latencyMu      sync.Mutex // later will have better fix and concurrent
 	latencySamples []int64
+	// queueSamples holds one creation->send wait per sent batch (all txs in a
+	// batch share it), so it stays small even on long runs.
+	queueSamples []int64
 }
 
 type ClientTxnManager interface {
@@ -166,19 +170,29 @@ func (tm *TransactionManager) GetThroughput() (tps float64, elapsed float64, txn
 
 }
 
-func (tm *TransactionManager) AddTransaction(batch []core.ClientMsgSignature) {
+// AddTransaction registers a batch just before it is sent. Latency is measured
+// from now (the send), and createdAt (when the batch left the signer pipeline)
+// is kept so the client-side wait before sending is reported separately.
+// start timestamp till commit is 7ms but node side measure is 3ms so either from leader batching or due to individual commit tps messages
+func (tm *TransactionManager) AddTransaction(batch []core.ClientMsgSignature, createdAt time.Time) {
+	timeNow := time.Now()
 	for _, msgSig := range batch {
 		s := tm.getShard(msgSig.Data.Id)
 		s.mu.Lock()
-		timeNow := time.Now()
 		s.txns[msgSig.Data.Id] = &transactionDetails{
-			startTimestamp: timeNow.UnixNano(),
-			done:           false,
-			clientMsgSig:   msgSig,
-			retryCount:     0,
-			nextRetryTime:  timeNow.Add(50 * time.Millisecond),
+			createdTimestamp: createdAt.UnixNano(), // created -> send: pacer slot wait (+ pacer lock wait if retries are sending)
+			startTimestamp:   timeNow.UnixNano(),   // taken just before send: latency includes send/stream wait, network, consensus and reply
+			done:             false,
+			clientMsgSig:     msgSig,
+			retryCount:       0,
+			nextRetryTime:    timeNow.Add(50 * time.Millisecond),
 		}
 		s.mu.Unlock()
+	}
+	if len(batch) > 0 {
+		tm.latencyMu.Lock()
+		tm.queueSamples = append(tm.queueSamples, timeNow.Sub(createdAt).Nanoseconds())
+		tm.latencyMu.Unlock()
 	}
 }
 
@@ -385,17 +399,28 @@ func (tm *TransactionManager) ExportTPSSeries(path string) error {
 }
 
 type LatencySummaryResult struct {
-	Count            int       `json:"count"`
-	AvgMs            float64   `json:"avg_ms"`
-	P50Ms            float64   `json:"p50_ms"`
-	P95Ms            float64   `json:"p95_ms"`
-	P99Ms            float64   `json:"p99_ms"`
-	LatencySamplesMs []float64 `json:"latency_samples_ms"`
+	// LatencyMeasuredFrom marks what the latency fields measure: "send" means from
+	// the request batch being handed to the network until the first CommitTps.
+	LatencyMeasuredFrom string    `json:"latency_measured_from"`
+	Count               int       `json:"count"`
+	AvgMs               float64   `json:"avg_ms"`
+	P50Ms               float64   `json:"p50_ms"`
+	P95Ms               float64   `json:"p95_ms"`
+	P99Ms               float64   `json:"p99_ms"`
+	LatencySamplesMs    []float64 `json:"latency_samples_ms"`
+	// Client-side wait between a batch leaving the signer pipeline and being
+	// sent (pacer slot wait), one sample per batch. End-to-end ~= latency + queue.
+	QueueBatches int     `json:"queue_batches"`
+	QueueAvgMs   float64 `json:"queue_avg_ms"`
+	QueueP50Ms   float64 `json:"queue_p50_ms"`
+	QueueP95Ms   float64 `json:"queue_p95_ms"`
+	QueueP99Ms   float64 `json:"queue_p99_ms"`
 }
 
 func (tm *TransactionManager) LatencySummary(path string) error {
 	tm.latencyMu.Lock()
 	samples := append([]int64(nil), tm.latencySamples...)
+	queue := append([]int64(nil), tm.queueSamples...)
 	tm.latencyMu.Unlock()
 
 	sampleCount := len(samples)
@@ -407,10 +432,23 @@ func (tm *TransactionManager) LatencySummary(path string) error {
 		latencySamplesMs[i] = nanosToMs(samples[i])
 	}
 
+	result := LatencySummaryResult{LatencyMeasuredFrom: "send", LatencySamplesMs: latencySamplesMs}
+	if len(queue) > 0 {
+		sortedQueue := append([]int64(nil), queue...)
+		sort.Slice(sortedQueue, func(i, j int) bool { return sortedQueue[i] < sortedQueue[j] })
+		var queueTotal float64
+		for _, q := range queue {
+			queueTotal += float64(q)
+		}
+		result.QueueBatches = len(queue)
+		result.QueueAvgMs = nanosToMs(int64(queueTotal / float64(len(queue))))
+		result.QueueP50Ms = nanosToMs(percentileLatency(sortedQueue, 0.50))
+		result.QueueP95Ms = nanosToMs(percentileLatency(sortedQueue, 0.95))
+		result.QueueP99Ms = nanosToMs(percentileLatency(sortedQueue, 0.99))
+	}
+
 	if len(samples) == 0 {
-		data, err := json.MarshalIndent(LatencySummaryResult{
-			LatencySamplesMs: latencySamplesMs,
-		}, "", "  ")
+		data, err := json.MarshalIndent(result, "", "  ")
 		if err != nil {
 			return err
 		}
@@ -427,14 +465,11 @@ func (tm *TransactionManager) LatencySummary(path string) error {
 		total += float64(latency)
 	}
 
-	result := LatencySummaryResult{
-		Count:            len(samples),
-		AvgMs:            nanosToMs(int64(total / float64(len(samples)))),
-		P50Ms:            nanosToMs(percentileLatency(sortedSamples, 0.50)),
-		P95Ms:            nanosToMs(percentileLatency(sortedSamples, 0.95)),
-		P99Ms:            nanosToMs(percentileLatency(sortedSamples, 0.99)),
-		LatencySamplesMs: latencySamplesMs,
-	}
+	result.Count = len(samples)
+	result.AvgMs = nanosToMs(int64(total / float64(len(samples))))
+	result.P50Ms = nanosToMs(percentileLatency(sortedSamples, 0.50))
+	result.P95Ms = nanosToMs(percentileLatency(sortedSamples, 0.95))
+	result.P99Ms = nanosToMs(percentileLatency(sortedSamples, 0.99))
 
 	data, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {

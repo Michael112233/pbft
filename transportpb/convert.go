@@ -58,6 +58,8 @@ func ActionFromPB(action *Action) (core.Action, error) {
 		policy = core.PolicyRoundRobin
 	case Policy_POLICY_ELECTION:
 		policy = core.PolicyElection
+	case Policy_POLICY_AWARE:
+		policy = core.PolicyAware
 	default:
 		return core.Action{}, fmt.Errorf("invalid policy %d", action.Policy)
 	}
@@ -210,6 +212,7 @@ func EpochDataMsgToPB(msg core.EpochDataMsg) *EpochDataMsg {
 	return &EpochDataMsg{
 		EpochGeneration: msg.EpochGeneration,
 		From:            int32(msg.From),
+		RttMs:           append([]float64(nil), msg.RTTms...),
 	}
 }
 
@@ -220,7 +223,49 @@ func EpochDataMsgFromPB(msg *EpochDataMsg) (core.EpochDataMsg, error) {
 	return core.EpochDataMsg{
 		EpochGeneration: msg.EpochGeneration,
 		From:            int(msg.From),
+		RTTms:           append([]float64(nil), msg.RttMs...),
 	}, nil
+}
+
+func AwareRowToPB(row core.AwareRow) *AwareRow {
+	return &AwareRow{
+		Node:  int32(row.Node),
+		Gen:   row.Gen,
+		RttMs: append([]float64(nil), row.RTTms...),
+	}
+}
+
+func AwareRowFromPB(row *AwareRow) core.AwareRow {
+	if row == nil {
+		return core.AwareRow{}
+	}
+	return core.AwareRow{
+		Node:  int(row.Node),
+		Gen:   row.Gen,
+		RTTms: append([]float64(nil), row.RttMs...),
+	}
+}
+
+func AwareRowsToPB(rows []core.AwareRow) []*AwareRow {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]*AwareRow, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, AwareRowToPB(row))
+	}
+	return out
+}
+
+func AwareRowsFromPB(rows []*AwareRow) []core.AwareRow {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]core.AwareRow, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, AwareRowFromPB(row))
+	}
+	return out
 }
 
 func EpochDataMsgSigToPB(msg core.EpochDataMsgSig) *EpochDataMsgSig {
@@ -858,6 +903,7 @@ func ViewChangeToPB(msg core.ViewChangeMsg) *ViewChangeMsg {
 		CheckpointDigest:    digestToPB(msg.CheckpointDigest),
 		CheckpointProof:     checkpointProof,
 		CheckpointBalances:  balancesToPB(msg.CheckpointBalances),
+		AwareRows:           AwareRowsToPB(msg.AwareRows),
 	}
 }
 
@@ -907,6 +953,7 @@ func ViewChangeFromPB(msg *ViewChangeMsg) (core.ViewChangeMsg, error) {
 		From:                int(msg.From),
 		PreparedCerts:       preparedCerts,
 		Action:              action,
+		AwareRows:           AwareRowsFromPB(msg.AwareRows),
 	}, nil
 }
 
@@ -959,6 +1006,7 @@ func NewViewToPB(msg core.NewViewMsg) *NewViewMsg {
 		Action:        ActionToPB(msg.Action),
 		From:          int32(msg.From),
 		Throughput:    msg.Throughput,
+		AwareRows:     AwareRowsToPB(msg.AwareRows),
 	}
 }
 
@@ -1011,6 +1059,7 @@ func NewViewFromPB(msg *NewViewMsg) (core.NewViewMsg, error) {
 		Action:        action,
 		Throughput:    msg.Throughput,
 		From:          int(msg.From),
+		AwareRows:     AwareRowsFromPB(msg.AwareRows),
 	}, nil
 }
 
