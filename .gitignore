@@ -45,8 +45,10 @@ logs/
 # !learningagent/epsilon-greedy-bandit.md
 
 # json
-*.json
-!run2new.json
+results/*.json
+logs/*.json
+config/latency_pilots/*.json
+
 
 # pem
 keys/*.pem

@@ -148,9 +148,6 @@ func (c *Client) InjectTxs() {
 		}
 		padding := strings.Repeat("x", paddingBytes)
 		batchSize := int(c.config.InjectSpeed)
-		if c.config.SerialClient {
-			batchSize = 1
-		}
 		signedTxs := c.startSignedTxPipeline(
 			totaltxns,
 			padding,
@@ -173,25 +170,17 @@ func (c *Client) InjectTxs() {
 			}
 
 			createdAt := time.Now()
-			if c.config.SerialClient {
-				c.TransactionManager.AddTransaction(batch, createdAt)
-				c.altSendRequestTransactionsForSerialClient(batch, normalRequestMessageType)
-			} else {
-				// Register inside the pacer callback, right before the send, so the
-				// pacer's slot wait is reported as client queueing, not latency.
-				c.pacedSendRequestTransactions(batch, normalRequestMessageType, func(sent []core.ClientMsgSignature) {
-					c.TransactionManager.AddTransaction(sent, createdAt)
-				})
-			}
+			// Register inside the pacer callback, right before the send, so the
+			// pacer's slot wait is reported as client queueing, not latency.
+			c.pacedSendRequestTransactions(batch, normalRequestMessageType, func(sent []core.ClientMsgSignature) {
+				c.TransactionManager.AddTransaction(sent, createdAt)
+			})
 			// c.sendRequestTransactions(batch, normalRequestMessageType)
 
 			collectStart := time.Now()
 			batch, ok = collectSignedBatch(signedTxs, batchSize)
 			if wait := time.Since(collectStart); ok && wait > 5*time.Millisecond {
 				c.log.Info("Waited %s for signed transaction batch; signer pipeline may be bottlenecked", wait)
-			}
-			if c.config.SerialClient {
-				<-c.reqExecutedCh
 			}
 		}
 		if c.config.CompleteSuite {
@@ -201,12 +190,7 @@ func (c *Client) InjectTxs() {
 }
 
 func (c *Client) sendTransactions(txs []core.ClientMsgSignature) {
-	if c.config.SerialClient {
-		c.altSendRequestTransactionsForSerialClient(txs, retryRequestMessageType)
-
-	} else {
-		c.sendRequestTransactions(txs, retryRequestMessageType)
-	}
+	c.sendRequestTransactions(txs, retryRequestMessageType)
 }
 
 func forEachTransactionBatch(txs []core.ClientMsgSignature, batchSize int, visit func([]core.ClientMsgSignature)) {
@@ -264,20 +248,6 @@ func (c *Client) pacedSendRequestTransactions(txs []core.ClientMsgSignature, req
 			)
 		})
 	})
-}
-
-func (c *Client) altSendRequestTransactionsForSerialClient(txs []core.ClientMsgSignature, requestMessageType string) {
-	c.leaderMu.RLock()
-	leader := c.leaderAddr
-	c.leaderMu.RUnlock()
-
-	c.messageHub.Send(
-		core.MsgRequestMessage,
-		c.addr,
-		leader,
-		core.RequestMessage{Txs: txs, MsgType: requestMessageType},
-		nil,
-	)
 }
 
 func (c *Client) sendEventMsg(leaderAddr string) {

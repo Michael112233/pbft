@@ -62,9 +62,14 @@ func (n *Node) run() {
 				// n.log.Info("Node %d is not the leader or view change is running, ignoring client request", n.GetNodeID())
 				continue
 			}
+			// retry of a request already queued, proposed or executed
+			if !n.intake.admit(req.Data) {
+				continue
+			}
 			// cheap check to ignore client req
 			if !n.pendingRequests.Enqueue(req) {
 				n.log.Error("node event loop received a request while the pending queue was full")
+				n.intake.unqueue(req.Data) // lost here, so its retry must be admitted
 			}
 			// cheap check to see leader befor propose
 			if n.pendingRequests.Len() >= n.batchLogic.maxBatchSize {

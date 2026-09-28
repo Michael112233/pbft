@@ -37,6 +37,13 @@ if [ "$NETEM_DELAY" = "1" ] && [ "$SCENARIO_MODE" = "1" ]; then
     echo "Error: netem_delay and scenario_mode cannot both be true in $CONFIG_PATH." >&2
     exit 1
 fi
+# Optional bool in the config: "far_node_netem": true runs setup_netem_node1 (node 1 35ms
+# from every other node). It owns the lo qdisc too, so it excludes the other two.
+FAR_NODE_NETEM=$(python3 -c 'import json, sys; print("1" if json.load(open(sys.argv[1])).get("far_node_netem", False) is True else "0")' "$CONFIG_PATH")
+if [ "$FAR_NODE_NETEM" = "1" ] && { [ "$NETEM_DELAY" = "1" ] || [ "$SCENARIO_MODE" = "1" ]; }; then
+    echo "Error: far_node_netem cannot be combined with netem_delay or scenario_mode in $CONFIG_PATH." >&2
+    exit 1
+fi
 
 NODE_COUNT=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["node_num"])' "$CONFIG_PATH")
 if ! [[ "$NODE_COUNT" =~ ^[1-9][0-9]*$ ]]; then
@@ -288,6 +295,9 @@ done
 sleep 5
 if [ "$NETEM_DELAY" = "1" ]; then
     setup_netem
+fi
+if [ "$FAR_NODE_NETEM" = "1" ]; then
+    setup_netem_node1
 fi
 # Optional: start client in another window
 

@@ -482,7 +482,7 @@ func (n *Node) newview() {
 	// loss in this queue is fine ig
 	// n.acceptNewViewTimers()
 	n.acceptNewViewTimersLeader() // experimental dont start progress timer on leader
-	n.pendingRequests.Reset()
+	n.resetPendingForNewView(O)
 }
 
 // buildPrepareMsgsForNewView pre-computes and signs the Prepare message for
@@ -648,7 +648,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	n.sequenceNumber = maxSeq
 	n.pruneViewChangeState(view)
 	n.handleNewViewUpdatePerf(maxSeq, view, newViewMsg.Throughput)
-	n.pendingRequests.Reset()
+	n.resetPendingForNewView(nil)
 	// here we may have buffer
 	// buffer probably emptied to channel
 	n.replayBufferedMessagesForView(view)

@@ -59,6 +59,7 @@ type Node struct {
 	// electionVDFWorkers             sync.WaitGroup
 
 	pendingRequests       RequestQueue
+	intake                *intakeFilter
 	batchLogic            Batcher
 	leaderProgressTimer   *time.Timer
 	leaderProgressTimerCh <-chan time.Time
@@ -189,6 +190,7 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		electionVDFResultCh:            make(chan electionVDFResult, 1),
 
 		pendingRequests:            NewRequestQueue(cfg.PendingQueueCapacity),
+		intake:                     newIntakeFilter(),
 		clientReceiveRateStop:      make(chan struct{}),
 		clientReceiveRateDone:      make(chan struct{}),
 		leaderPreprepareRateStop:   make(chan struct{}),

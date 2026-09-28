@@ -40,6 +40,7 @@ func (n *Node) exeLoop() {
 		for i, req := range batchreqs {
 			result := n.executionMachine.Apply(req.Data)
 			results[i] = result
+			n.intake.markExecuted(req.Data)
 			if !result.Success {
 				n.log.Error("Execution failed for seq %d with error: %s", n.lastExecuted+1, result.Error)
 			}
@@ -78,6 +79,9 @@ func (n *Node) exeLoop() {
 			n.observeExecutedSlotForTimedThroughput(n.lastExecuted, time.Now())
 		}
 		if n.lastExecuted%CHECKPOINT_INTERVAL == 0 {
+			if dropped, duplicates := n.intake.takeCounters(); dropped > 0 || duplicates > 0 {
+				n.log.Info("INTAKE: seq=%d retries dropped at intake=%d duplicate executions=%d since last checkpoint", n.lastExecuted, dropped, duplicates)
+			}
 			copyOfBalances := n.executionMachine.CheckpointSnapshot()
 			n.HandleLocalCheckpoint(copyOfBalances, n.lastExecuted)
 		}

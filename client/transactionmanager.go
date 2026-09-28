@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/logger"
 )
@@ -54,6 +55,8 @@ type TransactionManager struct {
 	averageTps          float64
 	elapsedTime         float64
 	txnRetryManager     *TransactionRetryManager
+	retry               retryPolicy
+	retriesSent         atomic.Int64
 	tpsSeries           []TPSPoint
 	lastSampleTime      int64
 	lastSampleCommitted int64
@@ -65,6 +68,9 @@ type TransactionManager struct {
 
 	latencyMu      sync.Mutex // later will have better fix and concurrent
 	latencySamples []int64
+	// retriedLatencySamples is the subset of latencySamples from requests that were
+	// retried at least once (only filled when retry.includeRetried).
+	retriedLatencySamples []int64
 	// queueSamples holds one creation->send wait per sent batch (all txs in a
 	// batch share it), so it stays small even on long runs.
 	queueSamples []int64
@@ -89,6 +95,7 @@ func NewTransactionManager(client ClientTxnManager, log *logger.Logger) *Transac
 
 	tm := &TransactionManager{
 		txnRetryManager:   &TransactionRetryManager{timer: transactionRetryTimer, timerStopCh: make(chan struct{}), timerDoneCh: make(chan struct{})},
+		retry:             defaultRetryPolicy(),
 		tpsSeries:         make([]TPSPoint, 0),
 		tpsSampleInterval: 100 * time.Millisecond,
 		tpsSamplerStopCh:  make(chan struct{}),
@@ -101,9 +108,16 @@ func NewTransactionManager(client ClientTxnManager, log *logger.Logger) *Transac
 	return tm
 }
 
+// SetRetryPolicy replaces the retry schedule. Call before StartRetryTimer and
+// before any transaction is added.
+func (tm *TransactionManager) SetRetryPolicy(p retryPolicy) {
+	tm.retry = p
+}
+
 func (tm *TransactionManager) retryTimerWorker(normalStart bool) {
+	sweep := tm.retry.sweepInterval()
 	if normalStart {
-		tm.txnRetryManager.timer.Reset(50 * time.Millisecond)
+		tm.txnRetryManager.timer.Reset(sweep)
 	} else {
 		tm.txnRetryManager.timer.Reset(10 * time.Millisecond)
 	}
@@ -112,7 +126,7 @@ func (tm *TransactionManager) retryTimerWorker(normalStart bool) {
 		select {
 		case <-tm.txnRetryManager.timer.C:
 			tm.sendTxsForRetry()
-			tm.txnRetryManager.timer.Reset(50 * time.Millisecond)
+			tm.txnRetryManager.timer.Reset(sweep)
 		case <-tm.txnRetryManager.timerStopCh:
 			return
 		}
@@ -185,7 +199,7 @@ func (tm *TransactionManager) AddTransaction(batch []core.ClientMsgSignature, cr
 			done:             false,
 			clientMsgSig:     msgSig,
 			retryCount:       0,
-			nextRetryTime:    timeNow.Add(50 * time.Millisecond),
+			nextRetryTime:    timeNow.Add(tm.retry.first()),
 		}
 		s.mu.Unlock()
 	}
@@ -213,7 +227,7 @@ func (tm *TransactionManager) sendTxsForRetry() {
 				if txn.retryCount > 1 {
 					candidatesWithMultipleRetries++
 				}
-				delay := retryDelay(txn.retryCount)
+				delay := tm.retry.delay(txn.retryCount)
 				txn.nextRetryTime = now.Add(delay)
 			}
 			txn.mu.Unlock()
@@ -221,6 +235,7 @@ func (tm *TransactionManager) sendTxsForRetry() {
 		s.mu.RUnlock()
 	}
 	if len(candidates) > 0 {
+		tm.retriesSent.Add(int64(len(candidates)))
 		tm.log.Info("Iterated through %d txns, found %d candidates for retry, %d of which have been retried multiple times\n", txnsIterated, len(candidates), candidatesWithMultipleRetries)
 
 		timestart := time.Now()
@@ -292,9 +307,13 @@ func (tm *TransactionManager) CommitTps(reply core.CommitTps) bool {
 	if numberOfCommittedTxns == tm.client.TotalTxnsToInject() {
 		tm.log.Info("All transactions committed")
 	}
-	if retried == 0 {
+	// latency runs from the first send, so a retried request carries its retry wait
+	if retried == 0 || tm.retry.includeRetried {
 		tm.latencyMu.Lock()
 		tm.latencySamples = append(tm.latencySamples, latency)
+		if retried > 0 {
+			tm.retriedLatencySamples = append(tm.retriedLatencySamples, latency)
+		}
 		tm.latencyMu.Unlock()
 	}
 
@@ -407,7 +426,19 @@ type LatencySummaryResult struct {
 	P50Ms               float64   `json:"p50_ms"`
 	P95Ms               float64   `json:"p95_ms"`
 	P99Ms               float64   `json:"p99_ms"`
+	P999Ms              float64   `json:"p99_9_ms"`
 	LatencySamplesMs    []float64 `json:"latency_samples_ms"`
+	// Retry: whether retried commits are in the samples above, how many of the
+	// samples were retried and their latency, and total retry transmissions.
+	RetryEnabled bool    `json:"retry_enabled"`
+	RetryMode    string  `json:"retry_mode,omitempty"`
+	RetriedCount int     `json:"retried_count"`
+	RetriedAvgMs float64 `json:"retried_avg_ms"`
+	RetriedP50Ms float64 `json:"retried_p50_ms"`
+	RetriedP99Ms float64 `json:"retried_p99_ms"`
+	RetriesSent  int64   `json:"retries_sent"`
+	// Uncommitted counts requests sent but never committed by the time of the summary.
+	Uncommitted int `json:"uncommitted"`
 	// Client-side wait between a batch leaving the signer pipeline and being
 	// sent (pacer slot wait), one sample per batch. End-to-end ~= latency + queue.
 	QueueBatches int     `json:"queue_batches"`
@@ -420,6 +451,7 @@ type LatencySummaryResult struct {
 func (tm *TransactionManager) LatencySummary(path string) error {
 	tm.latencyMu.Lock()
 	samples := append([]int64(nil), tm.latencySamples...)
+	retriedSamples := append([]int64(nil), tm.retriedLatencySamples...)
 	queue := append([]int64(nil), tm.queueSamples...)
 	tm.latencyMu.Unlock()
 
@@ -432,7 +464,31 @@ func (tm *TransactionManager) LatencySummary(path string) error {
 		latencySamplesMs[i] = nanosToMs(samples[i])
 	}
 
-	result := LatencySummaryResult{LatencyMeasuredFrom: "send", LatencySamplesMs: latencySamplesMs}
+	result := LatencySummaryResult{
+		LatencyMeasuredFrom: "send",
+		LatencySamplesMs:    latencySamplesMs,
+		RetryEnabled:        tm.retry.includeRetried,
+		RetriesSent:         tm.retriesSent.Load(),
+		Uncommitted:         tm.uncommittedCount(),
+	}
+	if tm.retry.includeRetried {
+		result.RetryMode = config.ClientRetryBackoff
+		if tm.retry.fixed {
+			result.RetryMode = config.ClientRetryFixed
+		}
+	}
+	if len(retriedSamples) > 0 {
+		sortedRetried := append([]int64(nil), retriedSamples...)
+		sort.Slice(sortedRetried, func(i, j int) bool { return sortedRetried[i] < sortedRetried[j] })
+		var retriedTotal float64
+		for _, l := range retriedSamples {
+			retriedTotal += float64(l)
+		}
+		result.RetriedCount = len(retriedSamples)
+		result.RetriedAvgMs = nanosToMs(int64(retriedTotal / float64(len(retriedSamples))))
+		result.RetriedP50Ms = nanosToMs(percentileLatency(sortedRetried, 0.50))
+		result.RetriedP99Ms = nanosToMs(percentileLatency(sortedRetried, 0.99))
+	}
 	if len(queue) > 0 {
 		sortedQueue := append([]int64(nil), queue...)
 		sort.Slice(sortedQueue, func(i, j int) bool { return sortedQueue[i] < sortedQueue[j] })
@@ -470,12 +526,32 @@ func (tm *TransactionManager) LatencySummary(path string) error {
 	result.P50Ms = nanosToMs(percentileLatency(sortedSamples, 0.50))
 	result.P95Ms = nanosToMs(percentileLatency(sortedSamples, 0.95))
 	result.P99Ms = nanosToMs(percentileLatency(sortedSamples, 0.99))
+	result.P999Ms = nanosToMs(percentileLatency(sortedSamples, 0.999))
 
 	data, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+// uncommittedCount returns how many sent requests have not committed. Committed
+// requests are deleted from the shards in CommitTps, so this is what is left.
+func (tm *TransactionManager) uncommittedCount() int {
+	count := 0
+	for i := range tm.shards {
+		s := &tm.shards[i]
+		s.mu.RLock()
+		for _, txn := range s.txns {
+			txn.mu.Lock()
+			if !txn.committed {
+				count++
+			}
+			txn.mu.Unlock()
+		}
+		s.mu.RUnlock()
+	}
+	return count
 }
 
 func percentileLatency(sorted []int64, p float64) int64 {

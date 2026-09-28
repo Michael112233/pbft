@@ -186,6 +186,16 @@ Sub-managers, each with a narrow interface onto `Node`:
 | `checkpoint.go` | checkpoints, stable-checkpoint proof, GC |
 | `nodeMessageHub.go` | gRPC transport, envelope build/parse, signatures |
 
+**Intake filter** (`node/intake.go`). Before `Enqueue`, the leader drops a client
+request whose (`ClientName`, `Id`) is already queued or proposed in this view (the
+set is cleared with the pending queue on every new-view install, then seeded with
+the O-set) or already executed (per-client watermark + sparse set, updated in
+`exeLoop`). It is leader-local and not checkpointed, so execution stays
+at-least-once: a node that jumps to a checkpoint (`fastPathStablizeCheckpointviaVC`)
+has no record of the skipped requests. `exeLoop` logs `INTAKE:` counts (retries
+dropped, duplicate executions) at each local checkpoint. `Pool.executed` is not a
+dedup record: GC drops it and checkpoint transfer does not carry it.
+
 Transport is gRPC bidirectional streams (`proto/pbft_transport.proto`,
 `transportpb/`), one peer stream per target, 8 MiB flow-control windows. ViewChange
 and NewView messages are large (1 MiB and several MiB with a few hundred prepared
@@ -252,6 +262,13 @@ With it off, the node stays in its initial action for the whole run.
   `nodes_dead`, `gc`, `min_vdf_delay` / `max_vdf_delay` (election VDF range).
 - `nodes_in_dark` is present in the JSON but has no field in `config.go`, so it is
   silently ignored.
+- `max_batch_delay` is parsed (`MaxBatchDelay`) but has no effect: the batch timer
+  in `node/batcher.go` is armed and immediately stopped in `node.go`, and nothing
+  reads its channel. A batch is proposed only once `pendingRequests` holds
+  `max_batch_size` requests, so batching wait is the fill time `B/R` and is
+  unbounded at low load.
+- `proposal_delay_ms` is parsed but unused; the proposal delay is a hardcoded 100 ms
+  sleep in `tryPropose`.
 
 ## Experiment tooling
 

@@ -41,7 +41,6 @@ type Config struct {
 	PeriodicReq             bool  `json:"periodic_req"`
 	CompleteSuite           bool  `json:"complete_suite"`
 	LatencyLog              bool  `json:"node_latency_logger"`
-	SerialClient            bool  `json:"serial_client"`
 	MaxBatchSize            int   `json:"max_batch_size"`
 	MaxBatchDelay           int   `json:"max_batch_delay"`
 	ConsensusChanSize       int   `json:"consensus_chan_size"`
@@ -62,6 +61,13 @@ type Config struct {
 
 	EpochMode bool `json:"epoch_mode"`
 
+	// Client retry (config/clientretry.go). Off: a request a node drops (view change
+	// running, not the leader, pending queue reset on a new view) is never resent.
+	ClientRetry           bool   `json:"client_retry"`
+	ClientRetryMode       string `json:"client_retry_mode"`
+	ClientRetryIntervalMs int    `json:"client_retry_interval_ms"`
+	ClientRetryMaxMs      int    `json:"client_retry_max_ms"`
+
 	// DefaultAction names the action (trigger mode + leader policy) every node
 	// starts in, e.g. "FixedRoundRobin". Empty keeps the legacy PerformanceRoundRobin.
 	DefaultAction string `json:"default_action"`
@@ -76,11 +82,11 @@ type Config struct {
 
 	// Latency-aware leader policy (Aware). Zero values fall back to the defaults
 	// in config/aware.go.
-	LatencyProbe         bool   `json:"latency_probe"`
-	AwareProbeIntervalMs int    `json:"aware_probe_interval_ms"`
-	AwareProbeTimeoutMs  int    `json:"aware_probe_timeout_ms"`
-	AwareRTTWindowS      int    `json:"aware_rtt_window_s"`
-	AwareGraceMs         int    `json:"aware_grace_ms"`
+	LatencyProbe         bool    `json:"latency_probe"`
+	AwareProbeIntervalMs int     `json:"aware_probe_interval_ms"`
+	AwareProbeTimeoutMs  int     `json:"aware_probe_timeout_ms"`
+	AwareRTTWindowS      int     `json:"aware_rtt_window_s"`
+	AwareGraceMs         int     `json:"aware_grace_ms"`
 	AwareStalenessEpochs uint64  `json:"aware_staleness_epochs"`
 	AwareAlpha           float64 `json:"aware_alpha"`
 	AwareEpsilonMs       float64 `json:"aware_epsilon_ms"`
@@ -134,6 +140,11 @@ func ReadCfg(filename string) *Config {
 
 	if err := config.ParseScenarios(); err != nil {
 		fmt.Printf("Invalid scenario config: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := config.ValidateClientRetry(); err != nil {
+		fmt.Printf("Invalid client retry config: %v\n", err)
 		os.Exit(1)
 	}
 

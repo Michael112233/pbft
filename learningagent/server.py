@@ -17,7 +17,7 @@ import grpc
 from learningagent import learning_agent_pb2
 from learningagent import learning_agent_pb2_grpc
 from learningagent.address import SUPPORTED_MODES, node_address, server_address
-from learningagent.protocols import PROTOCOLS, LearningData, ProtocolName
+from learningagent.protocols import PROTOCOLS, LearningData, MultiObjectiveData, ProtocolName
 from learningagent.scenario_sync import load_scenario_schedule, scenario_for_sequence
 from learningagent.simulate_quadrf import generate_state, generate_reward
 
@@ -208,6 +208,111 @@ class QuadRF:
         self.on_hold_pairs[(prev_protocol, best_protocol)] = True
 
         return best_protocol
+
+
+class QuadRFMultiObjective:
+    """QuadRF with two objectives: throughput is a constraint, latency is optimized.
+
+    Same structure as QuadRF: one RandomForestRegressor per (previous action,
+    candidate action) bucket, so the context is the state plus a one-step
+    dependency on the action just run. Each forest has two outputs,
+    y = [throughput, latency].
+
+    Selection is Thompson sampling only (no UCB): at every predict each tried
+    candidate is refit on a fresh bootstrap of its bucket, giving one joint sample
+    (T~, L~) per candidate. Then
+        feasible = {a : T~_a >= (1 - delta) * max_b T~_b}
+        choose     argmin_{a in feasible} L~_a   (ties broken at random).
+    The throughput-best candidate is always feasible. Untried pairs are forced
+    first, as in QuadRF.
+
+    A multi-output forest splits on the summed squared error of both outputs, so
+    each output is divided by its standard deviation in the bootstrap sample before
+    fitting (and multiplied back after predicting); otherwise whichever output has
+    the larger numeric range (tx/s vs ms) would decide every split.
+    """
+
+    def __init__(
+        self,
+        actions: list[str],
+        delta: float = 0.05,
+        seed: int | None = None,
+        n_estimators: int = 100,
+        max_depth: int = 5,
+    ) -> None:
+        if not 0.0 <= delta < 1.0:
+            raise ValueError(f"delta must be in [0, 1), got {delta}")
+        self.actions = list(actions)
+        self.delta = delta
+        self.rng = np.random.default_rng(seed)
+        self.n_estimators = n_estimators
+        self.max_depth = max_depth
+        self.experiences_X = {p: {a: [] for a in self.actions} for p in self.actions}
+        self.experiences_y = {p: {a: [] for a in self.actions} for p in self.actions}
+        # untried pairs already chosen, waiting for their first record
+        self.on_hold_pairs: set[tuple[str, str]] = set()
+
+    def record_state_action_reward(self, data: MultiObjectiveData, prev_protocol: str) -> None:
+        current_protocol = data.current_protocol
+        self.experiences_X[prev_protocol][current_protocol].append(data.state)
+        self.experiences_y[prev_protocol][current_protocol].append([data.throughput, data.latency])
+        self.on_hold_pairs.discard((prev_protocol, current_protocol))
+
+    def sample(self, state: NDArray[np.float64], prev_protocol: str, protocol: str) -> tuple[float, float]:
+        """One Thompson sample (throughput, latency) for a tried bucket: fit on a
+        bootstrap of the bucket and predict at state."""
+        X = np.asarray(self.experiences_X[prev_protocol][protocol], dtype=np.float64)
+        y = np.asarray(self.experiences_y[prev_protocol][protocol], dtype=np.float64)
+        replay_length = replay_len(y)
+        X, y = X[-replay_length:], y[-replay_length:]
+        idx = self.rng.choice(replay_length, size=replay_length, replace=True)
+        bX, by = X[idx], y[idx]
+        scale = by.std(axis=0)
+        scale[scale == 0] = 1.0
+        model = RandomForestRegressor(
+            n_estimators=self.n_estimators,
+            max_depth=self.max_depth,
+            random_state=int(self.rng.integers(2**31 - 1)),
+        )
+        model.fit(bX, by / scale)
+        throughput, latency = model.predict(np.asarray(state, dtype=np.float64).reshape(1, -1))[0] * scale
+        return float(throughput), float(latency)
+
+    def predict(self, state: NDArray[np.float64], prev_protocol: str) -> str:
+        state = np.asarray(state, dtype=np.float64)
+        if state.ndim != 1:
+            raise ValueError(f"state must be one-dimensional, got shape {state.shape}")
+
+        untried = [
+            a
+            for a in self.actions
+            if not self.experiences_y[prev_protocol][a] and (prev_protocol, a) not in self.on_hold_pairs
+        ]
+        if untried:
+            choice = untried[self.rng.integers(len(untried))]
+            LOGGER.info("Exploring untried pair %s -> %s", prev_protocol, choice)
+            self.on_hold_pairs.add((prev_protocol, choice))
+            return choice
+
+        samples = {
+            a: self.sample(state, prev_protocol, a)
+            for a in self.actions
+            if self.experiences_y[prev_protocol][a] # skip on-hold pairs: picked by the untried branch, record not in yet, empty bucket can't be fit
+        }
+        bar = (1.0 - self.delta) * max(t for t, _ in samples.values())
+        feasible = [a for a, (t, _) in samples.items() if t >= bar]
+        best_latency = min(samples[a][1] for a in feasible)
+        tied = [a for a in feasible if samples[a][1] == best_latency]
+        choice = tied[self.rng.integers(len(tied))]
+        LOGGER.info(
+            "prev %s: bar=%.1f feasible=%s choice=%s samples=%s",
+            prev_protocol,
+            bar,
+            feasible,
+            choice,
+            {a: (round(t, 1), round(l, 2)) for a, (t, l) in samples.items()},
+        )
+        return choice
 
 
 class MultiRF:

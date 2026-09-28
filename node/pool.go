@@ -83,9 +83,9 @@ func (p *Pool) GetBatch(digests [][32]byte) ([]core.ClientMsgSignature, bool) {
 func (p *Pool) MarkExecuted(digests [][32]byte) error {
 	for _, digest := range digests {
 		if data, exists := p.existsMap[digest]; exists {
-			if data.executed {
-				return fmt.Errorf("request with digest %x already marked as executed", digest)
-			}
+			// if data.executed {
+			// 	return fmt.Errorf("request with digest %x already marked as executed", digest)
+			// }
 			data.executed = true
 			p.existsMap[digest] = data
 		} else {

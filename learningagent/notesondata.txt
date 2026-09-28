@@ -1,0 +1,38 @@
+latency     client committed mean over the whole run, in ms. Committed-only: a
+              request dropped at a view change is not in it. In overloaded runs
+              (ND, FCrash, ProposalDelay with node 1 leading) it is queue backlog and
+              grows with run length, so only its ordering is meaningful.
+
+why avg, what is this overload scenario
+and timeot bug for node 1
+
+why need rtt spread
+[vc_rate, proposal_interval, inactive_nodes, rtt_spread]
+
+prop interval is 1000ms *50 /tput which is in txn per second
+8000/50 = 160 /s 1/160 *1000 = 6.25 ms
+
+
+
+prr and pe both 1/3
+as prr make nod 1 leader at gen swithc get more views
+
+rtt_spread = worst minus best Aware predicted leader latency (AWARE log lines):
+  70.0 ms in FarNode (70.6 vs 0.6), ~0 elsewhere. The prober runs under every action,
+  so it does not depend on the previous action.
+
+  aware calcs 70 as it is calculation L =2d+2e
+  client have roughly 44 because its d+2eps
+
+but do we need spread
+
+change tput to batches and rerun seeded run should be same ideally
+
+
+
+PRR is not 1/4. Each generation switch resets the counter to 1, and primaryForView(1) = 1, so node 1 leads the first view of every generation. A 45 s epoch with 10 s periods covers views c = 1…5, and node 1 gets both c = 1 and c = 5 (the partial last one). That comes to about 1/3 per generation, visible in gens 1 and 2 of the logs. The run also ends on a short gen 3 led almost entirely by node 1, which pushes the whole-run share to 0.40. With a clean per-generation share of 1/3, the model gives ≈ 21.8 ms, so the PRR: 24.0 in the simulation is slightly too high for one generation.
+PE's 1/3 is right in the long run but not in this run. electionCandidateForView hashes (generation, counter) and picks uniformly from {1, 3, 4}, since node 2 is excluded. That's where your 1/3 comes from, and over 1000 generations it comes out at 0.345. The hash is deterministic, though, so every run gets the same leaders for the same views: gen 1 → [1, 3, 1, 4, 4], gen 2 → [3, 1, 1, 1, 4]. These first two generations happen to favour node 1, giving 0.50. At 1/3 the model gives ≈ 21.8 ms, not 28.1.
+PFRR and PFE do follow PRR and PE. They use the same policies, so the leader sequence for each view is identical. The perf trigger rotates at about the same pace (1,470–1,640 batches per view compared with ≈1,630), so the shares and latencies nearly match.
+What this means for the simulation: the FarNode latencies for PRR/PFRR and PE/PFE come from these specific early views rather than a steady-state share. That's why PE ends up about 4 ms worse than PRR, even though the long-run model puts both at about 1/3 × 44 + 2/3 × 10.6 ≈ 21.8 ms.
+
+

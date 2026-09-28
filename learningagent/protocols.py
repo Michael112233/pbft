@@ -37,3 +37,14 @@ class LearningData:
     current_protocol: ProtocolName
     reward: float
     state: NDArray[np.float64]  # 1d array
+
+
+@dataclass(frozen=True, slots=True)
+class MultiObjectiveData:
+    """One epoch's experience for QuadRFMultiObjective: two rewards instead of one."""
+
+    sequence_id: int
+    current_protocol: str  # action name as the node spells it, e.g. "FixedAware"
+    throughput: float  # tx/s, higher is better
+    latency: float  # ms, lower is better
+    state: NDArray[np.float64]  # 1d array
