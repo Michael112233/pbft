@@ -1,0 +1,12 @@
+statleness check is diff from aware they always carry forward
+also they aggregate with reqs or same as coordinatore
+
+the catchup pathe i have in amplification or new view is something new and to be tested for safety 
+
+when node measure vector like in 10s window if last 10s have node probe data then in for agg message we send its observed rtt as zero rather than inf
+
+but when make matrix out of row sincei,j is zero and j,i row is not present it gets inf
+
+in aactual aware we send inf for not recored
+here send zero
+so if other gut not send row and i measure zero and once go over stale we give inf

@@ -11,6 +11,10 @@ import (
 
 const epochTimerInterval = 45 * time.Second
 
+// epochAggregatorNodeID is the node every other node sends its epoch data to.
+// Experiment scaffolding, like scenarioNetemNodeID.
+const epochAggregatorNodeID = 4
+
 // startEpochTimer starts the epoch timer. It is only ever touched from the
 // node event loop, so no locking is needed.
 func (n *Node) startEpochTimer() {
@@ -42,9 +46,21 @@ func (n *Node) handleEpochTimerTimeout() {
 	}
 	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
 
-	target, ok := config.NodeAddr[4]
+	// The aggregator hands its own epoch data straight to the epoch manager rather
+	// than sending it to itself over gRPC. This runs on the event loop, the same
+	// goroutine the network path would have delivered on, so the handler sees no
+	// difference. Going over the network meant the aggregator had to dial itself,
+	// and that first-time dial cost a full connection setup under netem delay -
+	// long enough for the grace timer to fire and drop the aggregator's own row
+	// from the first generation's aggregate.
+	if n.GetNodeID() == epochAggregatorNodeID {
+		n.HandleEpochDataMsg(*epochMsg, signature)
+		return
+	}
+
+	target, ok := config.NodeAddr[epochAggregatorNodeID]
 	if !ok || target == "" {
-		n.log.Error("Cannot send epoch data message: node 4 address is not configured")
+		n.log.Error("Cannot send epoch data message: node %d address is not configured", epochAggregatorNodeID)
 		return
 	}
 	go n.messageHub.Send(core.MsgEpochDataMessage, target, *epochMsg, signature)

@@ -12,6 +12,11 @@ const (
 	defaultAwareEpsilonMs       = 1.0
 )
 
+// how freq we probe peers
+// send probe to all by all so n^2 probes per interval
+// all probes off event loop 
+// use unary rpc so off stream as well
+
 func (c *Config) AwareProbeInterval() time.Duration {
 	if c.AwareProbeIntervalMs > 0 {
 		return time.Duration(c.AwareProbeIntervalMs) * time.Millisecond

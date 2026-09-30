@@ -119,22 +119,70 @@ func TestAwareCatchUpAdoptsRowsOnce(t *testing.T) {
 		aware:  newAwareState(),
 		log:    logger.NewLogger(2, "node"),
 	}
+	// The sender is in generation 4, so its rows are stamped 4.
 	rows := []core.AwareRow{
-		{Node: 2, Gen: 3, RTTms: []float64{70, 0, 2, 2}},
-		{Node: 3, Gen: 3, RTTms: []float64{70, 2, 0, 2}},
-		{Node: 4, Gen: 3, RTTms: []float64{70, 2, 2, 0}},
+		{Node: 2, Gen: 4, RTTms: []float64{70, 0, 2, 2}},
+		{Node: 3, Gen: 4, RTTms: []float64{70, 2, 0, 2}},
+		{Node: 4, Gen: 4, RTTms: []float64{70, 2, 2, 0}},
 	}
+	// Rows are adopted whatever the target action, so a later Aware generation
+	// does not inherit a gap from a non-Aware jump.
 	n.maybeAdoptAwareRows(4, core.FixedRoundRobin, rows)
-	if _, ok := n.aware.candidates[4]; ok {
-		t.Fatal("non-aware action must not adopt rows")
-	}
-	n.maybeAdoptAwareRows(4, core.FixedAware, rows)
 	if got := n.aware.candidates[4]; !reflect.DeepEqual(got, []int{2, 3, 4}) {
 		t.Fatalf("catch-up candidates = %v, want far node 1 excluded", got)
 	}
-	n.maybeAdoptAwareRows(4, core.FixedAware, []core.AwareRow{{Node: 1, Gen: 3, RTTms: []float64{0, 1, 1, 1}}})
+	n.maybeAdoptAwareRows(4, core.FixedAware, []core.AwareRow{{Node: 1, Gen: 4, RTTms: []float64{0, 1, 1, 1}}})
 	if _, ok := n.aware.rows[1]; ok {
 		t.Fatal("rows must not be adopted again once candidates exist for the generation")
+	}
+}
+
+// The aggregate for generation 3 must not touch rows or candidates while the
+// node is still in 3; leaving 3 applies it stamped 4 and builds candidates[4].
+func TestAwareAggregateAppliedOnGenerationSwitch(t *testing.T) {
+	t.Chdir(t.TempDir())
+	n := &Node{
+		NodeID: 2,
+		cfg:    &config.Config{NodeNum: 4},
+		fNodes: 1,
+		aware:  newAwareState(),
+		log:    logger.NewLogger(2, "node"),
+	}
+	sigs := []core.EpochDataMsgSig{
+		{EpochDataMsg: core.EpochDataMsg{EpochGeneration: 3, From: 2, RTTms: []float64{70, 0, 2, 2}}},
+		{EpochDataMsg: core.EpochDataMsg{EpochGeneration: 3, From: 3, RTTms: []float64{70, 2, 0, 2}}},
+		{EpochDataMsg: core.EpochDataMsg{EpochGeneration: 3, From: 4, RTTms: []float64{70, 2, 2, 0}}},
+	}
+	n.aware.pending[2] = []core.AwareRow{{Node: 1, RTTms: []float64{0, 9, 9, 9}}} // older leftover, must be dropped
+	n.storeAwareAggregate(3, sigs)
+	if len(n.aware.rows) != 0 || len(n.aware.candidates) != 0 {
+		t.Fatalf("storing must not apply: rows=%v candidates=%v", n.aware.rows, n.aware.candidates)
+	}
+
+	n.applyPendingAwareAggregate(3)
+	if got := n.aware.candidates[4]; !reflect.DeepEqual(got, []int{2, 3, 4}) {
+		t.Fatalf("candidates[4] = %v, want far node 1 excluded", got)
+	}
+	if _, ok := n.aware.candidates[3]; ok {
+		t.Fatal("aggregate 3 must build candidates[4], not candidates[3]")
+	}
+	for id, row := range n.aware.rows {
+		if row.Gen != 4 {
+			t.Fatalf("row %d stamped %d, want 4 (the generation it feeds)", id, row.Gen)
+		}
+	}
+	if _, ok := n.aware.rows[1]; ok {
+		t.Fatal("leftover aggregate for an older generation must not be applied")
+	}
+	if len(n.aware.pending) != 0 {
+		t.Fatalf("pending must be empty after the switch, got %v", n.aware.pending)
+	}
+
+	// Leaving 4 with no stored aggregate (it never arrived) changes nothing, so
+	// catch-up on the jump decides candidates[5].
+	n.applyPendingAwareAggregate(4)
+	if _, ok := n.aware.candidates[5]; ok {
+		t.Fatal("no stored aggregate must not produce candidates")
 	}
 }
 

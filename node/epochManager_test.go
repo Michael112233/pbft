@@ -14,7 +14,7 @@ type epochNodeStub struct {
 	nodeCount    int
 	graceStarts  int
 	broadcasts   int
-	appliedGens  []uint64
+	storedGens   []uint64
 	forView      core.ViewID
 	currAction   core.Action
 	signedMini   core.EpochAggregateMsgMini
@@ -32,8 +32,8 @@ func (n *epochNodeStub) startAggregateGraceTimer() { n.graceStarts++ }
 
 func (n *epochNodeStub) stopAggregateGraceTimer() {}
 
-func (n *epochNodeStub) applyAwareAggregate(gen uint64, _ []core.EpochDataMsgSig) {
-	n.appliedGens = append(n.appliedGens, gen)
+func (n *epochNodeStub) storeAwareAggregate(gen uint64, _ []core.EpochDataMsgSig) {
+	n.storedGens = append(n.storedGens, gen)
 }
 
 func (n *epochNodeStub) GetForViewID() core.ViewID { return n.forView }
@@ -102,8 +102,8 @@ func TestEpochManagerBroadcastsSignedAggregateAfterGraceTimeout(t *testing.T) {
 	if !bytes.Equal(collectedSignatures[1], []byte("sig-1")) || !bytes.Equal(collectedSignatures[3], []byte("sig-3")) {
 		t.Fatalf("collected epoch signatures = %#v", node.broadcastMsg.EpochDataMsgSigs)
 	}
-	if len(node.appliedGens) != 1 || node.appliedGens[0] != 7 {
-		t.Fatalf("aggregator must apply the aware matrix locally once, got %v", node.appliedGens)
+	if len(node.storedGens) != 1 || node.storedGens[0] != 7 {
+		t.Fatalf("aggregator must store the aware matrix locally once, got %v", node.storedGens)
 	}
 }
 

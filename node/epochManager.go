@@ -22,7 +22,7 @@ type EpochNode interface {
 	stopEpochTimer()
 	startAggregateGraceTimer()
 	stopAggregateGraceTimer()
-	applyAwareAggregate(gen uint64, sigs []core.EpochDataMsgSig)
+	storeAwareAggregate(gen uint64, sigs []core.EpochDataMsgSig)
 }
 type EpochManager struct {
 	epochMsgSig map[uint64]map[int]core.EpochDataMsgSig
@@ -89,9 +89,13 @@ func (em *EpochManager) HandleEpochDataMsg(msg core.EpochDataMsg, signature []by
 
 // onGraceTimeout sends the aggregate for the generation the grace timer was
 // started for, if the node is still in it.
+// we do stop timer at flush so no lingering grace timer
+// timer only start at quorum so at timeout we already have quorum
 func (em *EpochManager) onGraceTimeout() {
 	gen := em.graceGen
 	if gen != em.node.GetForViewID().Generation {
+		// right now its defensive as node 4 cant move up gen, node 4 is the one which initiate gen move
+	
 		em.log.Info("Aggregate grace timer fired for generation %d but node moved on; dropping", gen)
 		return
 	}
@@ -100,8 +104,15 @@ func (em *EpochManager) onGraceTimeout() {
 }
 
 // flushAggregate builds, signs and broadcasts the aggregate for gen once.
+
+		// in fcrash will have grace timer as dead node not send epoch msg
+		// in farnode grace timeer based flush not happen as not that far
+		// inndfcrash grace timer only starts when all 3 (quorum) epoch is received and then we wait 500ms to send the aggregate as dead node will never reply
+		// in ndelay it shouldnt fire as 170ms uniform so all arrive at same time
 func (em *EpochManager) flushAggregate(gen uint64) {
 	if em.aggregateSent[gen] || len(em.epochMsgSig[gen]) < em.node.QuorumSize() {
+
+
 		return
 	}
 	em.aggregateSent[gen] = true
@@ -122,7 +133,7 @@ func (em *EpochManager) flushAggregate(gen uint64) {
 		From:             em.node.GetNodeID(),
 		EpochData:        core.EpochData{Throughput: 0, ProposalInterval: 0, VCRate: 0, InactiveNodes: 0}, // Placeholder values
 		CurrentAction:    currAction,
-		EpochDataMsgSigs: epochDataMsgSigs,
+		EpochDataMsgSigs: epochDataMsgSigs, // epochdatamsgs have rtt vector
 	}
 	epochAggregateMsgMini := core.EpochAggregateMsgMini{
 		EpochGeneration: epochAggregateMsg.EpochGeneration,
@@ -138,8 +149,9 @@ func (em *EpochManager) flushAggregate(gen uint64) {
 	em.log.Info("Epoch aggregate message created for generation %d with %d epoch data messages", gen, len(epochDataMsgSigs))
 	em.node.asyncBroadCast(core.MsgEpochAggregateMessage, epochAggregateMsg, signature)
 	em.node.stopEpochTimer()
-	// The aggregator never receives its own broadcast, so it applies the matrix here.
-	em.node.applyAwareAggregate(gen, epochDataMsgSigs)
+	// The aggregator never receives its own broadcast, so it stores the matrix here;
+	// it is applied when the node moves to the next generation.
+	em.node.storeAwareAggregate(gen, epochDataMsgSigs)
 	go em.node.SendLearningDataToAgent(gen, currAction, epochAggregateMsg.EpochData.Throughput, epochAggregateMsg.EpochData.ProposalInterval, epochAggregateMsg.EpochData.VCRate, uint8(epochAggregateMsg.EpochData.InactiveNodes))
 }
 
@@ -175,7 +187,7 @@ func (em *EpochManager) HandleEpochAggregateMsg(msg core.EpochAggregateMsg, _ []
 	em.node.stopEpochTimer()
 	// TODO(safety): the embedded epoch data signatures are not verified, and the
 	// aggregate signature does not cover them, so the aggregator can forge vectors.
-	em.node.applyAwareAggregate(msg.EpochGeneration, msg.EpochDataMsgSigs)
+	em.node.storeAwareAggregate(msg.EpochGeneration, msg.EpochDataMsgSigs)
 	go em.node.SendLearningDataToAgent(msg.EpochGeneration, currAction, msg.EpochData.Throughput, msg.EpochData.ProposalInterval, msg.EpochData.VCRate, uint8(msg.EpochData.InactiveNodes))
 
 }

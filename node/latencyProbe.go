@@ -44,6 +44,8 @@ func (n *Node) stopLatencyProber() {
 // latencyProberLoop probes every peer each interval with a unary Probe call on
 // the existing peer connection and hands the round-trip time to the event loop.
 // It never writes node state itself.
+// this is off even loop so sending doesnt depend on what happen in event loop
+
 func (n *Node) latencyProberLoop() {
 	defer close(n.proberDone)
 	interval, timeout := n.cfg.AwareProbeInterval(), n.cfg.AwareProbeTimeout()
@@ -72,6 +74,7 @@ func (n *Node) latencyProberLoop() {
 			for _, id := range peers {
 				// Skip a peer whose previous probe is still outstanding, so a dead
 				// peer does not accumulate timed-out calls.
+				// there is no second claimer to slote so load and store would work but cas also work
 				if inflight[id].CompareAndSwap(false, true) {
 					go func(peer int, busy *atomic.Bool) {
 						defer busy.Store(false)

@@ -17,6 +17,12 @@ func (n *Node) incrementCounter() core.ViewID {
 	forView := n.GetForViewID()
 	return core.ViewID{Generation: forView.Generation, Counter: forView.Counter + 1}
 }
+// path to inc gen learning decision normal flow , get aggregate and then learning decision
+// from vc we catchup to higher gen
+// from nv we catchup to higher gen
+// if catchuping we may or maynot have received agg or learning decison yet
+// if g-1 there we can apply it it will make matrix of g and row of g
+
 
 func (n *Node) incrementGeneration(action core.Action) core.ViewID {
 	forView := n.GetForViewID()
@@ -24,6 +30,10 @@ func (n *Node) incrementGeneration(action core.Action) core.ViewID {
 	n.SetCurrAction(action)
 	n.SwitchTriggerMode(action.TriggerMode) // its is some what parallel state with curr action both update together onn generation update
 	n.epochManager.GCBelow(forView.Generation + 1)
+	// Leaving forView.Generation: apply its stored aggregate now, so rows and
+	// candidates for the next generation appear together with the switch. Runs
+	// before the callers' maybeAdoptAwareRows / enterViewChange.
+	n.applyPendingAwareAggregate(forView.Generation)
 	return core.ViewID{Generation: forView.Generation + 1, Counter: 1}
 }
 
@@ -579,6 +589,11 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	}
 	// oldView := n.view
 	if newViewMsg.NewViewNumber.Generation > forView.Generation {
+		// multiple gen jump not handled 
+		// increment function only add by 1 even if here multijump
+		// so candidate in awareinside increment gen update for current g+1
+		// so maybeadopt aware also update candidate again for multi jump G
+		// TODO: handle multiple generation jumps properly
 		n.incrementGeneration(newViewMsg.Action)
 		// TODO(safety): catch-up trusts the rows carried by this one new view.
 		n.maybeAdoptAwareRows(newViewMsg.NewViewNumber.Generation, newViewMsg.Action, newViewMsg.AwareRows)

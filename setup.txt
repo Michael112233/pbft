@@ -10,3 +10,6 @@ python3 -m pip install -r requirements.txt
 
 
 git clone https://github.com/Michael112233/pbft.git
+
+cd ~ && tar czf claude-migrate.tar.gz \
+  .claude/projects .claude/file-history .claude/plans .claude/settings.json
