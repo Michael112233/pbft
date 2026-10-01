@@ -58,8 +58,22 @@ type Node struct {
 	eventLoopStopOnce   sync.Once
 	// electionVDFWorkers             sync.WaitGroup
 
-	pendingRequests       RequestQueue
-	intake                *intakeFilter
+	pendingRequests RequestQueue
+	intake          *intakeFilter
+
+	// logging var
+	// STALL monitoring (loop-owned): when the pending queue became full, and when
+	// this node became leader of the current view (cleared by the first client
+	// request that reaches the loop after that).
+	queueFullSince time.Time
+	leaderSince    time.Time
+	// client requests dropped because this node is not leader or is in a view
+	// change: count and first/last drop time of the current run of drops
+	droppedRequests       int
+	firstDroppedAt        time.Time
+	lastDroppedAt         time.Time
+
+
 	batchLogic            Batcher
 	leaderProgressTimer   *time.Timer
 	leaderProgressTimerCh <-chan time.Time

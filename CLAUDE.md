@@ -267,6 +267,15 @@ With it off, the node stays in its initial action for the whole run.
   reads its channel. A batch is proposed only once `pendingRequests` holds
   `max_batch_size` requests, so batching wait is the fill time `B/R` and is
   unbounded at low load.
+- The client paces request batches (`client/ratelimiter.go`, one batch of
+  `inject_speed` per 24 ms) into **per-node send queues** (`client/sendqueue.go`, 8
+  batches each); a sender goroutine per node does the blocking `stream.Send`. A full
+  queue drops the batch (still registered, so it counts as uncommitted and is retried
+  if `client_retry` is on); a leader change discards the old leader's queue. Counts go
+  to `send_queue_dropped` / `send_queue_discarded` in `latencyreport.json` and to the
+  send-rate CSV. Before this, a leader that stopped reading its stream (ProposalDelay:
+  the 100 ms sleep runs on node 1's event loop) froze the whole client once the 8 MiB
+  gRPC window filled, starving the next leader for ~300 ms.
 - `proposal_delay_ms` is parsed but unused; the proposal delay is a hardcoded 100 ms
   sleep in `tryPropose`.
 

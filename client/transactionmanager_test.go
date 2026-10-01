@@ -19,6 +19,8 @@ func (*transactionManagerTestClient) TotalTxnsToInject() int64 {
 	return 100
 }
 
+func (*transactionManagerTestClient) sendQueueStats() (int64, int64) { return 0, 0 }
+
 func newTestTransactionManager() *TransactionManager {
 	return NewTransactionManager(&transactionManagerTestClient{}, &logger.Logger{})
 }

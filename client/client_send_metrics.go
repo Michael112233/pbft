@@ -50,7 +50,8 @@ func (c *Client) requestSendRateLogger() {
 				averageRate = float64(current) / elapsedSeconds
 			}
 
-			c.writeRequestSendRateCSV(csvWriter, now, elapsedSeconds, current, delta, windowSeconds, windowRate, averageRate)
+			dropped, discarded := c.sendQueueStats()
+			c.writeRequestSendRateCSV(csvWriter, now, elapsedSeconds, current, delta, windowSeconds, windowRate, averageRate, dropped, discarded)
 		case <-c.requestSendRateStop:
 			return
 		}
@@ -84,6 +85,8 @@ func (c *Client) openRequestSendRateCSV() (*os.File, *csv.Writer) {
 		"window_sec",
 		"window_tps",
 		"average_tps",
+		"dropped_total",
+		"discarded_total",
 	}); err != nil {
 		if c.log != nil {
 			c.log.Error("Failed to write client request send rate CSV header: %v", err)
@@ -103,7 +106,7 @@ func (c *Client) openRequestSendRateCSV() (*os.File, *csv.Writer) {
 	return file, writer
 }
 
-func (c *Client) writeRequestSendRateCSV(writer *csv.Writer, sampleTime time.Time, elapsedSeconds float64, total int64, delta int64, windowSeconds float64, windowRate float64, averageRate float64) {
+func (c *Client) writeRequestSendRateCSV(writer *csv.Writer, sampleTime time.Time, elapsedSeconds float64, total int64, delta int64, windowSeconds float64, windowRate float64, averageRate float64, dropped int64, discarded int64) {
 	if writer == nil {
 		return
 	}
@@ -117,6 +120,8 @@ func (c *Client) writeRequestSendRateCSV(writer *csv.Writer, sampleTime time.Tim
 		strconv.FormatFloat(windowSeconds, 'f', 6, 64),
 		strconv.FormatFloat(windowRate, 'f', 6, 64),
 		strconv.FormatFloat(averageRate, 'f', 6, 64),
+		strconv.FormatInt(dropped, 10),
+		strconv.FormatInt(discarded, 10),
 	}
 	if err := writer.Write(record); err != nil {
 		if c.log != nil {
@@ -128,4 +133,13 @@ func (c *Client) writeRequestSendRateCSV(writer *csv.Writer, sampleTime time.Tim
 	if err := writer.Error(); err != nil && c.log != nil {
 		c.log.Error("Failed to flush client request send rate CSV row: %v", err)
 	}
+}
+
+// sendQueueStats returns the requests dropped on a full per-node send queue and
+// those discarded on a leader change (sendqueue.go).
+func (c *Client) sendQueueStats() (dropped, discarded int64) {
+	if c == nil || c.messageHub == nil {
+		return 0, 0
+	}
+	return c.messageHub.SendQueueStats()
 }

@@ -8,7 +8,9 @@ import (
 
 // requestPacer owns the single send timeline shared by normal and retry
 // transactions. Keeping the send callback under the mutex prevents concurrent
-// producers from reserving stale slots and bursting after a slow send.
+// producers from reserving stale slots and bursting after a slow send. In the
+// client the callback only enqueues to a per-node send queue (sendqueue.go), so
+// it never blocks on the network and the spacing is exact.
 type requestPacer struct {
 	mu         sync.Mutex
 	nextSendAt time.Time

@@ -17,12 +17,12 @@ func (n *Node) incrementCounter() core.ViewID {
 	forView := n.GetForViewID()
 	return core.ViewID{Generation: forView.Generation, Counter: forView.Counter + 1}
 }
+
 // path to inc gen learning decision normal flow , get aggregate and then learning decision
 // from vc we catchup to higher gen
 // from nv we catchup to higher gen
 // if catchuping we may or maynot have received agg or learning decison yet
 // if g-1 there we can apply it it will make matrix of g and row of g
-
 
 func (n *Node) incrementGeneration(action core.Action) core.ViewID {
 	forView := n.GetForViewID()
@@ -493,6 +493,7 @@ func (n *Node) newview() {
 	// n.acceptNewViewTimers()
 	n.acceptNewViewTimersLeader() // experimental dont start progress timer on leader
 	n.resetPendingForNewView(O)
+	n.leaderSince = time.Now() // for logging
 }
 
 // buildPrepareMsgsForNewView pre-computes and signs the Prepare message for
@@ -589,7 +590,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	}
 	// oldView := n.view
 	if newViewMsg.NewViewNumber.Generation > forView.Generation {
-		// multiple gen jump not handled 
+		// multiple gen jump not handled
 		// increment function only add by 1 even if here multijump
 		// so candidate in awareinside increment gen update for current g+1
 		// so maybeadopt aware also update candidate again for multi jump G

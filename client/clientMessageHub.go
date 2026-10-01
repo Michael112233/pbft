@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/michael112233/pbft/config"
@@ -41,6 +42,13 @@ type ClientMessageHub struct {
 	mu      sync.RWMutex
 	streams map[string]*nodeStreamState
 
+	// per-node request send queues (sendqueue.go); the map is filled in Start
+	// and read-only afterwards
+	senders                 map[string]*nodeSender
+	sendFn                  func(addr string, env *transportpb.Envelope) error
+	droppedFull             atomic.Int64
+	discardedOnLeaderChange atomic.Int64
+
 	ctx       context.Context
 	cancel    context.CancelFunc
 	workersWG sync.WaitGroup
@@ -61,9 +69,17 @@ func (hub *ClientMessageHub) Start(client *Client, _ *sync.WaitGroup) {
 	hub.log = client.log
 	hub.ctx, hub.cancel = context.WithCancel(context.Background())
 
+	if hub.sendFn == nil {
+		hub.sendFn = hub.sendToNodeStream
+	}
+	hub.senders = make(map[string]*nodeSender, len(config.NodeAddr))
 	for _, nodeAddr := range config.NodeAddr {
 		hub.workersWG.Add(1)
 		go hub.maintainNodeStream(nodeAddr)
+		s := newNodeSender(nodeAddr)
+		hub.senders[nodeAddr] = s
+		hub.workersWG.Add(1)
+		go hub.senderLoop(s)
 	}
 
 	hub.log.Info("clientMessageHub started")
@@ -288,7 +304,11 @@ func (hub *ClientMessageHub) sendToNodeStream(addr string, env *transportpb.Enve
 		state := hub.getNodeStream(addr)
 		if state != nil {
 			state.sendMu.Lock()
+			began := time.Now()
 			err := state.stream.Send(env)
+			if took := time.Since(began); took > stallLogThreshold && hub.log != nil {
+				hub.log.Info("STALL: send of %s to %s blocked %v (started %s)", env.MsgType, addr, took, began.Format("15:04:05.000000"))
+			}
 			state.sendMu.Unlock()
 			if err != nil {
 				hub.clearNodeStream(addr, state)
@@ -398,12 +418,7 @@ func (hub *ClientMessageHub) Send(msgType string, from string, to string, msg in
 		return
 	}
 
-	if msgType == core.MsgRequestMessage && hub.client_ref != nil {
-		if request, ok := msg.(core.RequestMessage); ok {
-			hub.client_ref.recordRequestSent(len(request.Txs))
-		}
-	}
-
+	// request batches go through EnqueueRequest (sendqueue.go), which counts them
 	if callback != nil {
 		callback()
 	}

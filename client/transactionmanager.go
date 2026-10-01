@@ -79,6 +79,7 @@ type TransactionManager struct {
 type ClientTxnManager interface {
 	sendTransactions([]core.ClientMsgSignature)
 	TotalTxnsToInject() int64
+	sendQueueStats() (dropped, discarded int64)
 }
 
 type TransactionRetryManager struct {
@@ -439,6 +440,10 @@ type LatencySummaryResult struct {
 	RetriesSent  int64   `json:"retries_sent"`
 	// Uncommitted counts requests sent but never committed by the time of the summary.
 	Uncommitted int `json:"uncommitted"`
+	// Requests dropped on a full per-node send queue, and discarded from the old
+	// leader's queue on a leader change (sendqueue.go). Both stay registered.
+	SendQueueDropped   int64 `json:"send_queue_dropped"`
+	SendQueueDiscarded int64 `json:"send_queue_discarded"`
 	// Client-side wait between a batch leaving the signer pipeline and being
 	// sent (pacer slot wait), one sample per batch. End-to-end ~= latency + queue.
 	QueueBatches int     `json:"queue_batches"`
@@ -471,6 +476,7 @@ func (tm *TransactionManager) LatencySummary(path string) error {
 		RetriesSent:         tm.retriesSent.Load(),
 		Uncommitted:         tm.uncommittedCount(),
 	}
+	result.SendQueueDropped, result.SendQueueDiscarded = tm.client.sendQueueStats()
 	if tm.retry.includeRetried {
 		result.RetryMode = config.ClientRetryBackoff
 		if tm.retry.fixed {

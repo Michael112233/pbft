@@ -239,15 +239,25 @@ func (c *Client) pacedSendRequestTransactions(txs []core.ClientMsgSignature, req
 			if beforeSend != nil { // retry send nil
 				beforeSend(batch)
 			}
-			c.messageHub.Send(
-				core.MsgRequestMessage,
-				c.addr,
-				leader,
-				core.RequestMessage{Txs: batch, MsgType: requestMessageType},
-				nil,
-			)
+			// non-blocking: the node's sender goroutine does the stream write, so a
+			// node that stops reading cannot hold the pacer (sendqueue.go). A batch
+			// dropped on a full queue stays registered, like a lost message.
+			c.messageHub.EnqueueRequest(leader, core.RequestMessage{Txs: batch, MsgType: requestMessageType})
 		})
 	})
+}
+
+// logFirstSendToNewLeader logs, once per leader change, how long after the leader
+// update the first request to the new leader finished sending (STALL monitoring).
+// Called by that node's sender goroutine after each successful request send.
+func (c *Client) logFirstSendToNewLeader(sentTo string) {
+	c.leaderMu.Lock()
+	defer c.leaderMu.Unlock()
+	if c.leaderChangedAt.IsZero() || sentTo != c.leaderAddr {
+		return
+	}
+	c.log.Info("STALL: first request to new leader %s sent %v after the leader update", sentTo, time.Since(c.leaderChangedAt))
+	c.leaderChangedAt = time.Time{}
 }
 
 func (c *Client) sendEventMsg(leaderAddr string) {

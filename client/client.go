@@ -14,6 +14,9 @@ import (
 	"github.com/michael112233/pbft/utils"
 )
 
+// stallLogThreshold is the shortest delay the STALL monitoring logs.
+const stallLogThreshold = 20 * time.Millisecond
+
 type LeaderUpdate struct {
 	view     core.ViewID
 	leaderId int
@@ -39,6 +42,9 @@ type Client struct {
 	requestPacer       requestPacer
 	leaderMu           sync.RWMutex
 	leaderAddr         string
+	// leaderChangedAt is when leaderAddr last changed; cleared by the first request
+	// sent to the new leader (STALL monitoring). Guarded by leaderMu.
+	leaderChangedAt time.Time
 
 	vcrunChan chan core.VCRunningStatus
 

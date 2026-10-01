@@ -54,13 +54,39 @@ func (n *Node) run() {
 			// naturally apply backpressure until proposal progress frees space.
 			// n.log.Error("node event loop pending request queue is full, blocking client request channel")
 			clientRequestCh = nil
+			if n.queueFullSince.IsZero() { // llogging
+				n.queueFullSince = time.Now()
+				n.log.Info("STALL: pending queue full (%d), not reading client requests", n.pendingRequests.Len())
+			}
+		} else if !n.queueFullSince.IsZero() { // logging
+			n.log.Info("STALL: pending queue has room again after %v (len %d)", time.Since(n.queueFullSince), n.pendingRequests.Len())
+			n.queueFullSince = time.Time{}
+		}
+		if n.droppedRequests > 0 && time.Since(n.lastDroppedAt) > 100*time.Millisecond {
+			// how much time to drop when not leader
+			n.log.Info("STALL: dropped %d client requests (not leader or view change) from %s to %s (%v)",
+				n.droppedRequests, n.firstDroppedAt.Format("15:04:05.000000"), n.lastDroppedAt.Format("15:04:05.000000"),
+				n.lastDroppedAt.Sub(n.firstDroppedAt))
+			n.droppedRequests = 0
 		}
 
 		select {
 		case req := <-clientRequestCh:
 			if n.viewChangeRunning || n.leaderId != n.GetNodeID() {
 				// n.log.Info("Node %d is not the leader or view change is running, ignoring client request", n.GetNodeID())
+				now := time.Now()
+				if n.droppedRequests == 0 {
+					n.firstDroppedAt = now
+					n.log.Info("STALL: started dropping client requests (not leader or view change)")
+				}
+				n.droppedRequests++
+				n.lastDroppedAt = now
 				continue
+			}
+			if !n.leaderSince.IsZero() {
+				view := n.GetViewID()
+				n.log.Info("STALL: first client request as leader of view (%d,%d) reached the event loop %v after becoming leader", view.Generation, view.Counter, time.Since(n.leaderSince))
+				n.leaderSince = time.Time{}
 			}
 			// retry of a request already queued, proposed or executed
 			if !n.intake.admit(req.Data) {

@@ -1,6 +1,8 @@
 package client
 
 import (
+	"time"
+
 	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
 )
@@ -31,15 +33,25 @@ func (c *Client) HandleLeaderUpdate(data core.LeaderIdUpdate) {
 		leaderId: data.NewLeaderId,
 	}
 	c.newLeaderQuorum[leaderUpdate]++
+	oldLeader := c.leaderAddr
 	if c.newLeaderQuorum[leaderUpdate] == 2*c.fNodes {
 		c.leaderAddr = config.NodeAddr[data.NewLeaderId]
+		c.leaderChangedAt = time.Now()
 		c.currentView = data.View
 		leaderAddr := c.leaderAddr
 		c.log.Info("Received leader update message, new leader id %d, new leader addr %s", data.NewLeaderId, leaderAddr)
 
 	}
-
+	newLeader := c.leaderAddr
 	c.leaderMu.Unlock()
+
+	// a non-leader drops client requests, so what is still queued for the old
+	// leader is stale
+	if newLeader != oldLeader && oldLeader != "" && c.messageHub != nil {
+		if n := c.messageHub.DiscardQueued(oldLeader); n > 0 {
+			c.log.Info("STALL: discarded %d queued requests for old leader %s", n, oldLeader)
+		}
+	}
 
 }
 
