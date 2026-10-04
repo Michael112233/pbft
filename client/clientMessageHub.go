@@ -355,6 +355,18 @@ func (hub *ClientMessageHub) sendUnaryToNode(addr string, env *transportpb.Envel
 	return nil
 }
 
+// SendEventWithAck sends an EventMsg over the unary Deliver RPC and returns the
+// node's acknowledgement error. Unlike Send, it surfaces the error, which the
+// throttle manager (client/throttlemanager.go) needs: it must not reuse an
+// throttle slot until the gate command it sent was acknowledged.
+func (hub *ClientMessageHub) SendEventWithAck(addr string, event core.EventMsg) error {
+	env, err := hub.buildEnvelope(core.MsgEventMessage, event)
+	if err != nil {
+		return err
+	}
+	return hub.sendUnaryToNode(addr, env)
+}
+
 func (hub *ClientMessageHub) buildEnvelope(msgType string, msg interface{}) (*transportpb.Envelope, error) {
 	env := &transportpb.Envelope{MsgType: msgType}
 

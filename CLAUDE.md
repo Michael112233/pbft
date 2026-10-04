@@ -241,8 +241,14 @@ With it off, the node stays in its initial action for the whole run.
   `proposal_delay_node`; NetworkDelay has node 4 run
   `sudo -n scripts/netem_scenario.sh up 170 <n>` from a worker goroutine (`down` on
   every switch and on `Stop`); NetworkDelayFCrash applies the same delay and sets `dead`
-  on every `nodes_dead` node (1..f of them, never node 4 — validated in
-  `config.go`). In scenario mode the scenario owns both `proposalDelay` and `dead`, so
+  on every `nodes_dead` node (**exactly f** of them, never node 4 — validated in
+  `validateScenarioDeadNodes` in `config.go`, tested in `config/config_test.go`).
+  Exactly f, not 1..f: a count below f is a weaker scenario under the same name, so a
+  `nodes_dead` set written for `node_num: 4` and carried over to 7 is a config error
+  rather than a quietly different experiment. The forbidden id is
+  `config.EpochAggregatorNodeID`, which `epochAggregatorNodeID` and
+  `scenarioNetemNodeID` both alias, so the validation cannot drift from the node that
+  actually aggregates. In scenario mode the scenario owns both `proposalDelay` and `dead`, so
   `proposal_delay_node` and `nodes_dead` only take effect inside their scenario.
   Requires `epoch_mode`; incompatible with `netem.enabled` and with the script's
   `netem_delay`.
@@ -294,13 +300,29 @@ With it off, the node stays in its initial action for the whole run.
 
 ## Gotchas
 
-- **Hardcoded node ids.** Node 4 is the epoch aggregator (`epochtimer.go`); only one
+- **Hardcoded node ids.** Node 4 is the epoch aggregator, defined once as
+  `config.EpochAggregatorNodeID` and aliased by `epochAggregatorNodeID`
+  (`epochtimer.go`) and `scenarioNetemNodeID` (`scenario.go`); only one
   node per view may stand as election candidate, to avoid split votes — picked
-  uniformly at random from 1..n **excluding node 2** by hashing the view
-  (`electionCandidateForView`, checked in `handleElectionVDFResult`), because
-  experiments always put node 2 in `nodes_dead` (`electionExcludedNodeID`); node 4
-  also owns the scenario-mode netem qdisc (`scenarioNetemNodeID`). All are
-  experiment scaffolding, not protocol.
+  uniformly at random by hashing the view from 1..n **minus the ids set in
+  `nodes_dead`** (`electionCandidateForView(view, nodeNum, excluded)`, checked in
+  `handleElectionVDFResult`), since a crashed candidate never broadcasts
+  RequestVote. With no crashed nodes the draw is uniform over all n, so Election's
+  candidate pool is the same size as RoundRobin's rotation. The aggregator also
+  owns the scenario-mode netem qdisc, which is why `NetworkDelayFCrash` refuses to
+  crash it. All are experiment scaffolding, not protocol.
+- **Node 1 leads the genesis view and no leader update is sent for it.** The
+  genesis view is `(1,1)` and `primaryForView(1) == 1`, reached with no view
+  change. `sendLeaderIdUpdate` has a single call site, in the NewView install path
+  (`node/view.go`), so the client gets **no** `LeaderIdUpdate` for the genesis
+  tenure — and it initialises `currentView = {1,1}` and drops any update
+  `LessThanOrEqual` to that anyway (`client/receive.go`). Consequences: the first
+  row of `logs/leader_timeline.jsonl` is the leader of view `(1,2)`, not node 1;
+  anything client-side keyed on leader notices (the throttle controller in
+  `client/throttlemanager.go`) is blind for the whole genesis tenure and then
+  reacts late to the *second* leader, so the first two tenures of a run are
+  startup transients — see the `--skip-tenures` note in
+  `scripts/analyze_throttle.py`.
 - `viewtimers.go` still defines unused `leaderProgressTimeout` / `newViewTimeout`
   constants; the live values come from `TriggerManager`.
 - A lot of superseded logic is commented out rather than deleted. Check whether a

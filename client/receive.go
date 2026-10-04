@@ -34,16 +34,27 @@ func (c *Client) HandleLeaderUpdate(data core.LeaderIdUpdate) {
 	}
 	c.newLeaderQuorum[leaderUpdate]++
 	oldLeader := c.leaderAddr
+	observed := false
+	var observedAt time.Time
+	// leader doesnt send update wait for rest of 2f
 	if c.newLeaderQuorum[leaderUpdate] == 2*c.fNodes {
 		c.leaderAddr = config.NodeAddr[data.NewLeaderId]
 		c.leaderChangedAt = time.Now()
 		c.currentView = data.View
 		leaderAddr := c.leaderAddr
+		observed = true
+		observedAt = c.leaderChangedAt
 		c.log.Info("Received leader update message, new leader id %d, new leader addr %s", data.NewLeaderId, leaderAddr)
 
 	}
 	newLeader := c.leaderAddr
 	c.leaderMu.Unlock()
+
+	// This quorum is the controller's first permitted notice of the new leader
+	// (client/throttlemanager.go). Off the mutex, never blocking.
+	if observed {
+		c.notifyLeaderObserved(leaderNotice{view: data.View, leaderID: data.NewLeaderId, observedAt: observedAt})
+	}
 
 	// a non-leader drops client requests, so what is still queued for the old
 	// leader is stale

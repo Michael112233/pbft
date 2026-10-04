@@ -4,9 +4,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 
 	"github.com/michael112233/pbft/core"
 )
+
+// EpochAggregatorNodeID is the node every other node sends its epoch data to,
+// and the only node allowed to touch the shared netem qdisc on lo. Experiment
+// scaffolding, not protocol. It lives here rather than in package node so the
+// config validation that forbids crashing it cannot drift from the node-side
+// constants that act on it (node/epochtimer.go, node/scenario.go).
+const EpochAggregatorNodeID = 4
 
 type Config struct {
 	MaxTxNum              int64 `json:"max_tx_num"`
@@ -48,6 +56,14 @@ type Config struct {
 	MaxVDFDelay             int   `json:"max_vdf_delay"`
 	ParallelWorkers         bool  `json:"parallel_workers"`
 	PerformanceTimedTrigger bool  `json:"performance_timed_trigger"`
+
+	// Targeted proposal throttling (config/throttle.go). ProposalMinIntervalMs is
+	// the gate severity, calibrated once and shared by every policy;
+	// ProposalGateAtStart pins the gate on from startup for calibration runs
+	// with no controller.
+	ProposalMinIntervalMs int            `json:"proposal_min_interval_ms"`
+	ProposalGateAtStart   bool           `json:"proposal_gate_at_start"`
+	Throttle              ThrottleConfig `json:"throttle"`
 
 	// OracleMode replaces the learning-agent RPC with a local goroutine that
 	// sleeps to mimic model latency and then feeds a decision straight into
@@ -148,6 +164,11 @@ func ReadCfg(filename string) *Config {
 		os.Exit(1)
 	}
 
+	if err := config.ValidateThrottle(); err != nil {
+		fmt.Printf("Invalid throttle config: %v\n", err)
+		os.Exit(1)
+	}
+
 	// config.FaultyNodesNum = (config.NodeNum - 1) / 3
 
 	// // 设置TCP缓冲区默认值（256KB = 256 * 1024 bytes）
@@ -199,11 +220,23 @@ func (c *Config) ParseScenarios() error {
 }
 
 // validateScenarioDeadNodes checks the nodes_dead set NetworkDelayFCrash will
-// crash: 1..f nodes, none of them node 4, which aggregates epochs (no
+// crash: exactly f nodes, none of them node 4, which aggregates epochs (no
 // aggregate means no generation switch, so the scenario could never end) and
 // owns the netem qdisc.
+//
+// Exactly f, not 1..f: the scenario's whole point is network delay combined with
+// the full crash budget, and f is the only count that makes PeriodicElection's
+// edge over RoundRobin (skipping dead nodes instead of burning a timeout on
+// them) show up at its designed size. Fewer dead nodes still runs, but it is a
+// weaker scenario wearing the same name, which is exactly the kind of silent
+// mismatch that makes two runs incomparable. A 4-node nodes_dead set carried
+// over to node_num: 7 is caught here instead of quietly measuring the wrong
+// thing.
 func (c *Config) validateScenarioDeadNodes() error {
 	f := int((c.NodeNum - 1) / 3)
+	if f == 0 {
+		return fmt.Errorf("NetworkDelayFCrash needs node_num >= 4 so f >= 1, got node_num %d", c.NodeNum)
+	}
 	var dead []int
 	for id, isDead := range c.NodesDead {
 		if !isDead {
@@ -212,13 +245,16 @@ func (c *Config) validateScenarioDeadNodes() error {
 		if id < 1 || int64(id) > c.NodeNum {
 			return fmt.Errorf("NetworkDelayFCrash: nodes_dead has node %d outside 1..%d", id, c.NodeNum)
 		}
-		if id == 4 {
-			return fmt.Errorf("NetworkDelayFCrash: node 4 cannot be dead, it is the epoch aggregator")
+		if id == EpochAggregatorNodeID {
+			return fmt.Errorf("NetworkDelayFCrash: node %d cannot be dead, it is the epoch aggregator", EpochAggregatorNodeID)
 		}
 		dead = append(dead, id)
 	}
-	if len(dead) == 0 || len(dead) > f {
-		return fmt.Errorf("NetworkDelayFCrash needs 1..%d nodes set in nodes_dead, got %v", f, dead)
+	// NodesDead is a map, so iteration order is random; sort for a stable message.
+	sort.Ints(dead)
+	if len(dead) != f {
+		return fmt.Errorf("NetworkDelayFCrash needs exactly f = %d nodes set in nodes_dead for node_num %d, got %d %v",
+			f, c.NodeNum, len(dead), dead)
 	}
 	return nil
 }

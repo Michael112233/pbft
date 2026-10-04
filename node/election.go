@@ -118,28 +118,31 @@ func (n *Node) evalElectionVDF(
 	}
 }
 
-// electionExcludedNodeID is never picked as election candidate: experiments
-// always crash node 2 (nodes_dead), and a dead candidate would cost a full
-// new-view timeout. Experiment scaffolding, like the other hardcoded ids.
-const electionExcludedNodeID = 2
-
-// electionCandidateForView deterministically picks the one node in 1..nodeNum,
-// excluding electionExcludedNodeID, allowed to stand as candidate for view. It
+// electionCandidateForView deterministically picks the one node in 1..nodeNum
+// allowed to stand as candidate for view, skipping the ids in excluded. It
 // hashes the same "view-%d-%d" string the VRF uses as its seed, so every node
 // computes the same id with no messages. Experiment scaffolding to avoid split
 // votes, not part of the protocol.
-func electionCandidateForView(view core.ViewID, nodeNum int) int {
+//
+// excluded is the configured nodes_dead set: a crashed candidate never
+// broadcasts RequestVote, so picking one would cost a full new-view timeout.
+// Nothing else is excluded — with no crashed nodes the draw is uniform over all
+// nodeNum ids, which keeps Election's candidate pool the same size as
+// RoundRobin's rotation.
+func electionCandidateForView(view core.ViewID, nodeNum int, excluded map[int]bool) int {
 	sum := sha256.Sum256([]byte(fmt.Sprintf("view-%d-%d", view.Generation, view.Counter)))
 	h := binary.BigEndian.Uint64(sum[:8])
-	if electionExcludedNodeID < 1 || electionExcludedNodeID > nodeNum || nodeNum < 2 {
+
+	candidates := make([]int, 0, nodeNum)
+	for id := 1; id <= nodeNum; id++ {
+		if !excluded[id] {
+			candidates = append(candidates, id)
+		}
+	}
+	if len(candidates) == 0 { // every node excluded: fall back to the full range
 		return int(h%uint64(nodeNum)) + 1
 	}
-	// Uniform over the nodeNum-1 remaining ids: draw 1..nodeNum-1, shift past the excluded one.
-	id := int(h%uint64(nodeNum-1)) + 1
-	if id >= electionExcludedNodeID {
-		id++
-	}
-	return id
+	return candidates[h%uint64(len(candidates))]
 }
 
 func (n *Node) handleElectionVDFResult(result electionVDFResult) {
@@ -165,7 +168,7 @@ func (n *Node) handleElectionVDFResult(result electionVDFResult) {
 		n.log.Debug("Already voted for view %d, ignoring completed VDF", result.view)
 		return
 	}
-	if candidate := electionCandidateForView(result.view, int(n.cfg.NodeNum)); n.GetNodeID() != candidate { // avoiding split vote
+	if candidate := electionCandidateForView(result.view, int(n.cfg.NodeNum), n.cfg.NodesDead); n.GetNodeID() != candidate { // avoiding split vote
 		return
 	}
 	n.electionManager.votedFor[result.view] = n.GetNodeID()

@@ -15,6 +15,17 @@ import (
 var errEventLoopStopped = errors.New("node event loop stopped")
 
 func (n *Node) HandleEventMessage(ctx context.Context, msg core.EventMsg) error {
+	// Gate commands are applied on the event loop before this returns, so the
+	// unary Ack the client reads means "applied", not just "received". The
+	// controller's slot state machine relies on that (node/proposalgate.go).
+	if enable, ok := throttleGateEnableFor(msg.EventType); ok {
+		// ok mean throttle event
+		// wait till applied then ack tell if applied or not
+		return n.ReceiveThrottleGateCmd(ctx, enable)
+	}
+
+
+	// below code is dead unless have event manager from client and have leader stall even which we dont
 	select {
 	case n.clientEventMsgChan <- msg:
 		n.log.Debug("event message received: %s", msg.EventType)

@@ -22,6 +22,16 @@ crypto_main
 *.csv
 *.png
 result/
+# "result/" above is a typo for the actual directory, which is results/. Without
+# this line a `git add .` stages every saved run (~105 MB and growing).
+results/
+data_baselines/
+data_baselines_new/
+long_run.out
+
+# Run archives and downloaded toolchains: carried between machines by hand, not
+# through git. The .1 variant was already listed; the original was not.
+*.tar.gz
 
 
 
@@ -47,7 +57,7 @@ logs/
 # json
 results/*.json
 logs/*.json
-config/latency_pilots/*.json
+results/latency_pilots/*.json
 
 
 # pem

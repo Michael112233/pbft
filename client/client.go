@@ -58,6 +58,16 @@ type Client struct {
 	requestSendRateDone     chan struct{}
 	requestSendRateStarted  atomic.Bool
 	requestSendRateStopOnce sync.Once
+
+	// Targeted proposal throttling (client/throttlemanager.go). The timeline
+	// writer runs whenever logging is on; throttle is non-nil only when the
+	// controller is enabled. Both are fed from HandleLeaderUpdate, off leaderMu.
+	throttle               *throttleManager
+	leaderTimelineCh       chan leaderNotice
+	leaderTimelineStop     chan struct{}
+	leaderTimelineDone     chan struct{}
+	leaderTimelineOn       atomic.Bool
+	leaderTimelineStopOnce sync.Once
 }
 
 func NewClient(addr string, name string, config *config.Config, leaderAddr string) *Client {
@@ -88,11 +98,17 @@ func NewClient(addr string, name string, config *config.Config, leaderAddr strin
 		memoryLoggerDone:    make(chan struct{}),
 		requestSendRateStop: make(chan struct{}),
 		requestSendRateDone: make(chan struct{}),
+		leaderTimelineCh:    make(chan leaderNotice, throttleNoticeBuffer),
+		leaderTimelineStop:  make(chan struct{}),
+		leaderTimelineDone:  make(chan struct{}),
 	}
 	txnManager := NewTransactionManager(c, log)
 	txnManager.SetRetryPolicy(newRetryPolicy(config))
 	c.TransactionManager = txnManager
 	c.EventManager = NewEventManager(c, log, defaultEventLowerBound, defaultEventUpperBound)
+	if config.Throttle.Enabled {
+		c.throttle = newThrottleManager(c)
+	}
 	return c
 }
 
@@ -103,6 +119,12 @@ func (c *Client) Start() {
 	}
 	if c.config.Logging && c.requestSendRateStarted.CompareAndSwap(false, true) {
 		go c.requestSendRateLogger()
+	}
+	if c.leaderTimelineOn.CompareAndSwap(false, true) {
+		go c.leaderTimelineLogger()
+	}
+	if c.throttle != nil {
+		c.throttle.start()
 	}
 	if c.config.ClientRetry {
 		c.log.Info("client retry on: mode=%s interval=%v max=%v", c.config.ClientRetryModeOrDefault(), c.config.ClientRetryInterval(), c.config.ClientRetryMax())
@@ -132,7 +154,53 @@ func (c *Client) Stop() {
 	if c.requestSendRateStarted.Load() {
 		<-c.requestSendRateDone
 	}
+	if c.throttle != nil {
+		c.throttle.stopAndWait()
+	}
+	c.leaderTimelineStopOnce.Do(func() {
+		close(c.leaderTimelineStop)
+	})
+	if c.leaderTimelineOn.Load() {
+		<-c.leaderTimelineDone
+	}
 	c.log.Debug("client stopped")
+}
+
+// leaderTimelineLogger serializes accepted-leader observations to
+// logs/leader_timeline.jsonl, the ground truth for per-leader tenure windows in
+// the throttle analysis. Runs whether or not the controller is enabled.
+func (c *Client) leaderTimelineLogger() {
+	defer close(c.leaderTimelineDone)
+	w := newJSONLWriter("logs/leader_timeline.jsonl", c.log)
+	defer w.close()
+	for {
+		select {
+		case <-c.leaderTimelineStop:
+			return
+		case n := <-c.leaderTimelineCh:
+			w.write(map[string]any{
+				"t":           time.Now().UnixNano(),
+				"gen":         n.view.Generation,
+				"counter":     n.view.Counter,
+				"leader":      n.leaderID,
+				"observed_at": n.observedAt.UnixNano(),
+			})
+		}
+	}
+}
+
+// notifyLeaderObserved feeds a confirmed leader change to the timeline writer
+// and the throttle manager. Non-blocking: a full channel drops the notice so the
+// client never stalls, and it must be called off leaderMu.
+func (c *Client) notifyLeaderObserved(n leaderNotice) {
+	select {
+	case c.leaderTimelineCh <- n:
+	default:
+		c.log.Info("timeline channel full, dropped leader %d view (%d,%d)", n.leaderID, n.view.Generation, n.view.Counter)
+	}
+	if c.throttle != nil {
+		c.throttle.notify(n)
+	}
 }
 
 func (c *Client) AddTxs(txs []*core.Transaction) {

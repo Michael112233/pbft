@@ -69,10 +69,9 @@ type Node struct {
 	leaderSince    time.Time
 	// client requests dropped because this node is not leader or is in a view
 	// change: count and first/last drop time of the current run of drops
-	droppedRequests       int
-	firstDroppedAt        time.Time
-	lastDroppedAt         time.Time
-
+	droppedRequests int
+	firstDroppedAt  time.Time
+	lastDroppedAt   time.Time
 
 	batchLogic            Batcher
 	leaderProgressTimer   *time.Timer
@@ -83,6 +82,8 @@ type Node struct {
 	perfTimerCh           <-chan time.Time
 	epochTimer            *time.Timer
 	epochTimerCh          <-chan time.Time
+	proposalGateTimer     *time.Timer
+	proposalGateTimerCh   <-chan time.Time
 	aggregateGraceTimer   *time.Timer
 	aggregateGraceTimerCh <-chan time.Time
 	pool                  *Pool
@@ -159,6 +160,13 @@ type Node struct {
 	proposalDelay           bool
 	stallState              StallState
 
+	// proposal-rate gate (node/proposalgate.go); loop-owned. throttleGateCh is
+	// written by the hub's gRPC goroutines and drained by the loop.
+	proposalGateOn      bool
+	proposalMinInterval time.Duration
+	lastProposalAt      time.Time
+	throttleGateCh      chan throttleGateCmd
+
 	// scenario mode (node/scenario.go); loop-owned except the netem worker channel
 	scenarioMode    bool
 	currScenario    core.Scenario
@@ -200,6 +208,7 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		electionMsgChan:                make(chan ElectionMsg, 100),
 		epochMsgChan:                   make(chan EpochProtocolMsg, 20),
 		clientEventMsgChan:             make(chan core.EventMsg, 2),
+		throttleGateCh:                 make(chan throttleGateCmd, 4),
 		learningAgentDecisionCh:        make(chan core.LearningAgentDecision, 1),
 		electionVDFResultCh:            make(chan electionVDFResult, 1),
 
@@ -258,6 +267,8 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		proberDone:  make(chan struct{}),
 
 		proposalDelay:           !cfg.ScenarioMode && cfg.ProposalDelayNode == nodeID, // scenario mode owns it otherwise
+		proposalMinInterval:     cfg.ProposalMinInterval(),
+		proposalGateOn:          cfg.ProposalGateAtStart, // calibration runs with no controller
 		scenarioMode:            cfg.ScenarioMode,
 		performanceTimedTrigger: cfg.PerformanceTimedTrigger,
 		peakTpsTest:             cfg.PeakTpsTest,
@@ -452,8 +463,23 @@ func (n *Node) tryPropose(fullBatch bool) {
 	if n.ProposalDelayEnabled() {
 		time.Sleep(100 * time.Millisecond)
 	}
+	// Last gate before the destructive Dequeue: if the rate gate forbids this
+	// proposal it arms a retry timer and we leave the queue untouched.
+	if n.proposalGateBlocks() {
+		return
+	}
 
 	reqs := n.pendingRequests.Dequeue(n.GetBatchSize())
+	proposedAt := time.Now()
+	if n.proposalGateOn {
+		sinceLast := time.Duration(-1) // first proposal of this tenure
+		if !n.lastProposalAt.IsZero() {
+			sinceLast = proposedAt.Sub(n.lastProposalAt)
+		}
+		n.log.Info("GATE_PROPOSE seq=%d since_last=%v interval=%v",
+			n.CurrentSequenceNumber()+1, sinceLast, n.proposalMinInterval)
+	}
+	n.lastProposalAt = proposedAt
 	digestBatch, requestDigests, err := ComputeBatchDigest(reqs)
 	if err != nil {
 		n.log.Error("Failed to compute batch digest: %v", err)

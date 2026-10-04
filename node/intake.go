@@ -1,6 +1,10 @@
 package node
 
-import "github.com/michael112233/pbft/core"
+import (
+	"time"
+
+	"github.com/michael112233/pbft/core"
+)
 
 // Intake filter: keeps client retries of requests that are already queued,
 // proposed or executed out of the pending queue, so duplicates do not take
@@ -135,6 +139,10 @@ func (f *intakeFilter) takeCounters() (dropped, duplicates int64) {
 func (n *Node) resetPendingForNewView(O []core.PreprepareMsgSig) {
 	n.pendingRequests.Reset()
 	n.intake.resetQueued()
+	// A fresh tenure proposes its first batch immediately even when gated, so the
+	// gate cannot delay seq 1 past a replica's progress timer (node/proposalgate.go).
+	n.lastProposalAt = time.Time{}
+	n.stopProposalGateTimer()
 	for _, pp := range O {
 		if len(pp.PreprepareMsgMini.DigestIndividualClientMsgs) == 0 {
 			continue // no-op slot

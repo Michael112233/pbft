@@ -1,4 +1,4 @@
-"""Summarize the scenario x action latency pilots (config/latency_pilots/).
+"""Summarize the scenario x action latency pilots (results/latency_pilots/).
 
 Usage: python3 scripts/latency_pilot_summary.py [results/<scenario>_<action>_* ...]
        (no args: every results/{healthy,pdelay,ndelay,ndfcrash,farnode}_* run)

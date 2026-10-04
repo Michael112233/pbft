@@ -10,13 +10,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
 )
 
 const (
-	// Node 4 owns the netem qdisc, the same experiment-scaffolding hardcode as
-	// the epoch aggregator. Only one node may touch the shared qdisc on lo.
-	scenarioNetemNodeID    = 4
+	// The aggregator also owns the netem qdisc: only one node may touch the
+	// shared qdisc on lo, and it is the one node NetworkDelayFCrash is forbidden
+	// from crashing, so the delay never outlives the scenario.
+	scenarioNetemNodeID    = config.EpochAggregatorNodeID
 	scenarioNetworkDelayMS = 170 //match it with alt_run_project
 	scenarioNetemScript    = "scripts/netem_scenario.sh"
 	netemCommandTimeout    = 15 * time.Second

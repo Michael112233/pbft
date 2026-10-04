@@ -68,6 +68,19 @@ type EventMsg struct {
 	EventType string
 }
 
+// EventMsg event types. MsgEventMessage is the unsigned client->node control
+// channel; the client sends it over the unary Deliver RPC, so it never queues
+// behind request batches.
+const (
+	// EventTypeLeaderStall makes the leader sleep briefly (node/eventloop.go).
+	EventTypeLeaderStall = "LeaderStall"
+	// EventTypeThrottleGateOn and Off enable and disable the recipient's
+	// proposal-rate gate (node/proposalgate.go). The gate severity is a node
+	// config constant, not part of the command.
+	EventTypeThrottleGateOn  = "ThrottleGateOn"
+	EventTypeThrottleGateOff = "ThrottleGateOff"
+)
+
 type ClientMsgReply struct {
 	Id         int64
 	Timestamp  time.Time

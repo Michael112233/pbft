@@ -20,8 +20,6 @@ func (n *Node) ReceiveLearningAgentDecision(ctx context.Context, decision core.L
 	}
 }
 
-
-
 func (n *Node) ReceiveVerifiedClientRequestCh(req core.ClientMsgSignature) {
 	select {
 	case n.receiveVerifiedClientRequestCh <- req:
@@ -46,6 +44,7 @@ func (n *Node) run() {
 	defer n.stopPerfTimer()
 	defer n.stopEpochTimer()
 	defer n.stopAggregateGraceTimer()
+	defer n.stopProposalGateTimer()
 
 	for {
 		clientRequestCh := n.receiveVerifiedClientRequestCh
@@ -132,6 +131,10 @@ func (n *Node) run() {
 			n.handleEpochTimerTimeout()
 		case <-n.aggregateGraceTimerCh:
 			n.handleAggregateGraceTimeout()
+		case <-n.proposalGateTimerCh:
+			n.handleProposalGateTimeout()
+		case cmd := <-n.throttleGateCh:
+			n.handleThrottleGateCmd(cmd)
 		case s := <-n.rttSampleCh:
 			n.rttVec.add(s)
 		case electionMsg := <-n.electionMsgChan:

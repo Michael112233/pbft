@@ -5,7 +5,7 @@ Independent of simulate_quadrf.py: it has its own scenarios (adds FarNode), its 
 six actions (adds FixedAware) and its own generate_state / generate_reward.
 
 Source of every number: results/<scenario>_<action>_20260927_* / 20260928_*, run
-with config/latency_pilots/*.json (n=4, batch 50, client 200 tx per 24 ms, client
+with results/latency_pilots/*.json (n=4, batch 50, client 200 tx per 24 ms, client
 retry off, epoch 45 s), summarized by scripts/latency_pilot_summary.py into
 results/latency_pilots_summary.json.
 
