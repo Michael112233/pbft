@@ -158,7 +158,6 @@ type Node struct {
 	performanceTimedTrigger bool
 	peakTpsTest             bool
 	proposalDelay           bool
-	stallState              StallState
 
 	// proposal-rate gate (node/proposalgate.go); loop-owned. throttleGateCh is
 	// written by the hub's gRPC goroutines and drained by the loop.
@@ -272,7 +271,6 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		scenarioMode:            cfg.ScenarioMode,
 		performanceTimedTrigger: cfg.PerformanceTimedTrigger,
 		peakTpsTest:             cfg.PeakTpsTest,
-		stallState:              StallState{stall: false, view: 1},
 
 		latencyLog: cfg.LatencyLog,
 		gc:         cfg.GC,
@@ -1117,11 +1115,6 @@ func (n *Node) ProposalDelayEnabled() bool {
 
 func (n *Node) SetProposalDelay(enabled bool) {
 	n.proposalDelay = enabled
-}
-
-type StallState struct {
-	stall bool
-	view  int64
 }
 
 // func (n *Node) SetStall(stall bool) {

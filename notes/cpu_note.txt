@@ -29,3 +29,15 @@ echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governo
 cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor | sort -u   # confirm all say "performance"
 
 ./alt_run_project.sh   # freq trace + node/client logs collect automatically
+
+=== measured CPU baselines (scripts/cpu_check.sh) ===
+Gotcha: scaling_cur_freq is an APERF/MPERF average that only refreshes when the
+scheduler runs on that CPU. An IDLE core returns a frozen stale value, so a quiet
+box reads ~1 GHz even with the performance governor. Always measure under load.
+/proc/cpuinfo "cpu MHz" is unreliable here (reported 3700 when max was 3300).
+
+2026-10-04  node0.hamzak-318973.adaptivetimer-pg0.clemson.cloudlab.us
+  2x Intel Xeon Gold 6142 @ 2.60GHz, 64 logical (2 sockets x 16 cores x 2 threads)
+  driver intel_cpufreq, governor performance on all 64, turbo enabled
+  sustained under load: 3.30 GHz (1 core and 8 cores alike), spread 1.1% of median
+  advertised cpuinfo_max_freq 3.70 GHz = 1-2 core turbo bin, not reachable loaded
