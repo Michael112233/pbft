@@ -336,3 +336,157 @@ duration is consensus time, not wall-clock setup.
 
 Results land in `results/<config basename>/`, with the config copied in beside the
 logs.
+
+---
+
+## 7. Results (runs of 5 Oct 2026)
+
+Four parallel 1 h 30 m runs via `scripts/run_isolated.sh`, placement A = `thr_prr_n7`,
+B = `thr_pelec_n7` (socket 0), C = `thr_perfrr_n7`, D = `thr_perfelec_n7` (socket 1).
+Data in `results/thr_*_n7_20261005_*/`. Headline numbers from
+`scripts/analyze_throttle.py --logs <dir>`; the rest from the node logs as noted.
+
+### 7.1 Headline
+
+| Arm | Predicted req/s | **Measured req/s** | Pred. throttled | **Meas. throttled** | Tenures | Verdict |
+|---|---|---|---|---|---|---|
+| PeriodicRoundRobin | ~500 | **506** | 100% | **100.0%** | 529 | ✓ exact |
+| PeriodicElection | ~2 140 | **2 150** | 78.6% | **78.2%** | 526 | ✓ exact |
+| PerformanceRoundRobin | ~4 100 | **26** | ~50% | (88.8%, meaningless) | 278 | ✗ **livelocked at t ≈ 100 s** |
+| PerformanceElection | ~5 400 | **3 044** | ~34% | **23.8%** | 3 564 | ranking ✓, level 56% of predicted |
+
+Preconditions held:
+
+- **F under the pinned budget is the same as the uncapped baseline.** Ungated views
+  measured 162–169 slots/s (PerfRR genesis 162.2, view (1,4) 168.9), vs 163 assumed. 8
+  physical cores per run sustain the offered 8 333 req/s even with both perf arms
+  sharing socket 1.
+- **The gate is precise, so risk §5.1 did not materialise.** Gated proposal spacing
+  (`GATE_PROPOSE since_last`) has p50 100.6 / p99 101.1 ms in PRR, PElec and PerfElec;
+  > 150 ms in 0.03–0.26% of proposals.
+- **Election held-fraction matches 2/7.** PElec 139/527 = 26.4%, PerfElec 1 017/3 565 =
+  28.5%, vs 28.6%.
+- Controller notice lag ≤ 7 ms, 0 gate command failures in all four.
+
+### 7.2 Periodic arms: hypothesis confirmed
+
+PeriodicRoundRobin is throttled for 100.0% of every tenure on every node (75–76 tenures
+per node), committing 487–490 req/s flat across all 18 five-minute buckets. §2's coverage
+law at `prep ≤ τ` holds without exception.
+
+PeriodicElection lands within 1% of the 2/7 ÷ 5/7 model on both throttled fraction and
+throughput, and per-node throttled fraction is uniform (77.3–79.0%). Five-minute buckets
+range 1 793–2 548 req/s; the 1 h 30 m mean is the number to quote. **Election beats
+RoundRobin 4.2× under the periodic trigger.**
+
+### 7.3 PerformanceRoundRobin: modelled correctly, then killed by a view-change storm
+
+**The first five views follow §4.1 exactly** (node 3's log):
+
+| View | Leader | Observed | Model |
+|---|---|---|---|
+| (1,1) | 1 | ungated, 162 slots/s, evicted at 11 s when the bar crossed | ~12 s |
+| (1,2) | 2 | gate on 3 s after install (first notice), evicted at 4 s | as §3.1 transient |
+| (1,3) | 3 | gated from slot one, **8.99 slots/s**, evicted on the first tick | Regime A, τ ≈ 1.3 s |
+| (1,4) | 4 | ungated (prep could not finish), evicted at the 2 s tick, 133.9 < 151.8 | **τ ≈ 2 s fixed point** |
+| (1,5) | 5 | evicted at 1 s, 126.9 < 152.4 | |
+| (1,6) | 6 | **never installs: first new-view timer expiry** | §5.2 |
+
+From (1,6) on, the run never recovers. Counter reaches 9 625, but only 279 views install
+in 1 h 30 m. Node 3 alone logs 6 662 new-view timer expiries, 489 progress timeouts, and
+**5** perf evictions. Commits stop at **2 755 slots = 137 750 requests**, the run's total.
+Execution is wedged at seq ≈ 2750 from 00:34:06 onward, re-proposed view after view.
+
+The storm's trigger, from node 6's log at (1,6):
+
+1. Every ViewChange carries `lastExecuted − stableCheckpoint` prepared certs. At view 6
+   that was **208 certs, 0.46 MiB per VC**: the stable checkpoint was 2500 and execution
+   had reached ~2710, near the top of the 250-slot checkpoint sawtooth.
+2. Node 6 had all VCs by 56.635. Processing them took 90 ms; the NewView sends took
+   11–36 ms each. **VC → NewView ≈ 250 ms, against a 150 ms new-view timer.** Replicas
+   moved on before it landed.
+3. Once storming, execution cannot reach 2750, so **the stable checkpoint stays at 2500
+   for the rest of the run**. Every later VC carries ~255 certs (0.57 MiB), the maximum,
+   which keeps the round trip over budget. Self-sustaining.
+
+This is the mechanism in `docs/newview-cost-and-viewchange-storm.md` (stable checkpoint
+pinned → maximal VC/NewView → timer can never fit a round trip), reached here at n = 7
+with `carry_state: false`. §5.2 flagged it as the open risk; it fired on the sixth view.
+
+**Not yet established:** why views that *do* install still fail. Installed leaders hit the
+progress timer 150–300 ms after install without committing 2750. Leader 3 at (1,304) got
+client requests 34 µs after becoming leader and never proposed. The candidates are the
+two **silent** early returns in `tryPropose` (`node/node.go:437–445`):
+`pendingRequests < max_batch_size` and `inflight >= max_inflight_seq`. Per-node latency
+counts split into two groups ~40 apart (nodes 1–3 ≈ 2 708, nodes 5–7 ≈ 2 746), which
+fits a lagging leader blocked by `inflight >= 40`. But latency-count is not
+`lastExecuted`, and that value is never logged. Confirming it needs a log line on those
+returns.
+
+**This arm's 26 req/s is a liveness failure, not a throttle result, and must not be
+reported as one.** The throttle's role is indirect: it causes the fast rotation that puts
+a VC near the top of the checkpoint sawtooth.
+
+### 7.4 PerformanceElection: the best arm, held back by dead-on-arrival views
+
+PerfElec ranks first as predicted: **6.0× PRR, 1.4× PElec**, with the lowest throttled
+fraction of the four (23.8%; per node 22.6–25.2%). It also survived 272 new-view timer
+expiries without locking up. But it reaches only 56% of the predicted throughput, and
+mean tenure is 1.5 s rather than 3.2 s.
+
+The view-end causes on node 3 are 2 106 progress timeouts, 792 perf evictions and 272
+new-view expiries. The bar was supposed to be the main evictor, but the progress floor
+evicts 2.7× more often, **and not because of the gate** (see §7.1). Timing each progress
+timeout from that node's install:
+
+| ms since install | share of 2 106 progress timeouts |
+|---|---|
+| 150–200 | 78.3% |
+| 200–300 | 17.6% |
+| 300–500 | 3.7% |
+| > 500 | 0.4% |
+
+**96% are dead-on-arrival views**: the new leader never commits one slot inside the 150 ms
+budget. The cause is client redirection latency. The client switches to a new leader only
+after 2f = 4 `LeaderIdUpdate`s (`client/receive.go`), so the first client request reaches
+the new leader **p50 94 ms, p90 162 ms** after it becomes leader (48% > 100 ms). Add
+batching, three phases at n = 7 and execution, and roughly half of all installs run out of
+budget. The periodic arms see the same 60–90 ms redirection delay, but with a 10 s budget
+it costs them nothing.
+
+This is an interaction between the **trigger plane and the client**, independent of the
+throttle. Throttling only raises the view-change rate, so DOA views happen more often.
+Each DOA view is also a leader notice, which retargets a slot, so the extra churn pushes
+the throttled fraction *down* (23.8% vs 34% predicted). That partly offsets the lost
+throughput.
+
+Also not established: why PerfElec recovered from its 272 new-view expiries while PerfRR
+never did. The candidates are luck in where VCs land on the checkpoint sawtooth, or the
+Election VC path's different timing. One run per arm cannot tell them apart.
+
+### 7.5 What this means for the claim
+
+- **The periodic result is solid and is the clean publishable comparison**: under a 3 s
+  prep throttle, PeriodicElection beats PeriodicRoundRobin 4.2×. The 2/7 reactive-camping
+  model predicts both arms to within 1%.
+- **The perf "rotate faster than the controller can re-aim" mechanism is real.** It
+  appears directly in PerfRR's views 1–5 (τ ≈ 2 s fixed point) and in PerfElec having
+  the lowest throttled fraction. **But at n = 7 with 150 ms timers the perf trigger is
+  fragile.** One perf arm livelocked, and the other lost ~44% of its throughput to
+  dead-on-arrival views. Neither failure is caused by the throttle.
+- From the bandit's point of view, PerfRR at ~0 tps and PerfElec at 3 044 req/s are
+  legitimate arm outcomes in this scenario. As evidence about *throttling*, though, the
+  perf numbers are confounded until the control runs below are in.
+
+### 7.6 Next runs that would settle the open points
+
+1. **Instrument the silent `tryPropose` returns** (pending-short and inflight-full) with a
+   rate-limited log line. This confirms or refutes the lagging-leader explanation in §7.3.
+2. **Control: perf arms with the throttle off** (`throttle.enabled: false`,
+   `proposal_min_interval_ms: 0`). This separates perf-trigger fragility at n = 7 from
+   throttle-induced churn. Bucket by DOA count, new-view expiries and whether a storm
+   locks in. A healthy perf leader rotates every ~12 s, so the expected DOA rate is far
+   lower.
+3. **Repeat PerfRR** (2–3 seeds or start offsets). The storm may hinge on where the first
+   fast VC falls on the checkpoint sawtooth, so one run cannot say whether livelock is
+   typical.
