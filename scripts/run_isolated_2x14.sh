@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
-# Run one of up to four long experiments side by side on this machine, isolated from each other.
+# Run one of up to two long experiments side by side on this machine, isolated from each other.
 #
-#   scripts/run_isolated_2x14.sh <A|B|C|D> start [duration] [config]   default 7h20m, config/run2new.json
-#   scripts/run_isolated_2x14.sh <A|B|C|D> status                      processes, pinning, tmux, log tail
-#   scripts/run_isolated_2x14.sh <A|B|C|D> attach                      attach to that run's tmux session
-#   scripts/run_isolated_2x14.sh <A|B|C|D> down                        delete the run's network namespace
+#   scripts/run_isolated_2x14.sh <A|C> start [duration] [config]   default 7h20m, config/run2new.json
+#   scripts/run_isolated_2x14.sh <A|C> status                      processes, pinning, tmux, log tail
+#   scripts/run_isolated_2x14.sh <A|C> attach                      attach to that run's tmux session
+#   scripts/run_isolated_2x14.sh <A|C> down                        delete the run's network namespace
 #   DRY_RUN=1 scripts/run_isolated_2x14.sh A start                     print what would happen, change nothing
 #
-# Same as scripts/run_isolated.sh, for 2 x 14-core hosts (e.g. 2x Xeon E5-2683 v3, 56 logical).
+# Same as scripts/run_isolated.sh, for 2 x 14-core hosts (e.g. 2x Xeon E5-2683 v3, 56 logical),
+# but one run per socket: on this 2.49 GHz host, 7 cores could not carry inject_speed 200 at
+# n = 7 (ungated leaders ~104 slots/s, dead-on-arrival views); a full socket gives ~177.
 #
 # Run it from the main checkout. Each run R gets:
 #   - a git worktree  ../<repo>-R          own logs/, keys/, pbft_main, results/, config copy
 #   - a netns         pbftR                own lo: own 127.0.0.0/8 ports and own netem qdisc, so
 #                                          scenario_mode's `tc` on lo cannot touch another run
-#   - a CPU set       7 physical cores     both hyperthreads of each core, one NUMA node, so
-#                                          runtime.NumCPU() and GOMAXPROCS are 14 in every process
+#   - a CPU set       14 physical cores    a whole socket, both hyperthreads of each core, so
+#                                          runtime.NumCPU() and GOMAXPROCS are 28 in every process
 #   - a tmux server   .tmux/ in worktree   via TMUX_TMPDIR; the session is still called "pbft"
 #
 # Layout (2 sockets x 14 cores, core k = cpus k and k+28, socket = k % 2):
-#   A cores 0..12 even (socket 0)   B cores 14..26 even (socket 0)
-#   C cores 1..13 odd  (socket 1)   D cores 15..27 odd  (socket 1)
-# A/B share socket 0's L3 and memory bandwidth, C/D share socket 1's. To compare two runs
-# directly, put them on different sockets (A and C).
+#   A cores 0..26 even (socket 0)   C cores 1..27 odd (socket 1)
+# The two runs share no L3 and no memory node.
 #
 # Needs passwordless sudo (ip netns, and node 4's `sudo -n tc`) and numactl.
 # The worktree is a checkout of HEAD: uncommitted code changes are NOT included. Only the
@@ -37,7 +37,7 @@ die() { echo "Error: $*" >&2; exit 1; }
 run() { if [ "$DRY_RUN" = 1 ]; then echo "+ $*"; else "$@"; fi; }
 
 RUN="${1:-}"; CMD="${2:-start}"
-case "$RUN" in A|B|C|D) ;; *) usage ;; esac
+case "$RUN" in A|C) ;; *) usage ;; esac
 
 MAIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [ "$(git -C "$MAIN_DIR" rev-parse --git-dir)" = "$(git -C "$MAIN_DIR" rev-parse --git-common-dir)" ] \
@@ -49,10 +49,8 @@ NS="pbft$RUN"
 TMUX_DIR="$RUN_DIR/.tmux"
 
 case "$RUN" in
-    A) CORES="$(seq 0 2 12)" ;;
-    B) CORES="$(seq 14 2 26)" ;;
-    C) CORES="$(seq 1 2 13)" ;;
-    D) CORES="$(seq 15 2 27)" ;;
+    A) CORES="$(seq 0 2 26)" ;;
+    C) CORES="$(seq 1 2 27)" ;;
 esac
 CPUS="$( { for c in $CORES; do echo "$c"; echo "$((c + 28))"; done; } | sort -n | paste -sd, -)"
 
