@@ -25,9 +25,12 @@ const (
 	defaultPBFTRequestTimeout          = 5 * time.Second
 	defaultPBFTRequestTimeoutJitterMax = 500 * time.Millisecond
 	CHECKPOINT_INTERVAL                = 250
-	defaultTargetThroughput            = 0.92 * 160
-	// 8000/batch size
-	targetThroughputMaxFactor = 0.92
+	// Healthy unthrottled rate (8000/batch size), standing in for the max recent
+	// view throughput when no view in the window recorded one. The default bar is
+	// then the factor times it, the same bar a healthy run would set.
+	defaultMaxRecentThroughput = 160.0
+	defaultTargetThroughput    = targetThroughputMaxFactor * defaultMaxRecentThroughput
+	targetThroughputMaxFactor  = 0.91
 	ALPHA                     = 1 / float64(10) // for exponential moving average calculation of throughput
 	D                         = 3
 	THROUGHPUTINTERVAL_DELAY  = 3

@@ -145,7 +145,158 @@ proposes every 100 ms and replicas reset on **every** executed slot
 floor with 50 ms of margin** — exactly as expected. The bar, not the floor, does the
 evicting. (That margin is thin; see §5.1.)
 
-### 4.1 `thr_perfrr_n7` — PerformanceRoundRobin: a limit cycle, settling at τ ≈ 2 s
+### 4.1 `thr_perfrr_n7` — PerformanceRoundRobin: τ ≈ 2 s, fixed point or 4-cycle
+
+Start from a long tenure (the ~12 s a healthy perf leader gets: the bar starts at 92%
+and compounds 1%/s, so it passes 100% of achievable after ~11 raises). With τ = 12 s >
+prep = 3 s, §2 says the **successor is gated for its entire tenure** → it runs at R =
+10 against a bar of ~150 → evicted on its first tick. Its 3-slot window takes 0.3 s at R,
+so **τ collapses to 1.3 + d**.
+
+But after a 1.3 s tenure, the next leader's gate lands 3 − 1.3 = 1.7 s into its own
+tenure. It runs at full F until then, beats the bar at the 1 s tick, and survives, so τ
+grows again. The system cannot stay in either regime. The rest of this section works
+out where it ends up.
+
+#### Solving for x
+
+Notation, all times measured from the leader's NewView install:
+
+- *u* = prep − τ_prev — when this leader's gate goes live. By §2, its slot was
+  retargeted at the previous leader's notice, `τ_prev` before this install. If *u* ≤ 0
+  the leader is gated from the start.
+- *d* — VC dead time plus noise (including the ~0.02 s the 3-slot window takes at F),
+  lumped into one number and added to every tenure.
+- **Flat 0.3 s** — only for a leader gated from the start: its 3-slot window
+  (`THROUGHPUTINTERVAL_DELAY`) takes 3/R = 0.3 s, so its ticks come 0.3 s later. This
+  one is not noise. It decides which steady state the system reaches.
+- Perf ticks at 1 s, 2 s, 3 s, … (plus 0.3 s if gated from the start).
+- *B* = 0.92 · 163 = 150 at the first tick, × 1.01 after every tick the leader survives
+  (150 → 151.5 → 153.0).
+
+The tick at time *x* compares the average since install against B: the leader runs at F
+for *u* seconds, then at R for the rest. Set the average equal to the bar and solve:
+
+```
+u·F + (x − u)·R = B·x
+u·(F − R)       = x·(B − R)
+x = u · (F−R)/(B−R) = u · 153/140 = 1.093·u
+```
+
+Since B is 92% of the way from R up to F, the average falls to the bar only about
+0.09·u seconds after the gate lands. The leader is effectively dead as soon as it is
+gated, and is evicted at the first whole-second tick at or after *x*. The next tenure is
+then:
+
+```
+τ = (eviction tick) + d             ungated at install
+τ = 0.3 + 1 + d                     gated from the start (always evicted at tick 1)
+```
+
+#### Steady state 1: fixed point τ = 2 + d (d < 0.085 s)
+
+| step | τ_prev | u = 3 − τ_prev | x = 1.093·u | tick 1 | tick 2 | evicted | τ |
+|---|---|---|---|---|---|---|---|
+| 1 | 12 | gated from start | — | 10 ≤ 150 | — | tick 1 | **1.3 + d** |
+| 2 | 1.3 + d | 1.7 − d | ≈ 1.86 | 163 > 150 | ≈ 140 ≤ 151.5 | tick 2 | **2 + d** |
+| 3 | 2 + d | 1 − d | ≈ 1.09 | 163 − 153·d vs 150 | 86.5 − 76.5·d ≤ 151.5 | tick 2 | **2 + d** |
+
+Step 3 survives tick 1 only if the gate lands late enough in the first second:
+
+```
+(1 − d)·163 + d·10 > 150   →   163 − 153·d > 150   →   d < 0.085 s
+```
+
+If it survives, the leader is evicted at tick 2 and τ = 2 + d repeats. Each tenure is
+1 − d s ungated and 1 + d s gated:
+
+```
+throttled = (1 + d)/(2 + d) ≈ 50–52%
+slots/s   = [(1 − d)·163 + (1 + d)·10] / (2 + d) = (173 − 153·d) / (2 + d)
+```
+
+#### Steady state 2: 4-cycle 1.3 → 2 → 1 → 3 (0.085 < d < 0.15 s)
+
+With d over 0.085, step 3 fails tick 1. That 1 s tenure gives the next leader 2 − d s
+ungated, so it survives to tick 3. That 3 s tenure makes the leader after it gated from
+the start, which brings the system back to step 1:
+
+| leader | τ_prev | u = 3 − τ_prev | gated for | evicted | τ |
+|---|---|---|---|---|---|
+| A | 3 + d | −d (gated from start) | all 1.3 s | tick 1 | **1.3 + d** |
+| B | 1.3 + d | 1.7 − d | 0.3 + d | tick 2 | **2 + d** |
+| C | 2 + d | 1 − d | d | **tick 1** | **1 + d** |
+| D | 1 + d | 2 − d | 1 + d | tick 3 | **3 + d** |
+
+```
+cycle time = 7.3 + 4d       gated = 2.6 + 3d     →  throttled ≈ 38%
+slots      = 13 + 163·(4.7 − 3d) + 10·(1.3 + 3d) = 792.1 − 459·d
+```
+
+The cycle holds while D survives tick 2: (2 − d)·163 + d·10 > 2 · 151.5, so d < 0.15 s.
+
+Trace from the 12 s start at d = 0.10 (bold rows are where it leaves the fixed point):
+
+| step | τ_prev | u = 3 − τ_prev | x = 1.093·u | tick 1 avg / bar | tick 2 avg / bar | tick 3 avg / bar | evicted | τ |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 12.00 | −9.00 (gated from start) | — | 10.0 ≤ 150.0 | — | — | tick 1 | 0.3 + 1 + 0.10 = **1.40** |
+| 2 | 1.40 | 1.60 | 1.75 | 163.0 > 150.0 | 132.4 ≤ 151.5 | — | tick 2 | 2 + 0.10 = **2.10** |
+| **3** | **2.10** | **0.90** | **0.98** | **147.7 ≤ 150.0** | — | — | **tick 1** | 1 + 0.10 = **1.10** |
+| **4** | **1.10** | **1.90** | **2.08** | 163.0 > 150.0 | 155.3 > 151.5 | 106.9 ≤ 153.0 | **tick 3** | 3 + 0.10 = **3.10** |
+| 5 | 3.10 | −0.10 (gated from start) | — | 10.0 ≤ 150.0 | — | — | tick 1 | 0.3 + 1 + 0.10 = **1.40** |
+| 6 | 1.40 | 1.60 | 1.75 | 163.0 > 150.0 | 132.4 ≤ 151.5 | — | tick 2 | 2 + 0.10 = **2.10** |
+
+This is the path §7.3 measured for views (1,3) → (1,4) → (1,5): gated from slot one and
+evicted at tick 1, then evicted at tick 2, then at tick 1 (126.9 < 152.4).
+
+#### By d
+
+| d | Steady state | Tenures | Mean τ | Throttled | Slots/s | req/s |
+|---|---|---|---|---|---|---|
+| 0 | fixed | 2.00 | 2.00 | 50% | 86.5 | 4 325 |
+| 0.01 | fixed | 2.01 | 2.01 | 50% | 85.3 | 4 265 |
+| 0.05 | fixed | 2.05 | 2.05 | 51% | 80.7 | 4 033 |
+| 0.08 | fixed | 2.08 | 2.08 | 52% | 77.3 | 3 864 |
+| 0.09 | 4-cycle | 1.39 → 2.09 → 1.09 → 3.09 | 1.92 | 37% | 98.0 | 4 901 |
+| 0.10 | 4-cycle | 1.40 → 2.10 → 1.10 → 3.10 | 1.92 | 38% | 96.9 | 4 845 |
+| 0.14 | 4-cycle | 1.44 → 2.14 → 1.14 → 3.14 | 1.97 | 38% | 92.6 | 4 630 |
+
+Mean τ stays about 2 s (< prep) in both regimes, so the headline in §4.3 holds: the perf
+trigger rotates faster than the controller can re-aim. Crossing d = 0.085 s drops the
+throttled fraction from ~50% to ~38%.
+
+> **Predicted: mean τ ≈ 2 s; ~50% throttled, ≈ 77–86 slots/s ≈ 3 900–4 300 req/s if VC
+> dead time is under 85 ms; ~38% throttled, ≈ 93–98 slots/s ≈ 4 600–4 900 req/s if it
+> is 85–150 ms** — **≈ 8–10× PeriodicRoundRobin and ≈ 2× PeriodicElection.** In
+> `leader_timeline.jsonl`, a steady ~2 s tenure means the fixed point; a repeating
+> 1.3 / 2 / 1 / 3 s pattern means the 4-cycle.
+
+Second, independent leak in the same direction: `sendLeaderIdUpdate` fires only on a
+NewView **install**. If a 150 ms new-view timer expires and the counter is skipped, the
+controller never hears about that counter at all. The window does not stay behind — the
+next notice resyncs it — but the leader right after the skip was never prepped. Suppose
+notice *c+2* is skipped:
+
+- after notice *c+1* the slots hold `{c+1, c+2}` (*c+1* live, *c+2* preparing);
+- notice *c+2* never arrives, and *c+2* never leads, so its prep was wasted;
+- at notice *c+3*, `desired = {c+3, c+4}`. Neither slot holds a wanted node
+  (`heldWanted` → 0; with n = 7 there is no wrap-around), so both are free and both are
+  retargeted, `readyAt = now + prep`, while `reconcile` disables *c+1* and *c+2*.
+
+| Leader | Normal (§2 law) | After the skip |
+|---|---|---|
+| *c+3* | prepped since notice *c+2*, gated `prep − τ` into its tenure | **not prepped ahead**, so it runs ungated for its first `prep` = 3 s |
+| *c+4* | prepped since notice *c+3* | unchanged, so the law holds again |
+
+So each skip costs exactly one tenure, the one right after it. Under Periodic (τ = 10 s)
+that tenure falls from fully gated to 3 s at F + 7 s at R (the Election "not held" row).
+Under Perf (τ ≈ 2 s < prep), it falls from about 1 s gated to **never gated**. Perf's
+fast rotation also makes skips more likely (§5.2).
+
+#### 4.1.1 Original model (no d)
+
+The derivation as first written. It is the model above at d = 0 (fixed point τ = 2), and
+it does not cover the 4-cycle.
 
 Start from a long tenure (the ~12 s a healthy perf leader gets: the bar starts at 92%
 and compounds 1%/s, so it passes 100% of achievable after ~11 raises). With τ = 12 s >
@@ -173,12 +324,6 @@ tick at 1 s sees avg = 163 > bar → survive, bar → 151.5; tick at 2 s sees
 > 2 s (~100 ms of dead time, ~5%) → ≈ 82 slots/s ≈ 4 100 req/s** —
 > **≈ 8× PeriodicRoundRobin and ≈ 2× PeriodicElection.**
 
-Second, independent leak in the same direction: `sendLeaderIdUpdate` fires only on a
-NewView **install**. If a 150 ms new-view timer expires and the counter is skipped, the
-controller never hears about that counter at all, so its `{c, c+1}` window lags the
-real rotation and coverage drops below the law in §2. Perf's fast rotation makes those
-skips more likely (§5.2).
-
 ### 4.2 `thr_perfelec_n7` — PerformanceElection: reactive prep never lands
 
 Reactive controller, so the 2/7 ÷ 5/7 split of §3.2 applies, but now the tenure is set
@@ -199,16 +344,28 @@ Per 7 tenures: 22.6 s, 2 521 slots.
 | Config | Action | Throttled fraction | Slots/s | req/s | vs PRR |
 |---|---|---|---|---|---|
 | `thr_perfelec_n7` | PerformanceElection | ~34% | **~108** | ~5 400 | **10.8×** |
-| `thr_perfrr_n7` | PerformanceRoundRobin | ~50% | ~82 | ~4 100 | 8.2× |
+| `thr_perfrr_n7` | PerformanceRoundRobin, d < 85 ms (fixed point) | ~50% | ~77–86 | ~3 900–4 300 | 7.7–8.6× |
+| `thr_perfrr_n7` | PerformanceRoundRobin, d = 85–150 ms (4-cycle) | ~38% | ~93–98 | ~4 600–4 900 | 9.3–9.8× |
 | `thr_pelec_n7` | PeriodicElection | ~79% | ~43 | ~2 140 | 4.3× |
 | `thr_prr_n7` | PeriodicRoundRobin | **100%** | ~10 | ~500 | 1× |
 
+d is the VC dead time (§4.1). PerfElec ranks first in both PerfRR regimes, but in the
+4-cycle its lead shrinks from ~25% to 10–14%.
+
 **The finding, if the runs bear it out: the perf trigger beats the throttle not by
-catching a slow leader but by rotating faster than the controller can re-aim.** τ
-self-tunes to just under `prep_ms`, so `prep >= 2τ` holds and §2's coverage law returns
-zero. The trigger plane therefore dominates the policy plane here, and the policy plane
-only re-ranks *within* a trigger (Election > RoundRobin in both, for the reactive-prep
-reason).
+catching a slow leader but by rotating faster than the controller can re-aim.** Under
+Periodic, τ = 10 s ≥ prep and §2's law gates RoundRobin for 100% of every tenure. Under
+Perf, τ settles near 2 s, inside §2's middle case (τ < prep < 2τ), where the law gives
+(2τ − prep)/τ ≈ 50%, or ~38% if VC dead time pushes PerfRR into the 4-cycle. The trigger
+plane therefore dominates the policy plane here, and the policy plane only re-ranks
+*within* a trigger. Election > RoundRobin in both, because Election's prep can only start
+at the leader's own notice, giving every fresh leader the full 3 s ungated, while
+RoundRobin's prep starts one notice early and leaves only 3 − τ_prev (0 s under Periodic,
+~1 s under Perf).
+
+The measured ranking (§8.5) puts PerfRR above PerfElec. That flip comes from the
+`viewThroughputs` outlier artifact that pushes PerfRR's bar above F (§8.4), not from this
+model.
 
 ### 4.4 Consequence for the testbed's framing
 

@@ -25,7 +25,9 @@ func (n *Node) maxCounterForGeneration(generation uint64) uint64 {
 }
 
 // for proposal delay in new view can make sure if less than 100 then send a default value
-func (n *Node) maxRecentViewThroughput(currentView core.ViewID) float64 {
+// fromDefault is true when none of the window's views recorded a throughput, so the
+// returned value is defaultMaxRecentThroughput rather than a measurement.
+func (n *Node) maxRecentViewThroughput(currentView core.ViewID) (maxRecent float64, fromDefault bool) {
 	window := int64(3*n.fNodes + 1)
 
 	maxThroughput := 0.0
@@ -64,12 +66,19 @@ func (n *Node) maxRecentViewThroughput(currentView core.ViewID) float64 {
 	}
 
 	if !found {
-		n.log.Debug(" No throughput data found for the %d views before (%d,%d), returning default target throughput %.2f", window, currentView.Generation, currentView.Counter, defaultTargetThroughput)
-		return defaultTargetThroughput
+		n.log.Warn("PERF BAR DEFAULT: no recorded throughput in the %d views before (%d,%d) (%s); using default max recent throughput %.2f", window, currentView.Generation, currentView.Counter, concatStr, defaultMaxRecentThroughput)
+		return defaultMaxRecentThroughput, true
 	}
 	n.log.Info("Recent view throughputs for the %d views before (%d,%d): %s", window, currentView.Generation, currentView.Counter, concatStr)
 
-	return maxThroughput
+	return maxThroughput, false
+}
+
+func perfBarSource(fromDefault bool) string {
+	if fromDefault {
+		return "default"
+	}
+	return "recorded"
 }
 
 func (n *Node) newviewUpdatePerf(maxSeq int64, view core.ViewID) float64 {
@@ -79,13 +88,14 @@ func (n *Node) newviewUpdatePerf(maxSeq int64, view core.ViewID) float64 {
 		n.throughputPerf.throughputIntervalStartSeq = maxSeq + THROUGHPUTINTERVAL_DELAY
 		n.log.Info("Throughput interval start seq set to %d for new view (%d,%d)", n.throughputPerf.throughputIntervalStartSeq, view.Generation, view.Counter)
 		n.throughputPerf.throughputObservationStarted = false
-		maxRecentThroughput = n.maxRecentViewThroughput(view)
+		var fromDefault bool
+		maxRecentThroughput, fromDefault = n.maxRecentViewThroughput(view)
 		if maxRecentThroughput <= 100 {
 			n.log.Error("Concerning how is tput <= 100")
 		}
 		n.throughputPerf.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput
 
-		n.log.Info("Max recent throughput for new view (%d,%d) is %.2f; target throughput set to %.2f", view.Generation, view.Counter, maxRecentThroughput, n.throughputPerf.targetThroughput)
+		n.log.Info("Max recent throughput for new view (%d,%d) is %.2f; target throughput set to %.2f (source=%s)", view.Generation, view.Counter, maxRecentThroughput, n.throughputPerf.targetThroughput, perfBarSource(fromDefault))
 
 		n.resetTimedPerfWindow(maxSeq, view, maxRecentThroughput)
 	}
@@ -100,8 +110,15 @@ func (n *Node) handleNewViewUpdatePerf(maxSeq int64, view core.ViewID, throughpu
 		n.throughputPerf.throughputObservationStarted = false
 		maxRecentThroughput := throughput
 		n.throughputPerf.targetThroughput = targetThroughputMaxFactor * maxRecentThroughput
+		// The leader computes the max and only the number travels in the NewView, so a
+		// replica recognises the fallback by value. A measured rate landing exactly on
+		// the default constant is not a realistic collision.
+		fromDefault := maxRecentThroughput == defaultMaxRecentThroughput
+		if fromDefault {
+			n.log.Warn("PERF BAR DEFAULT: NewView for (%d,%d) carried the default max recent throughput %.2f (leader had no recorded throughput in its window)", view.Generation, view.Counter, maxRecentThroughput)
+		}
 
-		n.log.Info("Max recent throughput for new view (%d,%d) is %.2f; target throughput set to %.2f", view.Generation, view.Counter, maxRecentThroughput, n.throughputPerf.targetThroughput)
+		n.log.Info("Max recent throughput for new view (%d,%d) is %.2f; target throughput set to %.2f (source=%s)", view.Generation, view.Counter, maxRecentThroughput, n.throughputPerf.targetThroughput, perfBarSource(fromDefault))
 
 		n.resetTimedPerfWindow(maxSeq, view, maxRecentThroughput)
 	}

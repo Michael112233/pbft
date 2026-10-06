@@ -55,6 +55,10 @@ func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view c
 	if seq >= n.throughputPerf.throughputIntervalStartSeq && !n.throughputPerf.throughputObservationStarted {
 		n.log.Info("Throughput interval start seq %d is greater than or equal to current seq %d, starting timing", n.throughputPerf.throughputIntervalStartSeq, seq)
 		n.throughputPerf.throughputIntervalStart = now
+		// Count from the seq the clock actually started on, as the timed path does.
+		// Slots execute in bursts, so the first one seen can be past the planned
+		// start; counting from the planned seq credits those slots to ~0 elapsed.
+		n.throughputPerf.throughputIntervalStartSeq = seq
 		n.throughputPerf.throughputObservationStarted = true
 		return false
 	}
@@ -107,6 +111,12 @@ func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view c
 
 	} else if elapsedSeconds <= 1 {
 		// n.log.Info("Elapsed secs less than 1 doing nothing, the measured throughput is %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, view, seq, elapsedSeconds, executedSlots)
+	}
+	// Same grace as the timed trigger: a boundary that lands milliseconds after the
+	// window opened records a near-infinite rate, and maxRecentViewThroughput would
+	// then lift the next 3f+1 bars above anything achievable.
+	if elapsedSeconds <= perfTimedGraceSeconds {
+		return belowTarget
 	}
 	n.throughputPerf.viewThroughputs[view] = throughput
 	if view.Counter > n.throughputPerf.maxCounterByGeneration[view.Generation] {

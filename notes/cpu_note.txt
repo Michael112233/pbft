@@ -52,3 +52,12 @@ box reads ~1 GHz even with the performance governor. Always measure under load.
     sustained under load: 3.80 GHz on 1, 8 and 32 busy cores, spread 0.0%
   = full boost held by firmware. Stable, so timings are comparable WITHIN this host, but
   Zen 4 @ 3.8 GHz vs Skylake @ 3.3 GHz: do not compare raw latencies across the two hosts.
+
+2026-10-06  node0.hamzak-319126.adaptivetimer-pg0.clemson.cloudlab.us   (DIFFERENT host again)
+  2x Intel Xeon E5-2683 v3 @ 2.00GHz, 56 logical (2 sockets x 14 cores x 2 threads)
+  driver intel_cpufreq (intel_pstate passive), shipped with schedutil; set to performance on all 56
+  turbo enabled (no_turbo=0), advertised range 1.20 .. 3.00 GHz
+  sustained under load: 2.49 GHz on 1 and 4 busy cores, spread 0.0% (same under schedutil)
+  1-core turbo bin (3.00 GHz) never reached even on an idle box: capped below the advertised max
+  Haswell @ 2.49 GHz is the slowest host so far: do not compare raw latencies with the
+  Skylake 3.3 GHz or Zen 4 3.8 GHz hosts above.

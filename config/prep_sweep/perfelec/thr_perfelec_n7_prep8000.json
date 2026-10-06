@@ -1,0 +1,117 @@
+{
+  "_note": "prep_ms sweep (8000 ms). Otherwise identical to config/throttle_testing/thr_perfelec_n7.json. Code state at time of writing: FixedTriggerTimeout 300 ms (node/triggerManager.go), targetThroughputMaxFactor 0.91 (node/node.go), viewThroughputs grace fix (node/throughputperformance.go: no record for windows <= 1 s, count from first observed seq).",
+  "max_tx_num": 1000000,
+  "inject_speed": 200,
+  "max_block_size": 1,
+  "client_msg_padding_bytes": 0,
+  "node_num": 7,
+  "nodes_dead": {
+    "1": false,
+    "2": false,
+    "3": false,
+    "4": false,
+    "5": false,
+    "6": false,
+    "7": false
+  },
+  "nodes_in_dark": {
+    "1": false,
+    "2": false,
+    "3": false,
+    "4": false,
+    "5": false,
+    "6": false,
+    "7": false
+  },
+  "performance": true,
+  "period": 60000,
+  "number_of_periods": 4500,
+  "peak_tps_test": false,
+  "far_node_id": 0,
+  "far_node_delay_ms": 0,
+  "netem": {
+    "enabled": false,
+    "interface": "lo",
+    "socket_path": "logs/netem-controller.sock",
+    "pid_path": "logs/netem-controller.sock.pid",
+    "limit": 100000,
+    "rules": [
+      {
+        "id": "delay-after-seq-2",
+        "event": {
+          "type": "execution",
+          "node_id": 1,
+          "seq": 2
+        },
+        "action": {
+          "delay_ms": 250,
+          "lifetime": "until_next_event"
+        }
+      }
+    ]
+  },
+  "proposal_delay_node": 0,
+  "proposal_delay_ms": 2000,
+  "gc": true,
+  "logging": true,
+  "carry_state": false,
+  "dummy_account_count": 100000,
+  "log_shares": true,
+  "retry_sleep": 200,
+  "max_inflight_seq": 40,
+  "node_latency_logger": true,
+  "complete_suite": false,
+  "client_retry": false,
+  "client_retry_mode": "backoff",
+  "client_retry_interval_ms": 50,
+  "client_retry_max_ms": 2000,
+  "pending_queue_capacity": 2000,
+  "max_batch_size": 50,
+  "max_batch_delay": 100,
+  "consensus_chan_size": 5000,
+  "min_vdf_delay": 100,
+  "max_vdf_delay": 20000,
+  "parallel_workers": true,
+  "oracle_mode": false,
+  "oracle_actions": [
+    "FixedRoundRobin",
+    "PeriodicRoundRobin",
+    "PeriodicElection",
+    "PerformanceRoundRobin",
+    "PerformanceElection"
+  ],
+  "oracle_random": false,
+  "oracle_seed": 42,
+  "epoch_mode": false,
+  "default_action": "PerformanceElection",
+  "netem_delay": false,
+  "scenarios": [
+    "ProposalDelay",
+    "NetworkDelay",
+    "NetworkDelayFCrash",
+    "ProposalDelay",
+    "NetworkDelay",
+    "NetworkDelayFCrash",
+    "Healthy"
+  ],
+  "scenario_mode": false,
+  "scenario_generations": 100,
+  "latency_probe": false,
+  "aware_probe_interval_ms": 500,
+  "aware_probe_timeout_ms": 2000,
+  "aware_rtt_window_s": 10,
+  "aware_grace_ms": 500,
+  "aware_staleness_epochs": 3,
+  "aware_alpha": 0.1,
+  "aware_epsilon_ms": 1.0,
+  "far_node_netem": false,
+  "proposal_min_interval_ms": 100,
+  "proposal_gate_at_start": false,
+  "throttle": {
+    "enabled": true,
+    "strategy": "election",
+    "slots": 2,
+    "prep_ms": 8000,
+    "tenure_ms": 10000
+  }
+}
