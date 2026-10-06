@@ -9,7 +9,7 @@ import (
 
 const (
 	PeriodicTriggerTimeout = 10 * time.Second
-	FixedTriggerTimeout    = 150 * time.Millisecond
+	FixedTriggerTimeout    = 300 * time.Millisecond
 )
 
 type NodeTrigger interface {

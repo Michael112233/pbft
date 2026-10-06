@@ -490,3 +490,126 @@ Election VC path's different timing. One run per arm cannot tell them apart.
 3. **Repeat PerfRR** (2–3 seeds or start offsets). The storm may hinge on where the first
    fast VC falls on the checkpoint sawtooth, so one run cannot say whether livelock is
    typical.
+
+---
+
+## 8. Rerun with 300 ms Fixed/Perf timers (5 Oct 2026, new host)
+
+`FixedTriggerTimeout` raised from 150 to 300 ms (`node/triggerManager.go`). This sets both
+the leader-progress and the new-view timer for Fixed and Perf. Otherwise the configs are
+identical: `config/throttle_testing/thr_{perfelec,perfrr}_n7_t300.json`, which differ only
+by a `_note` key. Run sequentially, 1 h 30 m each, unpinned, via `run_long_experiment.sh`.
+Data in `results/thr_perf{elec,rr}_n7_t300_20261005_*/`.
+
+**Confounds against §7:**
+
+- **Different host.** This run is on an AMD EPYC 9354P, firmware-held 3.80 GHz with 0%
+  spread and no cpufreq driver (see `notes/cpu_note.txt`). §7 ran on 2× Xeon Gold 6142
+  at 3.30 GHz.
+- **No CPU pinning and no neighbour run.** §7 pinned each arm to 8 physical cores and
+  shared a socket.
+
+F is unchanged at ~163 slots/s, because it is the offered load. But view-change latency
+is faster on this box, so **part of the improvement may be the host, not the timer**. A
+150 ms run on this host would separate the two.
+
+### 8.1 Headline
+
+| Arm | §4 predicted | §7 @150 ms | **§8 @300 ms** |
+|---|---|---|---|
+| PerformanceElection req/s | ~5 400 | 3 044 | **5 510** |
+| PerformanceElection throttled | ~34% | 23.8% | **34.1%** |
+| PerformanceElection mean tenure | ~3.2 s | 1.5 s | **3.3 s** |
+| PerformanceRoundRobin req/s | ~4 100 | 26 (livelock) | **6 514** |
+| PerformanceRoundRobin throttled | ~50% | n/a | **19.2%** |
+| PerformanceRoundRobin mean tenure | ~2 s | n/a | **1.47 s** |
+
+Both arms are steady across all 18 five-minute buckets (PerfElec 5 404–5 644, PerfRR
+5 834–7 018). There is no storm and no collapse.
+
+### 8.2 Timers: the cascade is gone
+
+| | progress TO (all nodes) | new-view TO (all nodes) | perf evictions | installs | final counter |
+|---|---|---|---|---|---|
+| PerfElec @150 (node 3 only) | 2 106 | 272 | 792 | 3 565 | |
+| PerfRR @150 (node 3 only) | 489 | 6 662 | 5 | 279 | 9 625 |
+| **PerfElec @300** | **0** | **0** | 1 617 (node 3) | 1 634 | 1 635 |
+| **PerfRR @300** | **5** | **0** | 3 638 (node 3) | 3 679 | 3 680 |
+
+A final counter of installs + 1 means **every view change installed; none were skipped**.
+PerfRR's 5 progress timeouts are one event: a single view at 18:47:29, seen by 5 replicas
+1.34 s into its tenure. That is a mid-tenure stall, not a dead-on-arrival view. Both
+failure modes in §7 are gone:
+
+- the **NewView round trip** (~250 ms in §7.3) now fits inside the new-view timer;
+- the **client redirection delay** (p50 94 ms, p90 162 ms in §7.4) now fits inside the
+  progress timer, so dead-on-arrival views disappear.
+
+The perf bar is again the only thing removing leaders, as designed.
+
+### 8.3 PerformanceElection: the model holds to the decimal
+
+Eviction tick is read from the `Perf timer ... below timed target` lines:
+
+| Case | Model (§4.2) | Measured |
+|---|---|---|
+| leader already held → gated from start, evicted on tick 1 | P = 2/7 = 28.6%, 10 slots/s | **458 / 1 634 = 28.0%, 9.0 slots/s** |
+| fresh leader → 3 s at F, 1 s at R, evicted on tick 4 | (3·163 + 10)/4 = **124.8**, bar ≈ 156 | **1 175 evictions, 124.4 slots/s, bar 155.1** |
+
+Throughput, throttled fraction and mean tenure all land on §4.2. This is the cleanest
+confirmation in the experiment: **reactive camping + 3 s prep + the 1 %/s compounding
+bar fully determines PerfElec's behaviour.**
+
+### 8.4 PerformanceRoundRobin: beats the model, partly through a measurement artifact
+
+PerfRR came in at 6 514 req/s, 1.6× the §4.1 prediction, with only 19.2% of tenure time
+throttled. Eviction ticks:
+
+| Tick | Evictions | Measured tput p50 | Bar p50 |
+|---|---|---|---|
+| 1 s | 2 545 (69%) | **160.9** (ungated, ≈ F) | **166.5** |
+| 2 s | 864 | 152.8 | 157.8 |
+| 3 s | 268 | 109.0 | 156.9 |
+
+§4.1 assumed bar = 0.92 F < F, so an ungated leader survives the first tick. Here the
+**bar sits above F**, so 69% of leaders are removed at 1 s while healthy. Tenure drops to
+~1.47 s, 2τ ≈ 2.9 s < prep, and the controller rarely gets a gate on in time. The
+throttle is evaded even harder than modelled, but **for the wrong reason**.
+
+Why the bar exceeds F: the bar is `0.92 × max(viewThroughputs over the last 7 views)`.
+In PerfRR, those recorded per-view values include outliers **up to 16 460 slots/s**, and
+13% of them exceed 177 (= F/0.92). With a 7-view max, P(at least one outlier in the
+window) ≈ 1 − 0.87⁷ ≈ 62%, which matches the 69%. PerfElec's record is clean
+(p90 164.4, max 170.0).
+
+The source is `observeExecutedSlotForThroughput` (`node/throughputperformance.go`). It
+writes `viewThroughputs[view] = (seq − startSeq)/elapsed` at every 250-slot boundary
+**for any elapsed > 0**. The `elapsed > 1 s` check only gates the legacy `belowTarget`
+path, not the recording. A boundary that lands milliseconds after the observation start
+records a near-infinite rate. PerfRR's shorter, more numerous views make that more likely.
+
+**Consequence:** PerfRR's 6 514 is real for the code as it stands, but it partly measures
+this artifact. It is not purely the "rotate faster than the controller can re-aim"
+mechanism. Before quoting it, either:
+
+- apply the grace rule to the recording too: skip
+  `viewThroughputs[view] = throughput` when `elapsed ≤ 1 s`, as the timed trigger already
+  does by sampling only once a second; or
+- report PerfRR with this caveat attached.
+
+### 8.5 Updated ranking (300 ms, new host)
+
+| Arm | req/s | vs PeriodicRR @150 (506) |
+|---|---|---|
+| PerformanceRoundRobin | 6 514* | 12.9× |
+| PerformanceElection | 5 510 | 10.9× |
+| PeriodicElection (§7, 150 ms, old host) | 2 150 | 4.2× |
+| PeriodicRoundRobin (§7, 150 ms, old host) | 506 | 1× |
+
+\* inflated by the §8.4 artifact.
+
+The periodic arms were not rerun. Their 10 s timers do not depend on `FixedTriggerTimeout`,
+but they ran on the other host.
+
+With the 300 ms timers, the §4 claim stands: under a 3 s prep throttle the **trigger plane
+dominates**, and both perf arms beat both periodic arms by more than 2.5×.

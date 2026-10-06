@@ -41,3 +41,14 @@ box reads ~1 GHz even with the performance governor. Always measure under load.
   driver intel_cpufreq, governor performance on all 64, turbo enabled
   sustained under load: 3.30 GHz (1 core and 8 cores alike), spread 1.1% of median
   advertised cpuinfo_max_freq 3.70 GHz = 1-2 core turbo bin, not reachable loaded
+
+2026-10-05  node0.hamzak-319027.adaptivetimer-pg0.clemson.cloudlab.us   (DIFFERENT host from 2026-10-04)
+  AMD EPYC 9354P 32-Core, 64 logical (1 socket x 32 cores x 2 threads), bare metal
+  NO cpufreq driver registered: /sys/devices/system/cpu/cpu*/cpufreq absent, so there is
+  no governor to read or set (dmesg: powernow_k8 -> acpi-cpufreq fallback, nothing bound).
+  P-states are under firmware control. scripts/cpu_check.sh cannot measure here (it reads
+  scaling_cur_freq and dies with division by zero).
+  measured instead from APERF/MPERF MSRs (sudo modprobe msr), TSC 3250.004 MHz:
+    sustained under load: 3.80 GHz on 1, 8 and 32 busy cores, spread 0.0%
+  = full boost held by firmware. Stable, so timings are comparable WITHIN this host, but
+  Zen 4 @ 3.8 GHz vs Skylake @ 3.3 GHz: do not compare raw latencies across the two hosts.
