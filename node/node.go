@@ -31,9 +31,9 @@ const (
 	defaultMaxRecentThroughput = 160.0
 	defaultTargetThroughput    = targetThroughputMaxFactor * defaultMaxRecentThroughput
 	targetThroughputMaxFactor  = 0.91
-	ALPHA                     = 1 / float64(10) // for exponential moving average calculation of throughput
-	D                         = 3
-	THROUGHPUTINTERVAL_DELAY  = 3
+	ALPHA                      = 1 / float64(10) // for exponential moving average calculation of throughput
+	D                          = 3
+	THROUGHPUTINTERVAL_DELAY   = 3
 )
 
 type Node struct {
@@ -143,6 +143,7 @@ type Node struct {
 	throughputMeasurementsOnce    sync.Once
 
 	throughputPerf ThroughputPerf
+	pilotTrace     execTrace // pilot_exec_trace, node/pilottrace.go
 	lm             *LatencyMonitor
 
 	// Aware policy: loop-owned matrix/candidates and local RTT vector, fed by the

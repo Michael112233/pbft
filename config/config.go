@@ -56,6 +56,9 @@ type Config struct {
 	MaxVDFDelay             int   `json:"max_vdf_delay"`
 	ParallelWorkers         bool  `json:"parallel_workers"`
 	PerformanceTimedTrigger bool  `json:"performance_timed_trigger"`
+	// PilotExecTrace logs per-slot execution times for the first 2.5 s of each view
+	// (node/pilottrace.go). Log only.
+	PilotExecTrace bool `json:"pilot_exec_trace"`
 
 	// Targeted proposal throttling (config/throttle.go). ProposalMinIntervalMs is
 	// the gate severity, calibrated once and shared by every policy;

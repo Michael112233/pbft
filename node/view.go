@@ -459,6 +459,7 @@ func (n *Node) newview() {
 	// max seq number in log is prepareseq number in all nodes
 	n.sequenceNumber = maxSeq
 
+	n.pilotTraceStart(maxSeq, view)
 	maxRecentThroughput := n.newviewUpdatePerf(maxSeq, view)
 
 	newViewMsg := core.NewViewMsg{
@@ -663,6 +664,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	}
 	n.sequenceNumber = maxSeq
 	n.pruneViewChangeState(view)
+	n.pilotTraceStart(maxSeq, view)
 	n.handleNewViewUpdatePerf(maxSeq, view, newViewMsg.Throughput)
 	n.resetPendingForNewView(nil)
 	// here we may have buffer
