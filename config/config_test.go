@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+	"time"
+)
 
 // NetworkDelayFCrash must crash exactly f nodes: the scenario is network delay
 // combined with the full crash budget, so a count below f is a weaker scenario
@@ -71,6 +75,67 @@ func TestValidateScenarioDeadNodesErrorIsStable(t *testing.T) {
 		}
 		if err.Error() != want {
 			t.Fatalf("got %q, want %q", err.Error(), want)
+		}
+	}
+}
+
+// "performance" accepts the legacy boolean as well as the object form.
+func TestPerformanceConfigForms(t *testing.T) {
+	tests := []struct {
+		json    string
+		enabled bool
+		want    PerformanceConfig
+	}{
+		{`{"performance": true}`, true, PerformanceConfig{Enabled: true}},
+		{`{"performance": false}`, false, PerformanceConfig{}},
+		{`{}`, false, PerformanceConfig{}},
+		{`{"performance": {"enabled": true, "view_strategy": "mean", "window_delay_slots": 5, "interval_slots": 125, "grace_ms": 500, "bar_factor": 0.9, "default_max_throughput": 150}}`, true,
+			PerformanceConfig{Enabled: true, ViewStrategy: "mean", WindowDelaySlots: 5, IntervalSlots: 125, GraceMs: 500, BarFactor: 0.9, DefaultMaxThroughput: 150}},
+	}
+	for _, tt := range tests {
+		var c Config
+		if err := json.Unmarshal([]byte(tt.json), &c); err != nil {
+			t.Fatalf("%s: %v", tt.json, err)
+		}
+		if c.Performance != tt.want {
+			t.Fatalf("%s: got %+v, want %+v", tt.json, c.Performance, tt.want)
+		}
+	}
+
+	var c Config
+	if err := json.Unmarshal([]byte(`{"performance": "yes"}`), &c); err == nil {
+		t.Fatal(`"performance": "yes" parsed without error`)
+	}
+}
+
+func TestPerformanceDefaultsAndValidation(t *testing.T) {
+	c := &Config{Performance: PerformanceConfig{Enabled: true}}
+	if c.PerfIntervalSlots() != 250 || c.PerfGrace() != time.Second || c.PerfViewStrategy() != PerfViewStrategyMax ||
+		c.PerfBarFactor() != 0.91 || c.PerfDefaultMaxThroughput() != 160 {
+		t.Fatalf("defaults: interval %d grace %v strategy %q factor %g default %g",
+			c.PerfIntervalSlots(), c.PerfGrace(), c.PerfViewStrategy(), c.PerfBarFactor(), c.PerfDefaultMaxThroughput())
+	}
+	if c.PerfWindowDelaySlots() != 3 {
+		t.Fatalf("default window delay = %d, want 3", c.PerfWindowDelaySlots())
+	}
+	if neg := (&Config{Performance: PerformanceConfig{WindowDelaySlots: -1}}); neg.PerfWindowDelaySlots() != 0 {
+		t.Fatalf("negative window delay = %d, want 0", neg.PerfWindowDelaySlots())
+	}
+	if got, want := c.PerfDefaultBar(), 0.91*160; got != want {
+		t.Fatalf("default bar = %g, want %g", got, want)
+	}
+	if err := c.ValidatePerformance(); err != nil {
+		t.Fatalf("defaults invalid: %v", err)
+	}
+	for _, bad := range []PerformanceConfig{
+		{ViewStrategy: "median"},
+		{IntervalSlots: -1},
+		{BarFactor: 1.5},
+		{DefaultMaxThroughput: -1},
+	} {
+		c := &Config{Performance: bad}
+		if err := c.ValidatePerformance(); err == nil {
+			t.Fatalf("%+v: want error", bad)
 		}
 	}
 }

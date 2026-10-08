@@ -3,28 +3,44 @@ package node
 import (
 	"time"
 
+	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
 )
 
 type ThroughputPerf struct {
-	throughputIntervalStart      time.Time
-	throughputIntervalStartSeq   int64
-	targetThroughput             float64
-	throughputObservationStarted bool
-	viewThroughputs              map[core.ViewID]float64
+	// viewThroughputs holds each view's throughput record (slots/s), written by
+	// observeExecutedSlotForViewThroughput and read by maxRecentViewThroughput.
+	viewThroughputs map[core.ViewID]float64
 	// maxCounterByGeneration tracks, for each generation seen so far, the
 	// highest Counter recorded in viewThroughputs. Kept up to date on every
 	// write so looking up "where did the previous generation leave off" is
 	// O(1) instead of a scan over viewThroughputs.
 	maxCounterByGeneration map[uint64]uint64
 
-	// Timed trigger state. Mirrors the seq-driven fields above, but the
-	// measurement is taken by the perf timer once a second instead of at
-	// checkpoint boundaries, so it keeps its own target to raise.
+	// Perf window. It opens at the first executed slot at or past
+	// timedIntervalStartSeq (maxSeq + PerfWindowDelaySlots() of the NewView).
+	// The perf timer measures the average since timedIntervalStart once a second
+	// and raises timedTargetThroughput (the bar) while the leader beats it.
 	timedIntervalStart      time.Time
 	timedIntervalStartSeq   int64
 	timedTargetThroughput   float64
 	timedObservationStarted bool
+
+	// record measures the current view's throughput record.
+	record viewRecord
+}
+
+// viewRecord is the measurement state for one view's throughput record: back-to-back
+// intervals of PerfIntervalSlots executed slots, the first starting at the anchor.
+type viewRecord struct {
+	view             core.ViewID
+	anchored         bool
+	anchorSeq        int64
+	anchorTime       time.Time
+	lastBoundarySeq  int64
+	lastBoundaryTime time.Time
+	intervals        int
+	fastest          float64 // fastest complete interval, slots/s
 }
 
 // observeExecutedSlotForTimedThroughput only opens the measurement window for the
@@ -32,10 +48,6 @@ type ThroughputPerf struct {
 // pins the interval start and arms the perf timer. Everything else (measuring,
 // raising the bar, triggering the view change) happens in handlePerfTimerTimeout.
 func (n *Node) observeExecutedSlotForTimedThroughput(seq int64, now time.Time) {
-	// if !n.performanceTimedTrigger || seq <= 0 {
-	// 	return
-	// }
-
 	if seq >= n.throughputPerf.timedIntervalStartSeq && !n.throughputPerf.timedObservationStarted {
 		n.log.Info("Timed trigger: interval start seq %d reached at seq %d, starting timing and perf timer", n.throughputPerf.timedIntervalStartSeq, seq)
 		n.throughputPerf.timedIntervalStart = now
@@ -45,82 +57,73 @@ func (n *Node) observeExecutedSlotForTimedThroughput(seq int64, now time.Time) {
 	}
 }
 
-// this will tput for seq number so full batch
-
-func (n *Node) observeExecutedSlotForThroughput(seq int64, now time.Time, view core.ViewID, leaderId int) bool {
-	if seq <= 0 {
-		return false
-	}
-
-	if seq >= n.throughputPerf.throughputIntervalStartSeq && !n.throughputPerf.throughputObservationStarted {
-		n.log.Info("Throughput interval start seq %d is greater than or equal to current seq %d, starting timing", n.throughputPerf.throughputIntervalStartSeq, seq)
-		n.throughputPerf.throughputIntervalStart = now
-		// Count from the seq the clock actually started on, as the timed path does.
-		// Slots execute in bursts, so the first one seen can be past the planned
-		// start; counting from the planned seq credits those slots to ~0 elapsed.
-		n.throughputPerf.throughputIntervalStartSeq = seq
-		n.throughputPerf.throughputObservationStarted = true
-		return false
-	}
-
-	if seq%CHECKPOINT_INTERVAL != 0 || !n.throughputPerf.throughputObservationStarted {
-		if seq%CHECKPOINT_INTERVAL == 0 && !n.throughputPerf.throughputObservationStarted {
-			n.log.Info("Throughput observation not started yet, but seq %d is a checkpoint boundary, starting timing and n.throughputstartinterval is %d", seq, n.throughputPerf.throughputIntervalStartSeq)
-		}
-		return false
-	}
-
-	executedSlots := seq - n.throughputPerf.throughputIntervalStartSeq
-	elapsedSeconds := now.Sub(n.throughputPerf.throughputIntervalStart).Seconds()
-	throughput := 0.0
-	if elapsedSeconds > 0 {
-		throughput = float64(executedSlots) / elapsedSeconds
-		if elapsedSeconds > 0 {
-			// n.emitThroughputMeasurement(throughputMeasurement{
-			// 	MeasurementTime: now,
-			// 	View:            view,
-			// 	LeaderID:        leaderId,
-			// 	Seq:             seq,
-			// 	ExecutedSlots:   executedSlots,
-			// 	ElapsedSeconds:  elapsedSeconds,
-			// 	Throughput:      throughput,
-			// })
-		}
-		if throughput < 50 {
-			// n.log.Warn(" Grace Period as throughput less than 50 for view %d and seq %d is %.2f with elapsed time %.2f seconds, executed slots %d", view, seq, throughput, elapsedSeconds, executedSlots)
-			// return false
-		}
-	} else { // grace period
-		n.log.Warn("In grace period as elapsed time is zero for view %d and seq %d, executed slots %d", view, seq, executedSlots)
-		return false
-
-	}
-
-	belowTarget := false
-	// at 250/s tput roughly 10 cp till go beyond threshold so 10s period
-	if elapsedSeconds > 1 && seq%CHECKPOINT_INTERVAL == 0 {
-		belowTarget = throughput <= n.throughputPerf.targetThroughput
-		if belowTarget {
-			n.log.Info("OLD PERF REQ: Elapsed secs greater than 1 and Throughput %.2f is below target %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, n.throughputPerf.targetThroughput, view, seq, elapsedSeconds, executedSlots)
-		} else {
-			// n.log.Info("Elapsed secs greater than 1 and Throughput %.2f is above target %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, n.throughputPerf.targetThroughput, view, seq, elapsedSeconds, executedSlots)
-			_ = n.throughputPerf.targetThroughput
-			n.throughputPerf.targetThroughput *= 1.01
-			// n.log.Info("Increasing target throughput from %.2f to %.2f for view %d as observed throughput %.2f is above target", oldtput, n.throughputPerf.targetThroughput, view, throughput)
-		}
-
-	} else if elapsedSeconds <= 1 {
-		// n.log.Info("Elapsed secs less than 1 doing nothing, the measured throughput is %.2f for view %d and seq %d, elapsed time %.2f seconds, executed slots %d", throughput, view, seq, elapsedSeconds, executedSlots)
-	}
-	// Same grace as the timed trigger: a boundary that lands milliseconds after the
-	// window opened records a near-infinite rate, and maxRecentViewThroughput would
-	// then lift the next 3f+1 bars above anything achievable.
-	if elapsedSeconds <= perfTimedGraceSeconds {
-		return belowTarget
-	}
-	n.throughputPerf.viewThroughputs[view] = throughput
-	if view.Counter > n.throughputPerf.maxCounterByGeneration[view.Generation] {
-		n.throughputPerf.maxCounterByGeneration[view.Generation] = view.Counter
-	}
-	return belowTarget
+// resetViewRecord starts measuring a new view. Called on every NewView install;
+// the genesis view gets its state from the constructor.
+func (n *Node) resetViewRecord(view core.ViewID) {
+	n.throughputPerf.record = viewRecord{view: view}
 }
+
+// observeExecutedSlotForViewThroughput measures the current view's throughput
+// record, Aardvark-style. The anchor is the first slot executed PerfGrace() after
+// the perf window opened, so the burst right after the view change is not
+// measured. From the anchor, every PerfIntervalSlots() executed slots close an
+// interval, and each closed interval updates the view's record:
+//   - max:  the fastest complete interval so far;
+//   - mean: total slots over total time of the complete intervals.
+//
+// An unfinished interval at the end of the view never counts, and a view with no
+// complete interval has no record. Nothing executes during a view change, so a
+// record only ever covers time inside its own view.
+func (n *Node) observeExecutedSlotForViewThroughput(seq int64, now time.Time) {
+	if !n.throughputPerf.timedObservationStarted {
+		return
+	}
+	r := &n.throughputPerf.record
+	if !r.anchored {
+		if now.Sub(n.throughputPerf.timedIntervalStart) < n.cfg.PerfGrace() {
+			return
+		}
+		r.anchored = true
+		r.anchorSeq, r.anchorTime = seq, now
+		r.lastBoundarySeq, r.lastBoundaryTime = seq, now
+		return
+	}
+
+	slots := seq - r.lastBoundarySeq
+	elapsed := now.Sub(r.lastBoundaryTime).Seconds()
+	if slots < n.cfg.PerfIntervalSlots() || elapsed <= 0 {
+		return
+	}
+	rate := float64(slots) / elapsed
+	r.intervals++
+	r.lastBoundarySeq, r.lastBoundaryTime = seq, now
+	if rate > r.fastest {
+		r.fastest = rate
+	}
+
+	record := r.fastest
+	if n.cfg.PerfViewStrategy() == config.PerfViewStrategyMean {
+		record = float64(seq-r.anchorSeq) / now.Sub(r.anchorTime).Seconds()
+	}
+	n.throughputPerf.viewThroughputs[r.view] = record
+	if r.view.Counter > n.throughputPerf.maxCounterByGeneration[r.view.Generation] {
+		n.throughputPerf.maxCounterByGeneration[r.view.Generation] = r.view.Counter
+	}
+	n.log.Info("PERF RECORD: view (%d,%d) interval %d: %d slots in %.3f s = %.2f slots/s; view record %.2f (%s of %d intervals)",
+		r.view.Generation, r.view.Counter, r.intervals, slots, elapsed, rate, record, n.cfg.PerfViewStrategy(), r.intervals)
+}
+
+// in new view first wait for roughly 3 seq number then window open , anchor done 1s after so grace is 3 slot and 1s
+//
+//   - The 3 slots are counted from maxSeq, not from the install. The window opens at
+//     the first executed slot with seq >= maxSeq + 3 (performance.window_delay_slots).
+//     Slots <= maxSeq (re-proposed from the old view) that are still unexecuted
+//     don't count toward the 3.
+//   - The 1 s is what does the work. In time, the 3 slots took about 0.17 s after
+//     install in the pilot. Most of that is waiting for the first new slot to
+//     execute, since the slots themselves run in a few ms. The burst (~20 extra
+//     slots) arrives in the first ~100 ms after the window opens, so the 3 slots
+//     skip none of it; the 1 s skips all of it.
+//   - So from install, measuring starts after about 1.17 s, at the first slot
+//     executed 1 s after the window opens.
+// these 3 seq are above maxseq so slots rexecuted ignored, so these three can take 0.17s (includes below max seq)

@@ -12,37 +12,30 @@ const (
 	// perfTimerInterval is how often the timed performance trigger samples the
 	// average throughput of the current measurement window.
 	perfTimerInterval = 1 * time.Second
-	// perfTimedGraceSeconds mirrors the seq-driven trigger: a window shorter than
-	// this is not judged against the target.
-	perfTimedGraceSeconds = 1.0
 	// perfTimedTargetGrowth is how much the bar is raised on every tick whose
 	// observed throughput beats the target.
 	perfTimedTargetGrowth = 1.01
 )
 
 func (n *Node) perfTimedVC() {
-	// if n.performanceTimedTrigger {
-	// 	n.log.Info("Starting timed perf view change my current for view %d and my n.view %d and the next for view will be %d", n.forView, n.view, n.forView+1)
 	if n.viewChangeRunning {
 		n.log.Warn(" vc already running when timed perf vc called")
 	}
 	forView := n.incrementCounter()
 	n.enterViewChange(forView)
-	// }
 }
 
 // resetTimedPerfWindow closes the current timed measurement window and arms a new
-// one starting THROUGHPUTINTERVAL_DELAY slots past maxSeq. The perf timer itself is
+// one starting PerfWindowDelaySlots() slots past maxSeq, sets the new view's bar,
+// and starts measuring the new view's throughput record. The perf timer itself is
 // only restarted once that seq is actually executed, in
 // observeExecutedSlotForTimedThroughput.
 func (n *Node) resetTimedPerfWindow(maxSeq int64, view core.ViewID, maxRecentThroughput float64) {
-	// if !n.performanceTimedTrigger {
-	// 	return
-	// }
 	n.stopPerfTimer()
-	n.throughputPerf.timedIntervalStartSeq = maxSeq + THROUGHPUTINTERVAL_DELAY
+	n.throughputPerf.timedIntervalStartSeq = maxSeq + n.cfg.PerfWindowDelaySlots()
 	n.throughputPerf.timedObservationStarted = false
-	n.throughputPerf.timedTargetThroughput = targetThroughputMaxFactor * maxRecentThroughput
+	n.throughputPerf.timedTargetThroughput = n.cfg.PerfBarFactor() * maxRecentThroughput
+	n.resetViewRecord(view)
 	n.log.Info("Timed trigger: interval start seq set to %d for new view (%d,%d); timed target throughput set to %.2f from max recent throughput %.2f", n.throughputPerf.timedIntervalStartSeq, view.Generation, view.Counter, n.throughputPerf.timedTargetThroughput, maxRecentThroughput)
 }
 
@@ -78,11 +71,6 @@ func (n *Node) handlePerfTimerTimeout() {
 	now := time.Now()
 	elapsedSeconds := now.Sub(n.throughputPerf.timedIntervalStart).Seconds()
 	executedSlots := n.lastExecuted - n.throughputPerf.timedIntervalStartSeq
-	// if elapsedSeconds <= perfTimedGraceSeconds {
-	// 	n.log.Info("Perf timer: grace period, elapsed %.2f seconds with executed slots %d for view %d", elapsedSeconds, executedSlots, n.view)
-	// 	n.resetPerfTimer()
-	// 	return
-	// }
 	view := n.GetViewID()
 
 	throughput := float64(executedSlots) / elapsedSeconds

@@ -657,11 +657,6 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	// committed above should always be empty
 	retained, committedAbove := n.consensusLog.RemoveLogEntriesAboveSeq(maxSeq, view)
 	n.warnRetainedDurableSlots(retained, committedAbove, maxSeq, "replica", view)
-	if n.cfg.Performance {
-		n.throughputPerf.throughputIntervalStartSeq = maxSeq + THROUGHPUTINTERVAL_DELAY
-		n.log.Info("Throughput interval start seq set to %d for new view (%d,%d)", n.throughputPerf.throughputIntervalStartSeq, view.Generation, view.Counter)
-		n.throughputPerf.throughputObservationStarted = false
-	}
 	n.sequenceNumber = maxSeq
 	n.pruneViewChangeState(view)
 	n.pilotTraceStart(maxSeq, view)

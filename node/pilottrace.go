@@ -21,7 +21,7 @@ type execTrace struct {
 	leader    bool
 	install   time.Time
 	maxSeq    int64
-	startSeq  int64 // planned perf window start: maxSeq + THROUGHPUTINTERVAL_DELAY
+	startSeq  int64 // planned perf window start: maxSeq + PerfWindowDelaySlots()
 	firstSeq  int64
 	offsetsUs []int64 // execution time of firstSeq+i, in µs since install
 }
@@ -39,7 +39,7 @@ func (n *Node) pilotTraceStart(maxSeq int64, view core.ViewID) {
 	t.leader = n.leaderId == n.GetNodeID()
 	t.install = time.Now()
 	t.maxSeq = maxSeq
-	t.startSeq = maxSeq + THROUGHPUTINTERVAL_DELAY
+	t.startSeq = maxSeq + n.cfg.PerfWindowDelaySlots()
 	t.firstSeq = 0
 	t.offsetsUs = t.offsetsUs[:0]
 }

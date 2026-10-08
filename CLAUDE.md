@@ -129,23 +129,31 @@ leader.
 timer stays armed underneath as a floor; on top of it:
 
 - On every NewView, `resetTimedPerfWindow` sets the bar to
-  `0.92 * maxRecentThroughput` (`targetThroughputMaxFactor`. This factor can vary between 0.9 and 0.99 so see the code for current value), where the max is taken
-  over a window of the last `3f+1` views (`maxRecentViewThroughput`). 
+  `bar_factor * maxRecentThroughput` (`performance.bar_factor`, default 0.91), where
+  the max is over the view records of the last `3f+1` views that have one
+  (`maxRecentViewThroughput`). With no record in that window the max is
+  `performance.default_max_throughput` (160) and the logs say `source=default` /
+  `PERF BAR DEFAULT`.
 - A 1 s timer (`perfTimerInterval`) samples throughput since the window opened.
   Above the bar → the bar is multiplied by `1.01` (`perfTimedTargetGrowth`) and the
   timer re-arms. At or below the bar → immediate view change.
-- Because the bar starts at 90% and compounds 1% per second, it passes 100% of the
-  achievable throughput after 11 raises. **Every leader, however healthy, is removed
-  after about 12 s.** This is intended: it forces rotation and yields a throughput
-  sample per node.
-- The measurement window does not open at the NewView itself but
-  `THROUGHPUTINTERVAL_DELAY` (3) slots later, so the post-view-change burst is not
-  counted.
+- Because the bar starts at ~91% and compounds 1% per second, it passes 100% of the
+  achievable throughput after about 10 raises. **Every leader, however healthy, is
+  removed after about 11 s.** This is intended: it forces rotation and yields a
+  throughput sample per node.
+- The window opens `performance.window_delay_slots` (3) slots after the NewView's maxSeq.
+  That does not skip the post-view-change burst (~20 slots in the first ~100 ms).
 
-There is also an older sequence-driven variant in
-`observeExecutedSlotForThroughput` that fires at `CHECKPOINT_INTERVAL` boundaries;
-its view-change path is commented out in `node/execution.go` and only its logging and
-`viewThroughputs` bookkeeping still matter.
+**View records** (`observeExecutedSlotForViewThroughput`, `node/throughputperformance.go`),
+Aardvark-style: the anchor is the first slot executed `performance.grace_ms` (1 s)
+after the window opens, so the burst is never measured. From the anchor, every
+`performance.interval_slots` (250) executed slots close an interval; only complete
+intervals count, so an unfinished (e.g. throttled) tail never does. The view's
+record is the fastest complete interval (`view_strategy: "max"`, default) or total
+slots over total time of the complete intervals (`"mean"`). A view with no complete
+interval (one that ends less than ~2.7 s after install at 160 slots/s: ~0.17 s to the window open, the 1 s grace, then 250 slots) has no record. Nothing executes during
+a view change, so a record only covers its own view. `PERF RECORD:` log lines show
+each interval.
 
 ## Leader policies
 
@@ -254,8 +262,11 @@ With it off, the node stays in its initial action for the whole run.
   `netem_delay`.
 - `leader_type` (`roundrobin` | `election` | `wrr`) — legacy `VCType`, separate from
   the per-action `Policy`; prefer `default_action`.
-- `performance`, `performance_trigger`, `performance_timed_trigger` — throughput
-  bookkeeping and the perf trigger.
+- `performance` — `true`/`false` (legacy) or an object: `enabled`, `view_strategy`
+  (`max` | `mean`), `window_delay_slots`, `interval_slots`, `grace_ms`, `bar_factor`,
+  `default_max_throughput` (`config/performance.go`). Enables throughput
+  measurement and the bar; the perf trigger itself only acts in a Perf-mode action.
+  `performance_trigger` / `performance_timed_trigger` are gone (ignored if present).
 - `peak_tps_test` — suppresses all timer-driven view changes; used to measure the
   ceiling.
 - `netem` — event-driven delay injection via `cmd/netem-controller`.

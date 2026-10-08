@@ -17,10 +17,7 @@ type executionPostAction struct {
 
 func (n *Node) exeLoop() {
 	postActions := make([]executionPostAction, 0)
-	view := n.GetViewID()
-	leaderId := n.GetLeaderId()
 	previousExecuted := n.GetLastExecuted()
-	performanceTrigger := 0
 	for {
 		slot, exists := n.consensusLog.GetLogEntry(n.lastExecuted + 1)
 		if !exists || !slot.committed {
@@ -71,12 +68,10 @@ func (n *Node) exeLoop() {
 		// 	n.resetLeaderProgressTimer()
 		// }
 		n.ResetOnExecution(n.lastExecuted)
-		if n.cfg.Performance {
-			perfTrigger := n.observeExecutedSlotForThroughput(n.lastExecuted, time.Now(), view, leaderId)
-			if perfTrigger {
-				performanceTrigger++
-			}
-			n.observeExecutedSlotForTimedThroughput(n.lastExecuted, time.Now())
+		if n.cfg.Performance.Enabled {
+			now := time.Now()
+			n.observeExecutedSlotForTimedThroughput(n.lastExecuted, now)
+			n.observeExecutedSlotForViewThroughput(n.lastExecuted, now)
 		}
 		n.pilotTraceExec(n.lastExecuted, time.Now())
 		if n.lastExecuted%CHECKPOINT_INTERVAL == 0 {
@@ -94,16 +89,6 @@ func (n *Node) exeLoop() {
 	// exe thread only runs when view chnage is not running so
 	go n.postActions(postActions)
 
-	// no more req based perf trigger
-	// if performanceTrigger >= 1 {
-	// 	if performanceTrigger > 1 {
-	// 		n.log.Info("Multiple performance triggers for seq %d, performanceTrigger count %d", n.lastExecuted, performanceTrigger)
-	// 	}
-	// 	if n.cfg.PerformanceTrigger {
-	// 		n.perfVC()
-	// 		return // probably no point in propose once vc called
-	// 	}
-	// }
 	if n.GetLastExecuted() > previousExecuted {
 		n.tryPropose(true)
 	}

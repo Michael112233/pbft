@@ -25,15 +25,8 @@ const (
 	defaultPBFTRequestTimeout          = 5 * time.Second
 	defaultPBFTRequestTimeoutJitterMax = 500 * time.Millisecond
 	CHECKPOINT_INTERVAL                = 250
-	// Healthy unthrottled rate (8000/batch size), standing in for the max recent
-	// view throughput when no view in the window recorded one. The default bar is
-	// then the factor times it, the same bar a healthy run would set.
-	defaultMaxRecentThroughput = 160.0
-	defaultTargetThroughput    = targetThroughputMaxFactor * defaultMaxRecentThroughput
-	targetThroughputMaxFactor  = 0.91
-	ALPHA                      = 1 / float64(10) // for exponential moving average calculation of throughput
-	D                          = 3
-	THROUGHPUTINTERVAL_DELAY   = 3
+	ALPHA                              = 1 / float64(10) // for exponential moving average calculation of throughput
+	D                                  = 3
 )
 
 type Node struct {
@@ -159,9 +152,8 @@ type Node struct {
 	// dead is read by the hub's gRPC goroutines; scenario mode toggles it at runtime.
 	dead atomic.Bool
 
-	performanceTimedTrigger bool
-	peakTpsTest             bool
-	proposalDelay           bool
+	peakTpsTest   bool
+	proposalDelay bool
 
 	// proposal-rate gate (node/proposalgate.go); loop-owned. throttleGateCh is
 	// written by the hub's gRPC goroutines and drained by the loop.
@@ -249,17 +241,11 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		fNodes: (int(cfg.NodeNum) - 1) / 3,
 
 		throughputPerf: ThroughputPerf{
-			targetThroughput:             defaultTargetThroughput,
-			throughputIntervalStartSeq:   THROUGHPUTINTERVAL_DELAY,
-			throughputIntervalStart:      time.Time{},
-			throughputObservationStarted: false,
-			viewThroughputs:              make(map[core.ViewID]float64),
-			maxCounterByGeneration:       make(map[uint64]uint64),
-
-			timedTargetThroughput:   defaultTargetThroughput,
-			timedIntervalStartSeq:   THROUGHPUTINTERVAL_DELAY,
-			timedIntervalStart:      time.Time{},
-			timedObservationStarted: false,
+			viewThroughputs:        make(map[core.ViewID]float64),
+			maxCounterByGeneration: make(map[uint64]uint64),
+			timedTargetThroughput:  cfg.PerfDefaultBar(),
+			timedIntervalStartSeq:  cfg.PerfWindowDelaySlots(),
+			record:                 viewRecord{view: core.ViewID{Generation: 1, Counter: 1}},
 		},
 		lm: NewLatencyMonitor(),
 
@@ -269,12 +255,11 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		proberStop:  make(chan struct{}),
 		proberDone:  make(chan struct{}),
 
-		proposalDelay:           !cfg.ScenarioMode && cfg.ProposalDelayNode == nodeID, // scenario mode owns it otherwise
-		proposalMinInterval:     cfg.ProposalMinInterval(),
-		proposalGateOn:          cfg.ProposalGateAtStart, // calibration runs with no controller
-		scenarioMode:            cfg.ScenarioMode,
-		performanceTimedTrigger: cfg.PerformanceTimedTrigger,
-		peakTpsTest:             cfg.PeakTpsTest,
+		proposalDelay:       !cfg.ScenarioMode && cfg.ProposalDelayNode == nodeID, // scenario mode owns it otherwise
+		proposalMinInterval: cfg.ProposalMinInterval(),
+		proposalGateOn:      cfg.ProposalGateAtStart, // calibration runs with no controller
+		scenarioMode:        cfg.ScenarioMode,
+		peakTpsTest:         cfg.PeakTpsTest,
 
 		latencyLog: cfg.LatencyLog,
 		gc:         cfg.GC,

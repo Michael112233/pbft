@@ -9,7 +9,7 @@ Inputs (all in the run directory):
   throttle_manager.jsonl  client-side leader notices and gate commands
 
 Times are in seconds. "open" is when the perf window opens: the first executed slot at
-or past start_seq (maxSeq + THROUGHPUTINTERVAL_DELAY), as in
+or past start_seq (maxSeq + performance.window_delay_slots), as in
 observeExecutedSlotForTimedThroughput. Fresh = the client had not targeted this leader
 yet when it was installed; held = it already had (gate on from the start).
 """
@@ -132,16 +132,18 @@ def print_curve(title, rows):
 
 
 def burst(views):
-    """Views ungated for the whole 2.5 s trace: steady rate R from [1.0, 2.4] s after
-    open, burst B = slots in the first second beyond R, and when 90% of B is in."""
+    """Views ungated for the whole 2.5 s trace: steady rate R from 1.0 s after open to
+    the end of the trace (at least 1 s), burst B = slots in the first second beyond R,
+    and when 90% of B is in."""
     rs, bs, settle, pre = [], [], [], []
     for v in views:
         o = v["open"]
-        if o is None or o + 2.4 > min(v["vend"], 2.5):
+        end = min(v["vend"], 2.5)
+        if o is None or end - (o + 1.0) < 1.0:
             continue
-        if v["gate"] is not None and v["gate"] < o + 2.4:
+        if v["gate"] is not None and v["gate"] < end:
             continue
-        r = count(v["t"], o + 1.0, o + 2.4) / 1.4
+        r = count(v["t"], o + 1.0, end) / (end - o - 1.0)
         b = count(v["t"], o, o + 1.0) - r * 1.0
         rs.append(r)
         bs.append(b)
@@ -215,7 +217,7 @@ def main():
     rs, bs, settle, _ = burst(fresh + [v for v in traced if v["fresh"] is None])
     steady = args.steady or (st.median(rs) if rs else None)
     print("\n== Burst (views ungated for the whole trace)")
-    print("steady rate R, [1.0,2.4] s after open (slots/s):", summary(rs))
+    print("steady rate R, 1.0 s after open to trace end (slots/s):", summary(rs))
     print("burst B, first-second slots beyond R:", summary(bs))
     print("time from open until 90% of B is in (s):", summary(settle))
 

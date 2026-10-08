@@ -1,20 +1,27 @@
 {
+  "_note": "prep_ms sweep (3000 ms) with the new per-view throughput records, view_strategy max. Identical to config/prep_sweep/perfelec/thr_perfelec_n7_prep3000.json except the performance block and pilot_exec_trace: records are the fastest complete 250-slot interval starting 1 s after the perf window opens (window opens 3 slots past the NewView's maxSeq); bar = 0.91 x max record over the last 3f+1 views, 160 default when none has a record (config/performance.go, node/throughputperformance.go). pilot_exec_trace logs per-slot execution times for the first 2.5 s of each view (scripts/analyze_exec_trace.py).",
   "max_tx_num": 1000000,
   "inject_speed": 200,
   "max_block_size": 1,
   "client_msg_padding_bytes": 0,
-  "node_num": 4,
+  "node_num": 7,
   "nodes_dead": {
     "1": false,
     "2": false,
     "3": false,
-    "4": false
+    "4": false,
+    "5": false,
+    "6": false,
+    "7": false
   },
   "nodes_in_dark": {
     "1": false,
     "2": false,
     "3": false,
-    "4": false
+    "4": false,
+    "5": false,
+    "6": false,
+    "7": false
   },
   "performance": {
     "enabled": true,
@@ -31,27 +38,26 @@
   "far_node_id": 0,
   "far_node_delay_ms": 0,
   "netem": {
-  "enabled": false,
-  "interface": "lo",
-  "socket_path": "logs/netem-controller.sock",
-  "pid_path": "logs/netem-controller.sock.pid",
-  "limit": 100000,
-  "rules": [
-    {
-      "id": "delay-after-seq-2",
-      "event": {
-        "type": "execution",
-        "node_id": 1,
-        "seq": 2
-      },
-      "action": {
-        "delay_ms": 250,
-        "lifetime": "until_next_event"
+    "enabled": false,
+    "interface": "lo",
+    "socket_path": "logs/netem-controller.sock",
+    "pid_path": "logs/netem-controller.sock.pid",
+    "limit": 100000,
+    "rules": [
+      {
+        "id": "delay-after-seq-2",
+        "event": {
+          "type": "execution",
+          "node_id": 1,
+          "seq": 2
+        },
+        "action": {
+          "delay_ms": 250,
+          "lifetime": "until_next_event"
+        }
       }
-    }
-  ]
-},
- 
+    ]
+  },
   "proposal_delay_node": 0,
   "proposal_delay_ms": 2000,
   "gc": true,
@@ -74,21 +80,30 @@
   "min_vdf_delay": 100,
   "max_vdf_delay": 20000,
   "parallel_workers": true,
-
   "oracle_mode": false,
-  "oracle_actions": ["FixedRoundRobin", "PeriodicRoundRobin", "PeriodicElection", "PerformanceRoundRobin", "PerformanceElection"],
+  "oracle_actions": [
+    "FixedRoundRobin",
+    "PeriodicRoundRobin",
+    "PeriodicElection",
+    "PerformanceRoundRobin",
+    "PerformanceElection"
+  ],
   "oracle_random": false,
   "oracle_seed": 42,
   "epoch_mode": false,
-  "default_action": "FixedRoundRobin",
+  "default_action": "PerformanceElection",
   "netem_delay": false,
-
-  "scenarios" : ["ProposalDelay", "NetworkDelay", "NetworkDelayFCrash", "ProposalDelay", "NetworkDelay", "NetworkDelayFCrash", "Healthy"],
+  "scenarios": [
+    "ProposalDelay",
+    "NetworkDelay",
+    "NetworkDelayFCrash",
+    "ProposalDelay",
+    "NetworkDelay",
+    "NetworkDelayFCrash",
+    "Healthy"
+  ],
   "scenario_mode": false,
-  "scenario_generations": 100
-
-
-  ,
+  "scenario_generations": 100,
   "latency_probe": false,
   "aware_probe_interval_ms": 500,
   "aware_probe_timeout_ms": 2000,
@@ -98,15 +113,14 @@
   "aware_alpha": 0.1,
   "aware_epsilon_ms": 1.0,
   "far_node_netem": false,
-  
   "proposal_min_interval_ms": 100,
   "proposal_gate_at_start": false,
   "throttle": {
     "enabled": true,
-    "strategy": "roundrobin",
-    "slots": 1,
-    "prep_ms": 2000,
+    "strategy": "election",
+    "slots": 2,
+    "prep_ms": 3000,
     "tenure_ms": 10000
   },
-  "pilot_exec_trace": false
+  "pilot_exec_trace": true
 }
