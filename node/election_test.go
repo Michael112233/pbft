@@ -3,9 +3,11 @@ package node
 import (
 	"bytes"
 	"math/big"
+	"reflect"
 	"testing"
 	"time"
 
+	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/logger"
 	"github.com/michael112233/pbft/vr"
@@ -115,6 +117,40 @@ func TestElectionCandidateForViewUsesFullPoolWhenNothingIsDead(t *testing.T) {
 		if !seen[id] {
 			t.Errorf("node %d never stood as candidate; pool is smaller than nodeNum", id)
 		}
+	}
+}
+
+// In scenario mode nodes_dead are excluded only in NetworkDelayFCrash
+// generations; outside scenario mode they are crashed all run, so always excluded.
+func TestElectionExcludedForGeneration(t *testing.T) {
+	dead := map[int]bool{2: true, 3: true} // n=7, f=2
+	list := []core.Scenario{core.ScenarioHealthy, core.ScenarioNetworkDelayFCrash, core.ScenarioProposalDelay, core.ScenarioNetworkDelay}
+	cfg := &config.Config{NodeNum: 7, NodesDead: dead, ScenarioMode: true, ScenariosEnum: list, ScenarioGenerations: 10}
+
+	for gen := uint64(1); gen <= 80; gen++ {
+		got := electionExcludedForGeneration(cfg, gen)
+		inFCrash := scenarioForGeneration(gen, list, 10) == core.ScenarioNetworkDelayFCrash
+		if inFCrash && !reflect.DeepEqual(got, dead) {
+			t.Fatalf("gen %d (NetworkDelayFCrash): excluded %v, want %v", gen, got, dead)
+		}
+		if !inFCrash && len(got) != 0 {
+			t.Fatalf("gen %d (%s): excluded %v, want none", gen, core.ScenarioToString(scenarioForGeneration(gen, list, 10)), got)
+		}
+	}
+
+	// Outside FCrash the dead ids stand as candidates like anyone else.
+	seen := map[int]bool{}
+	for counter := uint64(1); counter <= 500; counter++ {
+		view := core.ViewID{Generation: 1, Counter: counter} // gen 1 is Healthy
+		seen[electionCandidateForView(view, 7, electionExcludedForGeneration(cfg, view.Generation))] = true
+	}
+	if !seen[2] || !seen[3] {
+		t.Fatalf("Healthy generation never picked nodes_dead ids 2/3 (seen %v)", seen)
+	}
+
+	static := &config.Config{NodeNum: 7, NodesDead: dead}
+	if got := electionExcludedForGeneration(static, 1); !reflect.DeepEqual(got, dead) {
+		t.Fatalf("non-scenario mode: excluded %v, want %v", got, dead)
 	}
 }
 

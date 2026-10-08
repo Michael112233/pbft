@@ -1,20 +1,27 @@
 {
+  "_note": "Pilot n=7 f=2, scenario healthy, action PeriodicElection. Healthy: no fault injected; baseline throughput and latency for this action. The action is held for the whole run: oracle_mode feeds PeriodicElection back at every epoch, so generations advance every 75 s (timer.epoch_timer_ms) with the same action. Fixed/Perf timeout 300 ms (timer.fixed_trigger_timeout_ms). Client retry off, so latency is committed-only. latency_probe on for the RTT vectors aggregated at epoch boundaries.",
   "max_tx_num": 1000000,
   "inject_speed": 200,
   "max_block_size": 1,
   "client_msg_padding_bytes": 0,
-  "node_num": 4,
+  "node_num": 7,
   "nodes_dead": {
     "1": false,
     "2": false,
     "3": false,
-    "4": false
+    "4": false,
+    "5": false,
+    "6": false,
+    "7": false
   },
   "nodes_in_dark": {
     "1": false,
     "2": false,
     "3": false,
-    "4": false
+    "4": false,
+    "5": false,
+    "6": false,
+    "7": false
   },
   "performance": {
     "enabled": true,
@@ -27,9 +34,9 @@
   },
   "timer": {
     "periodic_trigger_timeout_ms": 10000,
-    "fixed_trigger_timeout_ms": 150,
+    "fixed_trigger_timeout_ms": 300,
     "relaxed_fixed_trigger_timeout_ms": 300,
-    "epoch_timer_ms": 45000
+    "epoch_timer_ms": 75000
   },
   "period": 60000,
   "number_of_periods": 4500,
@@ -37,32 +44,34 @@
   "far_node_id": 0,
   "far_node_delay_ms": 0,
   "netem": {
-  "enabled": false,
-  "interface": "lo",
-  "socket_path": "logs/netem-controller.sock",
-  "pid_path": "logs/netem-controller.sock.pid",
-  "limit": 100000,
-  "rules": [
-    {
-      "id": "delay-after-seq-2",
-      "event": {
-        "type": "execution",
-        "node_id": 1,
-        "seq": 2
-      },
-      "action": {
-        "delay_ms": 250,
-        "lifetime": "until_next_event"
+    "enabled": false,
+    "interface": "lo",
+    "socket_path": "logs/netem-controller.sock",
+    "pid_path": "logs/netem-controller.sock.pid",
+    "limit": 100000,
+    "rules": [
+      {
+        "id": "delay-after-seq-2",
+        "event": {
+          "type": "execution",
+          "node_id": 1,
+          "seq": 2
+        },
+        "action": {
+          "delay_ms": 250,
+          "lifetime": "until_next_event"
+        }
       }
-    }
-  ]
-},
- 
+    ]
+  },
   "proposal_delay_nodes": {
     "1": false,
     "2": false,
     "3": false,
-    "4": false
+    "4": false,
+    "5": false,
+    "6": false,
+    "7": false
   },
   "proposal_delay_ms": 2000,
   "gc": true,
@@ -85,22 +94,21 @@
   "min_vdf_delay": 100,
   "max_vdf_delay": 20000,
   "parallel_workers": true,
-
-  "oracle_mode": false,
-  "oracle_actions": ["FixedRoundRobin", "PeriodicRoundRobin", "PeriodicElection", "PerformanceRoundRobin", "PerformanceElection"],
+  "oracle_mode": true,
+  "oracle_actions": [
+    "PeriodicElection"
+  ],
   "oracle_random": false,
   "oracle_seed": 42,
-  "epoch_mode": false,
-  "default_action": "FixedRoundRobin",
+  "epoch_mode": true,
+  "default_action": "PeriodicElection",
   "netem_delay": false,
-
-  "scenarios" : ["ProposalDelay", "NetworkDelay", "NetworkDelayFCrash", "ProposalDelay", "NetworkDelay", "NetworkDelayFCrash", "Healthy"],
-  "scenario_mode": false,
-  "scenario_generations": 100
-
-
-  ,
-  "latency_probe": false,
+  "scenarios": [
+    "Healthy"
+  ],
+  "scenario_mode": true,
+  "scenario_generations": 100,
+  "latency_probe": true,
   "aware_probe_interval_ms": 500,
   "aware_probe_timeout_ms": 2000,
   "aware_rtt_window_s": 10,
@@ -109,14 +117,13 @@
   "aware_alpha": 0.1,
   "aware_epsilon_ms": 1.0,
   "far_node_netem": false,
-  
   "proposal_min_interval_ms": 100,
   "proposal_gate_at_start": false,
   "throttle": {
-    "enabled": true,
-    "strategy": "roundrobin",
-    "slots": 1,
-    "prep_ms": 2000,
+    "enabled": false,
+    "strategy": "election",
+    "slots": 2,
+    "prep_ms": 3000,
     "tenure_ms": 10000
   },
   "pilot_exec_trace": false

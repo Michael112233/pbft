@@ -124,11 +124,11 @@ func (n *Node) evalElectionVDF(
 // computes the same id with no messages. Experiment scaffolding to avoid split
 // votes, not part of the protocol.
 //
-// excluded is the configured nodes_dead set: a crashed candidate never
-// broadcasts RequestVote, so picking one would cost a full new-view timeout.
-// Nothing else is excluded — with no crashed nodes the draw is uniform over all
-// nodeNum ids, which keeps Election's candidate pool the same size as
-// RoundRobin's rotation.
+// excluded is the nodes that are crashed in view (electionExcludedForGeneration):
+// a crashed candidate never broadcasts RequestVote, so picking one would cost a
+// full new-view timeout. Nothing else is excluded — with no crashed nodes the
+// draw is uniform over all nodeNum ids, which keeps Election's candidate pool
+// the same size as RoundRobin's rotation.
 func electionCandidateForView(view core.ViewID, nodeNum int, excluded map[int]bool) int {
 	sum := sha256.Sum256([]byte(fmt.Sprintf("view-%d-%d", view.Generation, view.Counter)))
 	h := binary.BigEndian.Uint64(sum[:8])
@@ -143,6 +143,22 @@ func electionCandidateForView(view core.ViewID, nodeNum int, excluded map[int]bo
 		return int(h%uint64(nodeNum)) + 1
 	}
 	return candidates[h%uint64(len(candidates))]
+}
+
+// electionExcludedForGeneration is the set electionCandidateForView skips for a
+// view in gen: nodes_dead, but only while those nodes are actually crashed. In
+// scenario mode that is only NetworkDelayFCrash; every other scenario draws from
+// all nodeNum ids. Outside scenario mode nodes_dead are crashed for the whole run.
+// The scenario is derived from the view's generation, not from n.currScenario,
+// so every node agrees on the candidate for a view whatever it has applied.
+func electionExcludedForGeneration(cfg *config.Config, gen uint64) map[int]bool {
+	if !cfg.ScenarioMode {
+		return cfg.NodesDead
+	}
+	if scenarioForGeneration(gen, cfg.ScenariosEnum, cfg.ScenarioGenerations) == core.ScenarioNetworkDelayFCrash {
+		return cfg.NodesDead
+	}
+	return nil
 }
 
 func (n *Node) handleElectionVDFResult(result electionVDFResult) {
@@ -168,7 +184,8 @@ func (n *Node) handleElectionVDFResult(result electionVDFResult) {
 		n.log.Debug("Already voted for view %d, ignoring completed VDF", result.view)
 		return
 	}
-	if candidate := electionCandidateForView(result.view, int(n.cfg.NodeNum), n.cfg.NodesDead); n.GetNodeID() != candidate { // avoiding split vote
+	excluded := electionExcludedForGeneration(n.cfg, result.view.Generation)
+	if candidate := electionCandidateForView(result.view, int(n.cfg.NodeNum), excluded); n.GetNodeID() != candidate { // avoiding split vote
 		return
 	}
 	n.electionManager.votedFor[result.view] = n.GetNodeID()

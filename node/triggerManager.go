@@ -7,11 +7,6 @@ import (
 	"github.com/michael112233/pbft/logger"
 )
 
-const (
-	PeriodicTriggerTimeout = 10 * time.Second
-	FixedTriggerTimeout    = 300 * time.Millisecond
-)
-
 type NodeTrigger interface {
 	stopPerfTimer()
 }
@@ -22,26 +17,33 @@ type TriggerManager struct {
 	triggerMode          core.TriggerMode
 	log                  *logger.Logger
 	node                 NodeTrigger
+
+	// From the config's timer block (config/timer.go); fixed for the run.
+	periodicTimeout time.Duration
+	fixedTimeout    time.Duration
 }
 
 // timeoutForMode gives Periodic its long timeout; Fixed and Perf share the short
 // one (Perf keeps it as the progress floor under its throughput threshold).
-func timeoutForMode(mode core.TriggerMode) time.Duration {
+func (tm *TriggerManager) timeoutForMode(mode core.TriggerMode) time.Duration {
 	if mode == core.PeriodicTrigger {
-		return PeriodicTriggerTimeout
+		return tm.periodicTimeout
 	}
-	return FixedTriggerTimeout
+	return tm.fixedTimeout
 }
 
-func NewTriggerManager(log *logger.Logger, triggerMode core.TriggerMode, node NodeTrigger) *TriggerManager {
-	timeout := timeoutForMode(triggerMode)
-	return &TriggerManager{
-		progressTimeoutValue: timeout,
-		newViewTimeoutValue:  timeout,
-		triggerMode:          triggerMode,
-		log:                  log,
-		node:                 node,
+func NewTriggerManager(log *logger.Logger, triggerMode core.TriggerMode, node NodeTrigger, periodicTimeout, fixedTimeout time.Duration) *TriggerManager {
+	tm := &TriggerManager{
+		triggerMode:     triggerMode,
+		log:             log,
+		node:            node,
+		periodicTimeout: periodicTimeout,
+		fixedTimeout:    fixedTimeout,
 	}
+	timeout := tm.timeoutForMode(triggerMode)
+	tm.progressTimeoutValue = timeout
+	tm.newViewTimeoutValue = timeout
+	return tm
 }
 
 func (tm *TriggerManager) SwitchTriggerMode(newMode core.TriggerMode) {
@@ -51,7 +53,7 @@ func (tm *TriggerManager) SwitchTriggerMode(newMode core.TriggerMode) {
 	// }
 	tm.triggerMode = newMode
 	if newMode != core.NullTrigger {
-		timeout := timeoutForMode(newMode)
+		timeout := tm.timeoutForMode(newMode)
 		tm.progressTimeoutValue = timeout
 		tm.newViewTimeoutValue = timeout
 	}

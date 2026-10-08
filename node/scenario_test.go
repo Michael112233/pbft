@@ -33,7 +33,7 @@ func TestScenarioForGeneration(t *testing.T) {
 func TestScenarioEffects(t *testing.T) {
 	down := netemCmd{up: false}
 	up := netemCmd{up: true, delayMs: scenarioNetworkDelayMS}
-	const delayNode = 1
+	delayNodes := map[int]bool{1: true, 2: false, 3: false, 4: false}
 	deadNodes := map[int]bool{1: false, 2: true, 3: false, 4: false}
 	cases := []struct {
 		name      string
@@ -57,9 +57,30 @@ func TestScenarioEffects(t *testing.T) {
 		{"f crash netem node", 4, core.ScenarioNetworkDelayFCrash, false, false, []netemCmd{down, up}},
 	}
 	for _, c := range cases {
-		gotDelay, gotDead, gotNetem := scenarioEffects(c.nodeID, delayNode, deadNodes, c.next)
+		gotDelay, gotDead, gotNetem := scenarioEffects(c.nodeID, delayNodes, deadNodes, c.next)
 		if gotDelay != c.wantDelay || gotDead != c.wantDead || !reflect.DeepEqual(gotNetem, c.wantNetem) {
 			t.Errorf("%s: got (%t, %t, %v), want (%t, %t, %v)", c.name, gotDelay, gotDead, gotNetem, c.wantDelay, c.wantDead, c.wantNetem)
+		}
+	}
+}
+
+// With f > 1 every node in the delay set is slowed, and only in ProposalDelay;
+// the dead set is independent of it.
+func TestScenarioEffectsFNodes(t *testing.T) {
+	delayNodes := map[int]bool{1: true, 5: true} // n=7, f=2
+	deadNodes := map[int]bool{2: true, 3: true}  // n=7, f=2
+	for id := 1; id <= 7; id++ {
+		delay, dead, _ := scenarioEffects(id, delayNodes, deadNodes, core.ScenarioProposalDelay)
+		if delay != delayNodes[id] || dead {
+			t.Errorf("ProposalDelay node %d: got delay=%t dead=%t, want delay=%t dead=false", id, delay, dead, delayNodes[id])
+		}
+		delay, dead, _ = scenarioEffects(id, delayNodes, deadNodes, core.ScenarioNetworkDelayFCrash)
+		if delay || dead != deadNodes[id] {
+			t.Errorf("NetworkDelayFCrash node %d: got delay=%t dead=%t, want delay=false dead=%t", id, delay, dead, deadNodes[id])
+		}
+		delay, dead, _ = scenarioEffects(id, delayNodes, deadNodes, core.ScenarioHealthy)
+		if delay || dead {
+			t.Errorf("Healthy node %d: got delay=%t dead=%t, want both false", id, delay, dead)
 		}
 	}
 }

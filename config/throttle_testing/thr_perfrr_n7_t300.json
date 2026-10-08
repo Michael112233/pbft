@@ -1,5 +1,5 @@
 {
-  "_note": "FixedTriggerTimeout=300ms (node/triggerManager.go const; progress + new-view timers for Fixed/Perf). Otherwise identical to thr_perfrr_n7.json. Host: AMD EPYC 9354P, unpinned.",
+  "_note": "timer.fixed_trigger_timeout_ms=300 (progress + new-view timers for Fixed/Perf; was a node/triggerManager.go const when run). Otherwise identical to thr_perfrr_n7.json. Host: AMD EPYC 9354P, unpinned.",
   "max_tx_num": 1000000,
   "inject_speed": 200,
   "max_block_size": 1,
@@ -24,6 +24,7 @@
     "7": false
   },
   "performance": true,
+  "timer": { "fixed_trigger_timeout_ms": 300 },
   "period": 60000,
   "number_of_periods": 4500,
   "peak_tps_test": false,

@@ -9,8 +9,6 @@ import (
 	"github.com/michael112233/pbft/transportpb"
 )
 
-const epochTimerInterval = 45 * time.Second
-
 // epochAggregatorNodeID is the node every other node sends its epoch data to.
 // Experiment scaffolding, like scenarioNetemNodeID. Defined in config so the
 // NetworkDelayFCrash validation that refuses to crash it stays in step.
@@ -19,11 +17,11 @@ const epochAggregatorNodeID = config.EpochAggregatorNodeID
 // startEpochTimer starts the epoch timer. It is only ever touched from the
 // node event loop, so no locking is needed.
 func (n *Node) startEpochTimer() {
-	n.epochTimerCh = resetOneShotTimer(&n.epochTimer, epochTimerInterval)
+	n.epochTimerCh = resetOneShotTimer(&n.epochTimer, n.cfg.EpochTimer())
 }
 
 func (n *Node) resetEpochTimer() {
-	n.epochTimerCh = resetOneShotTimer(&n.epochTimer, epochTimerInterval)
+	n.epochTimerCh = resetOneShotTimer(&n.epochTimer, n.cfg.EpochTimer())
 }
 
 func (n *Node) stopEpochTimer() {

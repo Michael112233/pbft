@@ -44,7 +44,7 @@ type ThrottleConfig struct {
 	PrepMs int `json:"prep_ms"`
 	// TenureMs is the leader tenure the controller assumes, used by the
 	// round-robin strategy to time its early release. It mirrors
-	// PeriodicTriggerTimeout and is controller knowledge, not protocol state.
+	// timer.periodic_trigger_timeout_ms and is controller knowledge, not protocol state.
 	TenureMs int `json:"tenure_ms"`
 }
 

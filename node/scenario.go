@@ -47,9 +47,9 @@ func scenarioForGeneration(gen uint64, list []core.Scenario, span uint64) core.S
 
 // scenarioEffects says what nodeID must run to enter next. Everything is turned
 // off first (both off-paths are idempotent), then only next's fault is enabled.
-func scenarioEffects(nodeID, delayNode int, deadNodes map[int]bool, next core.Scenario) (proposalDelay, dead bool, netem []netemCmd) {
+func scenarioEffects(nodeID int, delayNodes, deadNodes map[int]bool, next core.Scenario) (proposalDelay, dead bool, netem []netemCmd) {
 	// set to zero once scenario switch
-	proposalDelay = next == core.ScenarioProposalDelay && nodeID == delayNode
+	proposalDelay = next == core.ScenarioProposalDelay && delayNodes[nodeID]
 	dead = next == core.ScenarioNetworkDelayFCrash && deadNodes[nodeID]
 	if nodeID == scenarioNetemNodeID {
 		netem = append(netem, netemCmd{up: false})
@@ -72,7 +72,7 @@ func (n *Node) maybeSwitchScenario(gen uint64) {
 		// already applied, nothing to do 
 		return
 	}
-	proposalDelay, dead, cmds := scenarioEffects(n.GetNodeID(), n.cfg.ProposalDelayNode, n.cfg.NodesDead, next)
+	proposalDelay, dead, cmds := scenarioEffects(n.GetNodeID(), n.cfg.ProposalDelayNodes, n.cfg.NodesDead, next)
 	n.SetProposalDelay(proposalDelay)
 	n.SetDead(dead)
 	for _, cmd := range cmds {

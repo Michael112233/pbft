@@ -255,7 +255,7 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		proberStop:  make(chan struct{}),
 		proberDone:  make(chan struct{}),
 
-		proposalDelay:       !cfg.ScenarioMode && cfg.ProposalDelayNode == nodeID, // scenario mode owns it otherwise
+		proposalDelay:       !cfg.ScenarioMode && cfg.ProposalDelayNodes[nodeID], // scenario mode owns it otherwise
 		proposalMinInterval: cfg.ProposalMinInterval(),
 		proposalGateOn:      cfg.ProposalGateAtStart, // calibration runs with no controller
 		scenarioMode:        cfg.ScenarioMode,
@@ -269,7 +269,7 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 	n.ArmBatchTimer()
 	n.StopBatchTimer()
 	checkpointManager := NewCheckpointManager(log, n)
-	triggerManager := NewTriggerManager(log, n.currAction.TriggerMode, n)
+	triggerManager := NewTriggerManager(log, n.currAction.TriggerMode, n, cfg.PeriodicTriggerTimeout(), cfg.FixedTriggerTimeout())
 	n.triggerManager = triggerManager
 	epochManager := NewEpochManager(log, n)
 	n.epochManager = epochManager

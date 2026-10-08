@@ -23,36 +23,38 @@ type Config struct {
 	PendingQueueCapacity  int   `json:"pending_queue_capacity"`
 	ClientMsgPaddingBytes int   `json:"client_msg_padding_bytes"`
 
-	NodeNum           int64        `json:"node_num"`
-	NodesDead         map[int]bool `json:"nodes_dead"`
-	Periodic          bool         `json:"periodic"`
-	Period            int64        `json:"period"`
-	NumberOfPeriods   int          `json:"number_of_periods"`
-	PeakTpsTest       bool         `json:"peak_tps_test"`
-	LeaderType        string       `json:"leader_type"`
-	FarNodeID         int          `json:"far_node_id"`
-	FarNodeDelayMs    int64        `json:"far_node_delay_ms"`
-	Netem             NetemConfig  `json:"netem"`
-	LeaderTypeEnum    core.VCType
-	ActiveL           bool  `json:"active_l"`
-	ProposalDelayNode int   `json:"proposal_delay_node"`
-	ProposalDelayMS   int   `json:"proposal_delay_ms"`
-	GC                bool  `json:"gc"`
-	Logging           bool  `json:"logging"`
-	CarryState        bool  `json:"carry_state"`
-	LogShares         bool  `json:"log_shares"`
-	RetrySleep        int   `json:"retry_sleep"`
-	MaxInflightSeq    int64 `json:"max_inflight_seq"`
-	Fixed             bool  `json:"fixed"`
-	PeriodicReq       bool  `json:"periodic_req"`
-	CompleteSuite     bool  `json:"complete_suite"`
-	LatencyLog        bool  `json:"node_latency_logger"`
-	MaxBatchSize      int   `json:"max_batch_size"`
-	MaxBatchDelay     int   `json:"max_batch_delay"`
-	ConsensusChanSize int   `json:"consensus_chan_size"`
-	MinVDFDelay       int   `json:"min_vdf_delay"`
-	MaxVDFDelay       int   `json:"max_vdf_delay"`
-	ParallelWorkers   bool  `json:"parallel_workers"`
+	NodeNum         int64        `json:"node_num"`
+	NodesDead       map[int]bool `json:"nodes_dead"`
+	Periodic        bool         `json:"periodic"`
+	Period          int64        `json:"period"`
+	NumberOfPeriods int          `json:"number_of_periods"`
+	PeakTpsTest     bool         `json:"peak_tps_test"`
+	LeaderType      string       `json:"leader_type"`
+	FarNodeID       int          `json:"far_node_id"`
+	FarNodeDelayMs  int64        `json:"far_node_delay_ms"`
+	Netem           NetemConfig  `json:"netem"`
+	LeaderTypeEnum  core.VCType
+	ActiveL         bool `json:"active_l"`
+	// ProposalDelayNodes are the nodes that sleep 100 ms in tryPropose while they
+	// lead. Same shape as nodes_dead; the ProposalDelay scenario needs exactly f.
+	ProposalDelayNodes map[int]bool `json:"proposal_delay_nodes"`
+	ProposalDelayMS    int          `json:"proposal_delay_ms"`
+	GC                 bool         `json:"gc"`
+	Logging            bool         `json:"logging"`
+	CarryState         bool         `json:"carry_state"`
+	LogShares          bool         `json:"log_shares"`
+	RetrySleep         int          `json:"retry_sleep"`
+	MaxInflightSeq     int64        `json:"max_inflight_seq"`
+	Fixed              bool         `json:"fixed"`
+	PeriodicReq        bool         `json:"periodic_req"`
+	CompleteSuite      bool         `json:"complete_suite"`
+	LatencyLog         bool         `json:"node_latency_logger"`
+	MaxBatchSize       int          `json:"max_batch_size"`
+	MaxBatchDelay      int          `json:"max_batch_delay"`
+	ConsensusChanSize  int          `json:"consensus_chan_size"`
+	MinVDFDelay        int          `json:"min_vdf_delay"`
+	MaxVDFDelay        int          `json:"max_vdf_delay"`
+	ParallelWorkers    bool         `json:"parallel_workers"`
 	// PilotExecTrace logs per-slot execution times for the first 2.5 s of each view
 	// (node/pilottrace.go). Log only.
 	PilotExecTrace bool `json:"pilot_exec_trace"`
@@ -60,6 +62,9 @@ type Config struct {
 	// Per-view throughput measurement and the perf trigger's bar
 	// (config/performance.go). Accepts the legacy "performance": true.
 	Performance PerformanceConfig `json:"performance"`
+
+	// Trigger timeouts (config/timer.go).
+	Timer TimerConfig `json:"timer"`
 
 	// Targeted proposal throttling (config/throttle.go). ProposalMinIntervalMs is
 	// the gate severity, calibrated once and shared by every policy;
@@ -129,7 +134,6 @@ func ReadCfg(filename string) *Config {
 		os.Exit(1)
 	}
 
-	// 创建新的Config实例
 	config := &Config{}
 	err = json.Unmarshal(jsonData, config)
 	if err != nil {
@@ -178,6 +182,11 @@ func ReadCfg(filename string) *Config {
 		os.Exit(1)
 	}
 
+	if err := config.ValidateTimer(); err != nil {
+		fmt.Printf("Invalid timer config: %v\n", err)
+		os.Exit(1)
+	}
+
 	// config.FaultyNodesNum = (config.NodeNum - 1) / 3
 
 	// // 设置TCP缓冲区默认值（256KB = 256 * 1024 bytes）
@@ -215,8 +224,10 @@ func (c *Config) ParseScenarios() error {
 		if !ok {
 			return fmt.Errorf("unknown scenario %q", name)
 		}
-		if scenario == core.ScenarioProposalDelay && (c.ProposalDelayNode < 1 || int64(c.ProposalDelayNode) > c.NodeNum) {
-			return fmt.Errorf("ProposalDelay needs proposal_delay_node in 1..%d, got %d", c.NodeNum, c.ProposalDelayNode)
+		if scenario == core.ScenarioProposalDelay {
+			if err := c.validateScenarioProposalDelayNodes(); err != nil {
+				return err
+			}
 		}
 		if scenario == core.ScenarioNetworkDelayFCrash {
 			if err := c.validateScenarioDeadNodes(); err != nil {
@@ -242,28 +253,53 @@ func (c *Config) ParseScenarios() error {
 // over to node_num: 7 is caught here instead of quietly measuring the wrong
 // thing.
 func (c *Config) validateScenarioDeadNodes() error {
-	f := int((c.NodeNum - 1) / 3)
-	if f == 0 {
-		return fmt.Errorf("NetworkDelayFCrash needs node_num >= 4 so f >= 1, got node_num %d", c.NodeNum)
+	dead, err := c.exactlyFNodes(core.ScenarioNetworkDelayFCrash, "nodes_dead", c.NodesDead)
+	if err != nil {
+		return err
 	}
-	var dead []int
-	for id, isDead := range c.NodesDead {
-		if !isDead {
-			continue
-		}
-		if id < 1 || int64(id) > c.NodeNum {
-			return fmt.Errorf("NetworkDelayFCrash: nodes_dead has node %d outside 1..%d", id, c.NodeNum)
-		}
+	for _, id := range dead {
 		if id == EpochAggregatorNodeID {
 			return fmt.Errorf("NetworkDelayFCrash: node %d cannot be dead, it is the epoch aggregator", EpochAggregatorNodeID)
 		}
-		dead = append(dead, id)
-	}
-	// NodesDead is a map, so iteration order is random; sort for a stable message.
-	sort.Ints(dead)
-	if len(dead) != f {
-		return fmt.Errorf("NetworkDelayFCrash needs exactly f = %d nodes set in nodes_dead for node_num %d, got %d %v",
-			f, c.NodeNum, len(dead), dead)
 	}
 	return nil
+}
+
+// validateScenarioProposalDelayNodes checks the proposal_delay_nodes set the
+// ProposalDelay scenario slows down: exactly f nodes, for the same reason as
+// nodes_dead. With one slow node at node_num 7 the slow leader comes round once
+// per 7 views instead of f times, so the throughput bar has less to catch and
+// the scenario no longer means what it does at node_num 4. The aggregator may be
+// slow: a slow leader is still live, so epochs and netem are unaffected.
+func (c *Config) validateScenarioProposalDelayNodes() error {
+	_, err := c.exactlyFNodes(core.ScenarioProposalDelay, "proposal_delay_nodes", c.ProposalDelayNodes)
+	return err
+}
+
+// exactlyFNodes returns the ids set true in set, sorted, after checking that
+// each is in 1..node_num and that there are exactly f = (node_num-1)/3 of them.
+// Explicit false entries are ignored.
+func (c *Config) exactlyFNodes(scenario core.Scenario, key string, set map[int]bool) ([]int, error) {
+	name := core.ScenarioToString(scenario)
+	f := int((c.NodeNum - 1) / 3)
+	if f == 0 {
+		return nil, fmt.Errorf("%s needs node_num >= 4 so f >= 1, got node_num %d", name, c.NodeNum)
+	}
+	var ids []int
+	for id, on := range set {
+		if !on {
+			continue
+		}
+		if id < 1 || int64(id) > c.NodeNum {
+			return nil, fmt.Errorf("%s: %s has node %d outside 1..%d", name, key, id, c.NodeNum)
+		}
+		ids = append(ids, id)
+	}
+	// set is a map, so iteration order is random; sort for a stable message.
+	sort.Ints(ids)
+	if len(ids) != f {
+		return nil, fmt.Errorf("%s needs exactly f = %d nodes set in %s for node_num %d, got %d %v",
+			name, f, key, c.NodeNum, len(ids), ids)
+	}
+	return ids, nil
 }

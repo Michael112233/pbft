@@ -1,11 +1,11 @@
 """Summarize the scenario x action latency pilots (results/latency_pilots/).
 
 Usage: python3 scripts/latency_pilot_summary.py [results/<scenario>_<action>_* ...]
-       (no args: every results/{healthy,pdelay,ndelay,ndfcrash,farnode}_* run)
+       (no args: every results/{healthy,pdelay,ndelay,ndfcrash,farnode,throttle}_* run)
 
-Per run it reports, with node 3 as the reference node (never dead, never far):
+Per run it reports, with node 6 as the reference node (never dead, delayed or far in the n=7 pilots):
   - client throughput in epoch 1, epoch 2 and over the whole run (client TPS series,
-    split at node 3's "received learning-agent decision for generation g" lines),
+    split at node 6's "received learning-agent decision for generation g" lines),
   - view changes started and views installed per second in epoch 2,
   - who led during epoch 2 (share of time per leader, and share spent in view change),
   - client committed latency over the whole run (latencyreport.json),
@@ -20,7 +20,7 @@ import os
 import re
 import sys
 
-REF_NODE = 3
+REF_NODE = 6
 TS = re.compile(r"^\[\w+\] (\S+ \S+)")
 VC_START = re.compile(
     r"Leader progress timer expired; entering view change"
@@ -123,8 +123,11 @@ def fmt(x, spec):
     return format(x, spec) if isinstance(x, (int, float)) else "-"
 
 
+ACTIONS = ("frr", "prr", "pe", "pfrr", "pfe", "fa")
+# Only <scenario>_<action>[_*] dirs: results/throttle_sweep is not a pilot.
 runs = sys.argv[1:] or sorted(
-    d for s in ("healthy", "pdelay", "ndelay", "ndfcrash", "farnode") for d in glob.glob(f"results/{s}_*")
+    d for s in ("healthy", "pdelay", "ndelay", "ndfcrash", "farnode", "throttle") for d in glob.glob(f"results/{s}_*")
+    if os.path.basename(d).split("_")[1] in ACTIONS
 )
 rows = [summarize(r) for r in runs]
 print(f"{'scenario':9s} {'act':5s} {'T_e1':>6s} {'T_e2':>6s} {'T_run':>6s} {'vc/s':>5s} {'inst/s':>6s}"

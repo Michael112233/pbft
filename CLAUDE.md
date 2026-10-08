@@ -53,8 +53,8 @@ the VDF race (`node/election.go`), which a crashed node never does, so it can ne
 elected. RoundRobin has no such filter and burns a full timeout every time the rotation
 lands on a dead node. In experiments the race winner is not used: to avoid split votes
 the candidate comes from a deterministic per-view formula (`electionCandidateForView`)
-that picks randomly among the nodes except node 2, standing in for "only live nodes
-finish the race" (see Gotchas).
+that picks randomly among the nodes except the crashed `nodes_dead`, standing in for
+"only live nodes finish the race" (see Gotchas).
 
 The agent currently decides on a **synthetic** state and reward; the real
 `node_reward`/`node_state` arrive as zeros and are logged as `ignored`, because the
@@ -98,10 +98,13 @@ currently trying to reach). They differ while a view change is running.
 
 ## Triggers
 
-Constants in `node/triggerManager.go`; timer plumbing in `node/viewtimers.go`.
-`timeoutForMode` gives Periodic 10 s and everything else 150 ms, and is used both by
-the constructor and by `SwitchTriggerMode`, so a mode switch never leaves a stale
-timeout behind.
+Mode logic in `node/triggerManager.go`; timer plumbing in `node/viewtimers.go`. The
+timeouts come from the config's `timer` block (`config/timer.go`):
+`periodic_trigger_timeout_ms` (default 10000), `fixed_trigger_timeout_ms` (default 150,
+also the Perf floor), and `relaxed_fixed_trigger_timeout_ms` (default 300, parsed but not
+read by the protocol yet). `timeoutForMode` picks Periodic's or the fixed one, and is
+used both by the constructor and by `SwitchTriggerMode`, so a mode switch never leaves a
+stale timeout behind. The values below are the defaults.
 
 | Mode | Progress / new-view timeout | Reset on execution | Effect |
 |---|---|---|---|
@@ -212,7 +215,7 @@ harness for measuring that cost.
 
 ## Epoch → learning agent → generation switch
 
-1. `epochTimerInterval` (45 s, `node/epochtimer.go`) fires; the node sends an
+1. The epoch timer (`timer.epoch_timer_ms`, default 45 s, `node/epochtimer.go`) fires; the node sends an
    `EpochDataMsg` to **node 4** (hardcoded aggregator).
 2. Node 4 collects 2f+1 of them and broadcasts an `EpochAggregateMsg`
    (`epochManager.go`). Payload fields are still placeholder zeros.
@@ -234,6 +237,11 @@ With it off, the node stays in its initial action for the whole run.
 
 `config/run2new.json`, parsed by `config/config.go`.
 
+**`config/run2new.json` is the base config: every new config param must be added to it**
+(with its default value written out) in the same change that adds the field to
+`config.go` or a `config/*.go` file. New experiment configs are generated from it, so a
+key missing there is missing from every experiment built afterwards.
+
 - `default_action` — the action every node starts in, e.g. `"FixedRoundRobin"`.
   `Config.InitialAction()` feeds both `currAction` and the trigger manager, so the
   two can never disagree at startup. An unknown name is a fatal config error.
@@ -246,18 +254,22 @@ With it off, the node stays in its initial action for the whole run.
   per `scenario_generations` generations, derived from the generation in
   `SetForViewID` → `maybeSwitchScenario` (`node/scenario.go`). A switch turns everything
   off, then enables the new fault: ProposalDelay turns on the 100 ms `tryPropose` sleep on
-  `proposal_delay_node`; NetworkDelay has node 4 run
+  every `proposal_delay_nodes` node (a map like `nodes_dead`, **exactly f** of them, node 4
+  allowed since a slow leader is still live — `validateScenarioProposalDelayNodes`);
+  NetworkDelay has node 4 run
   `sudo -n scripts/netem_scenario.sh up 170 <n>` from a worker goroutine (`down` on
   every switch and on `Stop`); NetworkDelayFCrash applies the same delay and sets `dead`
   on every `nodes_dead` node (**exactly f** of them, never node 4 — validated in
-  `validateScenarioDeadNodes` in `config.go`, tested in `config/config_test.go`).
-  Exactly f, not 1..f: a count below f is a weaker scenario under the same name, so a
-  `nodes_dead` set written for `node_num: 4` and carried over to 7 is a config error
+  `validateScenarioDeadNodes` in `config.go`, tested in `config/config_test.go`; both
+  validators share `exactlyFNodes`). Each set is checked only if its scenario is in
+  `scenarios`. Exactly f, not 1..f: a count below f is a weaker scenario under the same
+  name, so a set written for `node_num: 4` and carried over to 7 is a config error
   rather than a quietly different experiment. The forbidden id is
   `config.EpochAggregatorNodeID`, which `epochAggregatorNodeID` and
   `scenarioNetemNodeID` both alias, so the validation cannot drift from the node that
   actually aggregates. In scenario mode the scenario owns both `proposalDelay` and `dead`, so
-  `proposal_delay_node` and `nodes_dead` only take effect inside their scenario.
+  `proposal_delay_nodes` and `nodes_dead` only take effect inside their scenario.
+  The old int key `proposal_delay_node` is gone and silently ignored if present.
   Requires `epoch_mode`; incompatible with `netem.enabled` and with the script's
   `netem_delay`.
 - `leader_type` (`roundrobin` | `election` | `wrr`) — legacy `VCType`, separate from
@@ -318,7 +330,10 @@ With it off, the node stays in its initial action for the whole run.
   uniformly at random by hashing the view from 1..n **minus the ids set in
   `nodes_dead`** (`electionCandidateForView(view, nodeNum, excluded)`, checked in
   `handleElectionVDFResult`), since a crashed candidate never broadcasts
-  RequestVote. With no crashed nodes the draw is uniform over all n, so Election's
+  RequestVote. The exclusion applies only while those nodes are crashed
+  (`electionExcludedForGeneration`): in scenario mode only in generations whose
+  `scenarioForGeneration` is `NetworkDelayFCrash`, outside scenario mode always.
+  With no crashed nodes the draw is uniform over all n, so Election's
   candidate pool is the same size as RoundRobin's rotation. The aggregator also
   owns the scenario-mode netem qdisc, which is why `NetworkDelayFCrash` refuses to
   crash it. All are experiment scaffolding, not protocol.

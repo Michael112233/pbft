@@ -79,6 +79,108 @@ func TestValidateScenarioDeadNodesErrorIsStable(t *testing.T) {
 	}
 }
 
+// ProposalDelay must slow exactly f nodes, like NetworkDelayFCrash crashes
+// exactly f. Unlike nodes_dead, the aggregator is allowed: a slow leader is live.
+func TestValidateScenarioProposalDelayNodes(t *testing.T) {
+	set := func(ids ...int) map[int]bool {
+		m := make(map[int]bool, len(ids))
+		for _, id := range ids {
+			m[id] = true
+		}
+		return m
+	}
+
+	tests := []struct {
+		name    string
+		nodeNum int64
+		delay   map[int]bool
+		wantErr bool
+	}{
+		{"n=4 f=1 one slow", 4, set(1), false},
+		{"n=4 f=1 aggregator slow is fine", 4, set(EpochAggregatorNodeID), false},
+		{"n=4 f=1 none slow", 4, nil, true},
+		{"n=4 f=1 two slow exceeds f", 4, set(1, 2), true},
+
+		{"n=7 f=2 two slow", 7, set(1, 5), false},
+		{"n=7 f=2 one slow is below f", 7, set(1), true},
+		{"n=7 f=2 three slow exceeds f", 7, set(1, 2, 3), true},
+
+		{"n=10 f=3 three slow", 10, set(1, 4, 7), false},
+		{"n=10 f=3 two slow is below f", 10, set(1, 4), true},
+		{"n=13 f=4 four slow", 13, set(1, 2, 3, 13), false},
+
+		{"explicit false entries are not slow", 7, map[int]bool{1: true, 2: false, 3: false}, true},
+		{"slow node above node_num", 7, set(2, 8), true},
+		{"slow node below 1", 7, set(0, 2), true},
+		{"n=3 f=0", 3, set(1), true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Config{NodeNum: tt.nodeNum, ProposalDelayNodes: tt.delay}
+			err := c.validateScenarioProposalDelayNodes()
+			if tt.wantErr && err == nil {
+				t.Fatalf("node_num %d delay %v: want error, got nil", tt.nodeNum, tt.delay)
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("node_num %d delay %v: want nil, got %v", tt.nodeNum, tt.delay, err)
+			}
+		})
+	}
+}
+
+// ParseScenarios only checks a node set when its scenario is in the list, so a
+// run without ProposalDelay does not need proposal_delay_nodes at all.
+func TestParseScenariosChecksOnlyListedScenarios(t *testing.T) {
+	base := func(scenarios ...string) *Config {
+		return &Config{NodeNum: 7, EpochMode: true, ScenarioMode: true, Scenarios: scenarios}
+	}
+	if err := base("Healthy", "NetworkDelay").ParseScenarios(); err != nil {
+		t.Fatalf("no ProposalDelay/FCrash in list: %v", err)
+	}
+	if err := base("Healthy", "ProposalDelay").ParseScenarios(); err == nil {
+		t.Fatal("ProposalDelay with no proposal_delay_nodes: want error")
+	}
+	c := base("Healthy", "ProposalDelay", "NetworkDelayFCrash")
+	c.ProposalDelayNodes = map[int]bool{1: true, 5: true}
+	c.NodesDead = map[int]bool{2: true, 3: true}
+	if err := c.ParseScenarios(); err != nil {
+		t.Fatalf("n=7 f=2 sets: %v", err)
+	}
+}
+
+func TestTimerDefaultsAndOverrides(t *testing.T) {
+	c := &Config{}
+	if c.PeriodicTriggerTimeout() != 10*time.Second || c.FixedTriggerTimeout() != 150*time.Millisecond ||
+		c.RelaxedFixedTriggerTimeout() != 300*time.Millisecond || c.EpochTimer() != 45*time.Second {
+		t.Fatalf("defaults: periodic %v fixed %v relaxed %v",
+			c.PeriodicTriggerTimeout(), c.FixedTriggerTimeout(), c.RelaxedFixedTriggerTimeout())
+	}
+	if err := c.ValidateTimer(); err != nil {
+		t.Fatalf("defaults invalid: %v", err)
+	}
+
+	if err := json.Unmarshal([]byte(`{"timer": {"periodic_trigger_timeout_ms": 5000, "fixed_trigger_timeout_ms": 200, "relaxed_fixed_trigger_timeout_ms": 400, "epoch_timer_ms": 75000}}`), c); err != nil {
+		t.Fatal(err)
+	}
+	if c.PeriodicTriggerTimeout() != 5*time.Second || c.FixedTriggerTimeout() != 200*time.Millisecond ||
+		c.RelaxedFixedTriggerTimeout() != 400*time.Millisecond || c.EpochTimer() != 75*time.Second {
+		t.Fatalf("overrides: periodic %v fixed %v relaxed %v",
+			c.PeriodicTriggerTimeout(), c.FixedTriggerTimeout(), c.RelaxedFixedTriggerTimeout())
+	}
+
+	for _, bad := range []TimerConfig{
+		{PeriodicTriggerTimeoutMs: -1},
+		{FixedTriggerTimeoutMs: -1},
+		{RelaxedFixedTriggerTimeoutMs: -1},
+		{EpochTimerMs: -1},
+	} {
+		if err := (&Config{Timer: bad}).ValidateTimer(); err == nil {
+			t.Fatalf("%+v: want error", bad)
+		}
+	}
+}
+
 // "performance" accepts the legacy boolean as well as the object form.
 func TestPerformanceConfigForms(t *testing.T) {
 	tests := []struct {
