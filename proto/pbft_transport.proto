@@ -177,9 +177,17 @@ message CheckpointMsgSig {
   bytes signature = 2;
 }
 
+// A prepare inside a prepared certificate. Its view, seq_num and digest are the
+// enclosing pre-prepare's, so only the sender and signature are sent.
+message CertPrepare {
+  int32 from = 1;
+  bytes signature = 2;
+}
+
 message PreparedCert {
   PreprepareMsgSig preprepare_msg = 1;
-  map<int32, PrepareMsgSig> prepare_log = 2;
+  reserved 2; // was map<int32, PrepareMsgSig> prepare_log
+  repeated CertPrepare prepares = 3; // ascending by from
 }
 
 message ViewChangeMsg {

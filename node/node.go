@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"runtime"
+	"sort"
 	"strconv"
 
 	"sync"
@@ -825,11 +826,26 @@ func (n *Node) buildPreparedCert(slot *LogEntry) *core.PreparedCert {
 			// n.log.Error("buildPreparedCert: actual requests for seq %d not in pool", slot.preprepare.SeqNum)
 		}
 	}
-	prepareLog := make(map[int]core.PrepareMsgSig, len(slot.prepares))
+	// Keep only prepares over exactly this pre-prepare's (view, seq, digest): the wire
+	// form sends just (from, signature) and rebuilds the rest from the pre-prepare.
+	// Capped at 2f, the most verifyPrepareLog needs, so a cert's size is bounded.
+	matching := make([]int, 0, len(slot.prepares))
 	for from, prepare := range slot.prepares {
-		if prepare.PrepareMsg.Digest != slot.preprepare.DigestClientMsg {
+		if prepare.PrepareMsg.View.NotEqual(slot.preprepare.View) ||
+			prepare.PrepareMsg.SeqNum != slot.preprepare.SeqNum ||
+			prepare.PrepareMsg.Digest != slot.preprepare.DigestClientMsg ||
+			prepare.PrepareMsg.From != from {
 			continue
 		}
+		matching = append(matching, from)
+	}
+	sort.Ints(matching)
+	if required := n.QuorumSize() - 1; len(matching) > required {
+		matching = matching[:required]
+	}
+	prepareLog := make(map[int]core.PrepareMsgSig, len(matching))
+	for _, from := range matching {
+		prepare := slot.prepares[from]
 		prepareLog[from] = core.PrepareMsgSig{
 			PrepareMsg: core.PrepareMsg{
 				View:   prepare.PrepareMsg.View,

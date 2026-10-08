@@ -720,3 +720,79 @@ func TestLeaderIdUpdateRejectsMissingAction(t *testing.T) {
 		t.Fatal("leader update without an action was accepted")
 	}
 }
+
+func compactCertFixture() *core.PreparedCert {
+	view := core.ViewID{Generation: 3, Counter: 2}
+	mini := core.PreprepareMsgMini{View: view, SeqNum: 42, DigestClientMsg: [32]byte{5, 6}, DigestIndividualClientMsgs: [][32]byte{}}
+	cert := &core.PreparedCert{
+		// empty, not nil: FromPB always returns empty slices
+		PreprepareMsg: core.PreprepareMsgSig{PreprepareMsgMini: mini, Signature: []byte{1}, ActualMsg: []core.ClientMsgSignature{}},
+		PrepareLog:    map[int]core.PrepareMsgSig{},
+	}
+	for _, from := range []int{7, 2, 5, 3} {
+		cert.PrepareLog[from] = core.PrepareMsgSig{
+			PrepareMsg: core.PrepareMsg{View: view, SeqNum: 42, Digest: mini.DigestClientMsg, From: from},
+			Signature:  []byte{byte(from), 0xAA},
+		}
+	}
+	return cert
+}
+
+func TestPreparedCertCompactRoundTrip(t *testing.T) {
+	in := compactCertFixture()
+	pb := PreparedCertToPB(in)
+	for i, want := range []int32{2, 3, 5, 7} {
+		if pb.Prepares[i].From != want {
+			t.Fatalf("prepares not ascending by from: %v", pb.Prepares)
+		}
+	}
+	wire, err := proto.Marshal(pb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded PreparedCert
+	if err := proto.Unmarshal(wire, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	out, err := PreparedCertFromPB(&decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(out, in) {
+		t.Fatalf("round trip mismatch:\n got: %+v\nwant: %+v", out, in)
+	}
+}
+
+// The ViewChange signature is over these bytes and ViewChangeToPB runs again per
+// peer, so repeated conversions must marshal identically.
+func TestViewChangeMarshalIsStableAcrossConversions(t *testing.T) {
+	certs := map[int64]*core.PreparedCert{}
+	for seq := int64(1); seq <= 20; seq++ {
+		cert := compactCertFixture()
+		cert.PreprepareMsg.PreprepareMsgMini.SeqNum = seq
+		certs[seq] = cert
+	}
+	vc := core.ViewChangeMsg{ViewNumber: core.ViewID{Generation: 3, Counter: 3}, From: 2, PreparedCerts: certs, Action: core.FixedRoundRobin}
+	opts := proto.MarshalOptions{Deterministic: true}
+	first, err := opts.Marshal(ViewChangeToPB(vc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 20; i++ {
+		again, err := opts.Marshal(ViewChangeToPB(vc))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(again) != string(first) {
+			t.Fatalf("conversion %d marshaled differently", i)
+		}
+	}
+}
+
+func TestPreparedCertFromPBRejectsDuplicatePrepareSender(t *testing.T) {
+	pb := PreparedCertToPB(compactCertFixture())
+	pb.Prepares = append(pb.Prepares, &CertPrepare{From: 3, Signature: []byte{9}})
+	if _, err := PreparedCertFromPB(pb); err == nil {
+		t.Fatal("cert with two prepares from the same sender was accepted")
+	}
+}

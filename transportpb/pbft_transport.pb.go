@@ -1587,17 +1587,71 @@ func (x *CheckpointMsgSig) GetSignature() []byte {
 	return nil
 }
 
+// A prepare inside a prepared certificate. Its view, seq_num and digest are the
+// enclosing pre-prepare's, so only the sender and signature are sent.
+type CertPrepare struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	From          int32                  `protobuf:"varint,1,opt,name=from,proto3" json:"from,omitempty"`
+	Signature     []byte                 `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CertPrepare) Reset() {
+	*x = CertPrepare{}
+	mi := &file_pbft_transport_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CertPrepare) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CertPrepare) ProtoMessage() {}
+
+func (x *CertPrepare) ProtoReflect() protoreflect.Message {
+	mi := &file_pbft_transport_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CertPrepare.ProtoReflect.Descriptor instead.
+func (*CertPrepare) Descriptor() ([]byte, []int) {
+	return file_pbft_transport_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *CertPrepare) GetFrom() int32 {
+	if x != nil {
+		return x.From
+	}
+	return 0
+}
+
+func (x *CertPrepare) GetSignature() []byte {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
+}
+
 type PreparedCert struct {
-	state         protoimpl.MessageState   `protogen:"open.v1"`
-	PreprepareMsg *PreprepareMsgSig        `protobuf:"bytes,1,opt,name=preprepare_msg,json=preprepareMsg,proto3" json:"preprepare_msg,omitempty"`
-	PrepareLog    map[int32]*PrepareMsgSig `protobuf:"bytes,2,rep,name=prepare_log,json=prepareLog,proto3" json:"prepare_log,omitempty" protobuf_key:"varint,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PreprepareMsg *PreprepareMsgSig      `protobuf:"bytes,1,opt,name=preprepare_msg,json=preprepareMsg,proto3" json:"preprepare_msg,omitempty"`
+	Prepares      []*CertPrepare         `protobuf:"bytes,3,rep,name=prepares,proto3" json:"prepares,omitempty"` // ascending by from
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PreparedCert) Reset() {
 	*x = PreparedCert{}
-	mi := &file_pbft_transport_proto_msgTypes[24]
+	mi := &file_pbft_transport_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1609,7 +1663,7 @@ func (x *PreparedCert) String() string {
 func (*PreparedCert) ProtoMessage() {}
 
 func (x *PreparedCert) ProtoReflect() protoreflect.Message {
-	mi := &file_pbft_transport_proto_msgTypes[24]
+	mi := &file_pbft_transport_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1622,7 +1676,7 @@ func (x *PreparedCert) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PreparedCert.ProtoReflect.Descriptor instead.
 func (*PreparedCert) Descriptor() ([]byte, []int) {
-	return file_pbft_transport_proto_rawDescGZIP(), []int{24}
+	return file_pbft_transport_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *PreparedCert) GetPreprepareMsg() *PreprepareMsgSig {
@@ -1632,9 +1686,9 @@ func (x *PreparedCert) GetPreprepareMsg() *PreprepareMsgSig {
 	return nil
 }
 
-func (x *PreparedCert) GetPrepareLog() map[int32]*PrepareMsgSig {
+func (x *PreparedCert) GetPrepares() []*CertPrepare {
 	if x != nil {
-		return x.PrepareLog
+		return x.Prepares
 	}
 	return nil
 }
@@ -1656,7 +1710,7 @@ type ViewChangeMsg struct {
 
 func (x *ViewChangeMsg) Reset() {
 	*x = ViewChangeMsg{}
-	mi := &file_pbft_transport_proto_msgTypes[25]
+	mi := &file_pbft_transport_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1668,7 +1722,7 @@ func (x *ViewChangeMsg) String() string {
 func (*ViewChangeMsg) ProtoMessage() {}
 
 func (x *ViewChangeMsg) ProtoReflect() protoreflect.Message {
-	mi := &file_pbft_transport_proto_msgTypes[25]
+	mi := &file_pbft_transport_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1681,7 +1735,7 @@ func (x *ViewChangeMsg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ViewChangeMsg.ProtoReflect.Descriptor instead.
 func (*ViewChangeMsg) Descriptor() ([]byte, []int) {
-	return file_pbft_transport_proto_rawDescGZIP(), []int{25}
+	return file_pbft_transport_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ViewChangeMsg) GetViewNumber() *ViewID {
@@ -1757,7 +1811,7 @@ type ViewChangeMsgSig struct {
 
 func (x *ViewChangeMsgSig) Reset() {
 	*x = ViewChangeMsgSig{}
-	mi := &file_pbft_transport_proto_msgTypes[26]
+	mi := &file_pbft_transport_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1769,7 +1823,7 @@ func (x *ViewChangeMsgSig) String() string {
 func (*ViewChangeMsgSig) ProtoMessage() {}
 
 func (x *ViewChangeMsgSig) ProtoReflect() protoreflect.Message {
-	mi := &file_pbft_transport_proto_msgTypes[26]
+	mi := &file_pbft_transport_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1782,7 +1836,7 @@ func (x *ViewChangeMsgSig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ViewChangeMsgSig.ProtoReflect.Descriptor instead.
 func (*ViewChangeMsgSig) Descriptor() ([]byte, []int) {
-	return file_pbft_transport_proto_rawDescGZIP(), []int{26}
+	return file_pbft_transport_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ViewChangeMsgSig) GetViewChangeMsg() *ViewChangeMsg {
@@ -1814,7 +1868,7 @@ type NewViewMsg struct {
 
 func (x *NewViewMsg) Reset() {
 	*x = NewViewMsg{}
-	mi := &file_pbft_transport_proto_msgTypes[27]
+	mi := &file_pbft_transport_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1826,7 +1880,7 @@ func (x *NewViewMsg) String() string {
 func (*NewViewMsg) ProtoMessage() {}
 
 func (x *NewViewMsg) ProtoReflect() protoreflect.Message {
-	mi := &file_pbft_transport_proto_msgTypes[27]
+	mi := &file_pbft_transport_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1839,7 +1893,7 @@ func (x *NewViewMsg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NewViewMsg.ProtoReflect.Descriptor instead.
 func (*NewViewMsg) Descriptor() ([]byte, []int) {
-	return file_pbft_transport_proto_rawDescGZIP(), []int{27}
+	return file_pbft_transport_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *NewViewMsg) GetPreprepareLog() []*PreprepareMsgSig {
@@ -1901,7 +1955,7 @@ type NewViewMsgSig struct {
 
 func (x *NewViewMsgSig) Reset() {
 	*x = NewViewMsgSig{}
-	mi := &file_pbft_transport_proto_msgTypes[28]
+	mi := &file_pbft_transport_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1913,7 +1967,7 @@ func (x *NewViewMsgSig) String() string {
 func (*NewViewMsgSig) ProtoMessage() {}
 
 func (x *NewViewMsgSig) ProtoReflect() protoreflect.Message {
-	mi := &file_pbft_transport_proto_msgTypes[28]
+	mi := &file_pbft_transport_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1926,7 +1980,7 @@ func (x *NewViewMsgSig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NewViewMsgSig.ProtoReflect.Descriptor instead.
 func (*NewViewMsgSig) Descriptor() ([]byte, []int) {
-	return file_pbft_transport_proto_rawDescGZIP(), []int{28}
+	return file_pbft_transport_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *NewViewMsgSig) GetNewViewMsg() *NewViewMsg {
@@ -1958,7 +2012,7 @@ type RequestVoteMsg struct {
 
 func (x *RequestVoteMsg) Reset() {
 	*x = RequestVoteMsg{}
-	mi := &file_pbft_transport_proto_msgTypes[29]
+	mi := &file_pbft_transport_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1970,7 +2024,7 @@ func (x *RequestVoteMsg) String() string {
 func (*RequestVoteMsg) ProtoMessage() {}
 
 func (x *RequestVoteMsg) ProtoReflect() protoreflect.Message {
-	mi := &file_pbft_transport_proto_msgTypes[29]
+	mi := &file_pbft_transport_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1983,7 +2037,7 @@ func (x *RequestVoteMsg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RequestVoteMsg.ProtoReflect.Descriptor instead.
 func (*RequestVoteMsg) Descriptor() ([]byte, []int) {
-	return file_pbft_transport_proto_rawDescGZIP(), []int{29}
+	return file_pbft_transport_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *RequestVoteMsg) GetFrom() int32 {
@@ -2045,7 +2099,7 @@ type RequestVoteMsgSig struct {
 
 func (x *RequestVoteMsgSig) Reset() {
 	*x = RequestVoteMsgSig{}
-	mi := &file_pbft_transport_proto_msgTypes[30]
+	mi := &file_pbft_transport_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2057,7 +2111,7 @@ func (x *RequestVoteMsgSig) String() string {
 func (*RequestVoteMsgSig) ProtoMessage() {}
 
 func (x *RequestVoteMsgSig) ProtoReflect() protoreflect.Message {
-	mi := &file_pbft_transport_proto_msgTypes[30]
+	mi := &file_pbft_transport_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2070,7 +2124,7 @@ func (x *RequestVoteMsgSig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RequestVoteMsgSig.ProtoReflect.Descriptor instead.
 func (*RequestVoteMsgSig) Descriptor() ([]byte, []int) {
-	return file_pbft_transport_proto_rawDescGZIP(), []int{30}
+	return file_pbft_transport_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *RequestVoteMsgSig) GetRequestVoteMsg() *RequestVoteMsg {
@@ -2097,7 +2151,7 @@ type GrantVoteMsg struct {
 
 func (x *GrantVoteMsg) Reset() {
 	*x = GrantVoteMsg{}
-	mi := &file_pbft_transport_proto_msgTypes[31]
+	mi := &file_pbft_transport_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2109,7 +2163,7 @@ func (x *GrantVoteMsg) String() string {
 func (*GrantVoteMsg) ProtoMessage() {}
 
 func (x *GrantVoteMsg) ProtoReflect() protoreflect.Message {
-	mi := &file_pbft_transport_proto_msgTypes[31]
+	mi := &file_pbft_transport_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2122,7 +2176,7 @@ func (x *GrantVoteMsg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GrantVoteMsg.ProtoReflect.Descriptor instead.
 func (*GrantVoteMsg) Descriptor() ([]byte, []int) {
-	return file_pbft_transport_proto_rawDescGZIP(), []int{31}
+	return file_pbft_transport_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *GrantVoteMsg) GetFrom() int32 {
@@ -2149,7 +2203,7 @@ type GrantVoteMsgSig struct {
 
 func (x *GrantVoteMsgSig) Reset() {
 	*x = GrantVoteMsgSig{}
-	mi := &file_pbft_transport_proto_msgTypes[32]
+	mi := &file_pbft_transport_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2161,7 +2215,7 @@ func (x *GrantVoteMsgSig) String() string {
 func (*GrantVoteMsgSig) ProtoMessage() {}
 
 func (x *GrantVoteMsgSig) ProtoReflect() protoreflect.Message {
-	mi := &file_pbft_transport_proto_msgTypes[32]
+	mi := &file_pbft_transport_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2174,7 +2228,7 @@ func (x *GrantVoteMsgSig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GrantVoteMsgSig.ProtoReflect.Descriptor instead.
 func (*GrantVoteMsgSig) Descriptor() ([]byte, []int) {
-	return file_pbft_transport_proto_rawDescGZIP(), []int{32}
+	return file_pbft_transport_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *GrantVoteMsgSig) GetGrantVoteMsg() *GrantVoteMsg {
@@ -2203,7 +2257,7 @@ type EpochData struct {
 
 func (x *EpochData) Reset() {
 	*x = EpochData{}
-	mi := &file_pbft_transport_proto_msgTypes[33]
+	mi := &file_pbft_transport_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2215,7 +2269,7 @@ func (x *EpochData) String() string {
 func (*EpochData) ProtoMessage() {}
 
 func (x *EpochData) ProtoReflect() protoreflect.Message {
-	mi := &file_pbft_transport_proto_msgTypes[33]
+	mi := &file_pbft_transport_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2228,7 +2282,7 @@ func (x *EpochData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EpochData.ProtoReflect.Descriptor instead.
 func (*EpochData) Descriptor() ([]byte, []int) {
-	return file_pbft_transport_proto_rawDescGZIP(), []int{33}
+	return file_pbft_transport_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *EpochData) GetThroughput() float64 {
@@ -2270,7 +2324,7 @@ type EpochDataMsg struct {
 
 func (x *EpochDataMsg) Reset() {
 	*x = EpochDataMsg{}
-	mi := &file_pbft_transport_proto_msgTypes[34]
+	mi := &file_pbft_transport_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2282,7 +2336,7 @@ func (x *EpochDataMsg) String() string {
 func (*EpochDataMsg) ProtoMessage() {}
 
 func (x *EpochDataMsg) ProtoReflect() protoreflect.Message {
-	mi := &file_pbft_transport_proto_msgTypes[34]
+	mi := &file_pbft_transport_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2295,7 +2349,7 @@ func (x *EpochDataMsg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EpochDataMsg.ProtoReflect.Descriptor instead.
 func (*EpochDataMsg) Descriptor() ([]byte, []int) {
-	return file_pbft_transport_proto_rawDescGZIP(), []int{34}
+	return file_pbft_transport_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *EpochDataMsg) GetEpochGeneration() uint64 {
@@ -2329,7 +2383,7 @@ type EpochDataMsgSig struct {
 
 func (x *EpochDataMsgSig) Reset() {
 	*x = EpochDataMsgSig{}
-	mi := &file_pbft_transport_proto_msgTypes[35]
+	mi := &file_pbft_transport_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2341,7 +2395,7 @@ func (x *EpochDataMsgSig) String() string {
 func (*EpochDataMsgSig) ProtoMessage() {}
 
 func (x *EpochDataMsgSig) ProtoReflect() protoreflect.Message {
-	mi := &file_pbft_transport_proto_msgTypes[35]
+	mi := &file_pbft_transport_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2354,7 +2408,7 @@ func (x *EpochDataMsgSig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EpochDataMsgSig.ProtoReflect.Descriptor instead.
 func (*EpochDataMsgSig) Descriptor() ([]byte, []int) {
-	return file_pbft_transport_proto_rawDescGZIP(), []int{35}
+	return file_pbft_transport_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *EpochDataMsgSig) GetEpochDataMsg() *EpochDataMsg {
@@ -2383,7 +2437,7 @@ type EpochAggregateMsgMini struct {
 
 func (x *EpochAggregateMsgMini) Reset() {
 	*x = EpochAggregateMsgMini{}
-	mi := &file_pbft_transport_proto_msgTypes[36]
+	mi := &file_pbft_transport_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2395,7 +2449,7 @@ func (x *EpochAggregateMsgMini) String() string {
 func (*EpochAggregateMsgMini) ProtoMessage() {}
 
 func (x *EpochAggregateMsgMini) ProtoReflect() protoreflect.Message {
-	mi := &file_pbft_transport_proto_msgTypes[36]
+	mi := &file_pbft_transport_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2408,7 +2462,7 @@ func (x *EpochAggregateMsgMini) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EpochAggregateMsgMini.ProtoReflect.Descriptor instead.
 func (*EpochAggregateMsgMini) Descriptor() ([]byte, []int) {
-	return file_pbft_transport_proto_rawDescGZIP(), []int{36}
+	return file_pbft_transport_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *EpochAggregateMsgMini) GetEpochGeneration() uint64 {
@@ -2452,7 +2506,7 @@ type EpochAggregateMsg struct {
 
 func (x *EpochAggregateMsg) Reset() {
 	*x = EpochAggregateMsg{}
-	mi := &file_pbft_transport_proto_msgTypes[37]
+	mi := &file_pbft_transport_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2464,7 +2518,7 @@ func (x *EpochAggregateMsg) String() string {
 func (*EpochAggregateMsg) ProtoMessage() {}
 
 func (x *EpochAggregateMsg) ProtoReflect() protoreflect.Message {
-	mi := &file_pbft_transport_proto_msgTypes[37]
+	mi := &file_pbft_transport_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2477,7 +2531,7 @@ func (x *EpochAggregateMsg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EpochAggregateMsg.ProtoReflect.Descriptor instead.
 func (*EpochAggregateMsg) Descriptor() ([]byte, []int) {
-	return file_pbft_transport_proto_rawDescGZIP(), []int{37}
+	return file_pbft_transport_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *EpochAggregateMsg) GetEpochGeneration() uint64 {
@@ -2546,7 +2600,7 @@ type Envelope struct {
 
 func (x *Envelope) Reset() {
 	*x = Envelope{}
-	mi := &file_pbft_transport_proto_msgTypes[38]
+	mi := &file_pbft_transport_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2558,7 +2612,7 @@ func (x *Envelope) String() string {
 func (*Envelope) ProtoMessage() {}
 
 func (x *Envelope) ProtoReflect() protoreflect.Message {
-	mi := &file_pbft_transport_proto_msgTypes[38]
+	mi := &file_pbft_transport_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2571,7 +2625,7 @@ func (x *Envelope) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Envelope.ProtoReflect.Descriptor instead.
 func (*Envelope) Descriptor() ([]byte, []int) {
-	return file_pbft_transport_proto_rawDescGZIP(), []int{38}
+	return file_pbft_transport_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *Envelope) GetMsgType() string {
@@ -2871,7 +2925,7 @@ type Ack struct {
 
 func (x *Ack) Reset() {
 	*x = Ack{}
-	mi := &file_pbft_transport_proto_msgTypes[39]
+	mi := &file_pbft_transport_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2883,7 +2937,7 @@ func (x *Ack) String() string {
 func (*Ack) ProtoMessage() {}
 
 func (x *Ack) ProtoReflect() protoreflect.Message {
-	mi := &file_pbft_transport_proto_msgTypes[39]
+	mi := &file_pbft_transport_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2896,7 +2950,7 @@ func (x *Ack) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Ack.ProtoReflect.Descriptor instead.
 func (*Ack) Descriptor() ([]byte, []int) {
-	return file_pbft_transport_proto_rawDescGZIP(), []int{39}
+	return file_pbft_transport_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *Ack) GetOk() bool {
@@ -2922,7 +2976,7 @@ type ProbeReq struct {
 
 func (x *ProbeReq) Reset() {
 	*x = ProbeReq{}
-	mi := &file_pbft_transport_proto_msgTypes[40]
+	mi := &file_pbft_transport_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2934,7 +2988,7 @@ func (x *ProbeReq) String() string {
 func (*ProbeReq) ProtoMessage() {}
 
 func (x *ProbeReq) ProtoReflect() protoreflect.Message {
-	mi := &file_pbft_transport_proto_msgTypes[40]
+	mi := &file_pbft_transport_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2947,7 +3001,7 @@ func (x *ProbeReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProbeReq.ProtoReflect.Descriptor instead.
 func (*ProbeReq) Descriptor() ([]byte, []int) {
-	return file_pbft_transport_proto_rawDescGZIP(), []int{40}
+	return file_pbft_transport_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *ProbeReq) GetFrom() int32 {
@@ -2966,7 +3020,7 @@ type ProbeResp struct {
 
 func (x *ProbeResp) Reset() {
 	*x = ProbeResp{}
-	mi := &file_pbft_transport_proto_msgTypes[41]
+	mi := &file_pbft_transport_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2978,7 +3032,7 @@ func (x *ProbeResp) String() string {
 func (*ProbeResp) ProtoMessage() {}
 
 func (x *ProbeResp) ProtoReflect() protoreflect.Message {
-	mi := &file_pbft_transport_proto_msgTypes[41]
+	mi := &file_pbft_transport_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2991,7 +3045,7 @@ func (x *ProbeResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProbeResp.ProtoReflect.Descriptor instead.
 func (*ProbeResp) Descriptor() ([]byte, []int) {
-	return file_pbft_transport_proto_rawDescGZIP(), []int{41}
+	return file_pbft_transport_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *ProbeResp) GetFrom() int32 {
@@ -3116,14 +3170,13 @@ const file_pbft_transport_proto_rawDesc = "" +
 	"\x04from\x18\x03 \x01(\x05R\x04from\"y\n" +
 	"\x10CheckpointMsgSig\x12G\n" +
 	"\x0echeckpoint_msg\x18\x01 \x01(\v2 .pbft.transport.v1.CheckpointMsgR\rcheckpointMsg\x12\x1c\n" +
-	"\tsignature\x18\x02 \x01(\fR\tsignature\"\x8d\x02\n" +
+	"\tsignature\x18\x02 \x01(\fR\tsignature\"?\n" +
+	"\vCertPrepare\x12\x12\n" +
+	"\x04from\x18\x01 \x01(\x05R\x04from\x12\x1c\n" +
+	"\tsignature\x18\x02 \x01(\fR\tsignature\"\x9c\x01\n" +
 	"\fPreparedCert\x12J\n" +
-	"\x0epreprepare_msg\x18\x01 \x01(\v2#.pbft.transport.v1.PreprepareMsgSigR\rpreprepareMsg\x12P\n" +
-	"\vprepare_log\x18\x02 \x03(\v2/.pbft.transport.v1.PreparedCert.PrepareLogEntryR\n" +
-	"prepareLog\x1a_\n" +
-	"\x0fPrepareLogEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\x05R\x03key\x126\n" +
-	"\x05value\x18\x02 \x01(\v2 .pbft.transport.v1.PrepareMsgSigR\x05value:\x028\x01\"\xf0\x05\n" +
+	"\x0epreprepare_msg\x18\x01 \x01(\v2#.pbft.transport.v1.PreprepareMsgSigR\rpreprepareMsg\x12:\n" +
+	"\bprepares\x18\x03 \x03(\v2\x1e.pbft.transport.v1.CertPrepareR\bpreparesJ\x04\b\x02\x10\x03\"\xf0\x05\n" +
 	"\rViewChangeMsg\x12:\n" +
 	"\vview_number\x18\x01 \x01(\v2\x19.pbft.transport.v1.ViewIDR\n" +
 	"viewNumber\x122\n" +
@@ -3302,25 +3355,25 @@ var file_pbft_transport_proto_goTypes = []any{
 	(*CloseMessage)(nil),             // 23: pbft.transport.v1.CloseMessage
 	(*CheckpointMsg)(nil),            // 24: pbft.transport.v1.CheckpointMsg
 	(*CheckpointMsgSig)(nil),         // 25: pbft.transport.v1.CheckpointMsgSig
-	(*PreparedCert)(nil),             // 26: pbft.transport.v1.PreparedCert
-	(*ViewChangeMsg)(nil),            // 27: pbft.transport.v1.ViewChangeMsg
-	(*ViewChangeMsgSig)(nil),         // 28: pbft.transport.v1.ViewChangeMsgSig
-	(*NewViewMsg)(nil),               // 29: pbft.transport.v1.NewViewMsg
-	(*NewViewMsgSig)(nil),            // 30: pbft.transport.v1.NewViewMsgSig
-	(*RequestVoteMsg)(nil),           // 31: pbft.transport.v1.RequestVoteMsg
-	(*RequestVoteMsgSig)(nil),        // 32: pbft.transport.v1.RequestVoteMsgSig
-	(*GrantVoteMsg)(nil),             // 33: pbft.transport.v1.GrantVoteMsg
-	(*GrantVoteMsgSig)(nil),          // 34: pbft.transport.v1.GrantVoteMsgSig
-	(*EpochData)(nil),                // 35: pbft.transport.v1.EpochData
-	(*EpochDataMsg)(nil),             // 36: pbft.transport.v1.EpochDataMsg
-	(*EpochDataMsgSig)(nil),          // 37: pbft.transport.v1.EpochDataMsgSig
-	(*EpochAggregateMsgMini)(nil),    // 38: pbft.transport.v1.EpochAggregateMsgMini
-	(*EpochAggregateMsg)(nil),        // 39: pbft.transport.v1.EpochAggregateMsg
-	(*Envelope)(nil),                 // 40: pbft.transport.v1.Envelope
-	(*Ack)(nil),                      // 41: pbft.transport.v1.Ack
-	(*ProbeReq)(nil),                 // 42: pbft.transport.v1.ProbeReq
-	(*ProbeResp)(nil),                // 43: pbft.transport.v1.ProbeResp
-	nil,                              // 44: pbft.transport.v1.PreparedCert.PrepareLogEntry
+	(*CertPrepare)(nil),              // 26: pbft.transport.v1.CertPrepare
+	(*PreparedCert)(nil),             // 27: pbft.transport.v1.PreparedCert
+	(*ViewChangeMsg)(nil),            // 28: pbft.transport.v1.ViewChangeMsg
+	(*ViewChangeMsgSig)(nil),         // 29: pbft.transport.v1.ViewChangeMsgSig
+	(*NewViewMsg)(nil),               // 30: pbft.transport.v1.NewViewMsg
+	(*NewViewMsgSig)(nil),            // 31: pbft.transport.v1.NewViewMsgSig
+	(*RequestVoteMsg)(nil),           // 32: pbft.transport.v1.RequestVoteMsg
+	(*RequestVoteMsgSig)(nil),        // 33: pbft.transport.v1.RequestVoteMsgSig
+	(*GrantVoteMsg)(nil),             // 34: pbft.transport.v1.GrantVoteMsg
+	(*GrantVoteMsgSig)(nil),          // 35: pbft.transport.v1.GrantVoteMsgSig
+	(*EpochData)(nil),                // 36: pbft.transport.v1.EpochData
+	(*EpochDataMsg)(nil),             // 37: pbft.transport.v1.EpochDataMsg
+	(*EpochDataMsgSig)(nil),          // 38: pbft.transport.v1.EpochDataMsgSig
+	(*EpochAggregateMsgMini)(nil),    // 39: pbft.transport.v1.EpochAggregateMsgMini
+	(*EpochAggregateMsg)(nil),        // 40: pbft.transport.v1.EpochAggregateMsg
+	(*Envelope)(nil),                 // 41: pbft.transport.v1.Envelope
+	(*Ack)(nil),                      // 42: pbft.transport.v1.Ack
+	(*ProbeReq)(nil),                 // 43: pbft.transport.v1.ProbeReq
+	(*ProbeResp)(nil),                // 44: pbft.transport.v1.ProbeResp
 	nil,                              // 45: pbft.transport.v1.ViewChangeMsg.PreparedCertsEntry
 	nil,                              // 46: pbft.transport.v1.ViewChangeMsg.CheckpointBalancesEntry
 	(*timestamppb.Timestamp)(nil),    // 47: google.protobuf.Timestamp
@@ -3351,29 +3404,29 @@ var file_pbft_transport_proto_depIdxs = []int32{
 	4,  // 22: pbft.transport.v1.LeaderIdUpdate.action:type_name -> pbft.transport.v1.Action
 	24, // 23: pbft.transport.v1.CheckpointMsgSig.checkpoint_msg:type_name -> pbft.transport.v1.CheckpointMsg
 	18, // 24: pbft.transport.v1.PreparedCert.preprepare_msg:type_name -> pbft.transport.v1.PreprepareMsgSig
-	44, // 25: pbft.transport.v1.PreparedCert.prepare_log:type_name -> pbft.transport.v1.PreparedCert.PrepareLogEntry
+	26, // 25: pbft.transport.v1.PreparedCert.prepares:type_name -> pbft.transport.v1.CertPrepare
 	2,  // 26: pbft.transport.v1.ViewChangeMsg.view_number:type_name -> pbft.transport.v1.ViewID
 	45, // 27: pbft.transport.v1.ViewChangeMsg.prepared_certs:type_name -> pbft.transport.v1.ViewChangeMsg.PreparedCertsEntry
 	4,  // 28: pbft.transport.v1.ViewChangeMsg.action:type_name -> pbft.transport.v1.Action
 	25, // 29: pbft.transport.v1.ViewChangeMsg.checkpoint_proof:type_name -> pbft.transport.v1.CheckpointMsgSig
 	46, // 30: pbft.transport.v1.ViewChangeMsg.checkpoint_balances:type_name -> pbft.transport.v1.ViewChangeMsg.CheckpointBalancesEntry
 	3,  // 31: pbft.transport.v1.ViewChangeMsg.aware_rows:type_name -> pbft.transport.v1.AwareRow
-	27, // 32: pbft.transport.v1.ViewChangeMsgSig.view_change_msg:type_name -> pbft.transport.v1.ViewChangeMsg
+	28, // 32: pbft.transport.v1.ViewChangeMsgSig.view_change_msg:type_name -> pbft.transport.v1.ViewChangeMsg
 	18, // 33: pbft.transport.v1.NewViewMsg.preprepare_log:type_name -> pbft.transport.v1.PreprepareMsgSig
-	28, // 34: pbft.transport.v1.NewViewMsg.view_change_log:type_name -> pbft.transport.v1.ViewChangeMsgSig
+	29, // 34: pbft.transport.v1.NewViewMsg.view_change_log:type_name -> pbft.transport.v1.ViewChangeMsgSig
 	2,  // 35: pbft.transport.v1.NewViewMsg.new_view_number:type_name -> pbft.transport.v1.ViewID
 	4,  // 36: pbft.transport.v1.NewViewMsg.action:type_name -> pbft.transport.v1.Action
 	3,  // 37: pbft.transport.v1.NewViewMsg.aware_rows:type_name -> pbft.transport.v1.AwareRow
-	29, // 38: pbft.transport.v1.NewViewMsgSig.new_view_msg:type_name -> pbft.transport.v1.NewViewMsg
+	30, // 38: pbft.transport.v1.NewViewMsgSig.new_view_msg:type_name -> pbft.transport.v1.NewViewMsg
 	2,  // 39: pbft.transport.v1.RequestVoteMsg.view_number:type_name -> pbft.transport.v1.ViewID
-	31, // 40: pbft.transport.v1.RequestVoteMsgSig.request_vote_msg:type_name -> pbft.transport.v1.RequestVoteMsg
+	32, // 40: pbft.transport.v1.RequestVoteMsgSig.request_vote_msg:type_name -> pbft.transport.v1.RequestVoteMsg
 	2,  // 41: pbft.transport.v1.GrantVoteMsg.view_number:type_name -> pbft.transport.v1.ViewID
-	33, // 42: pbft.transport.v1.GrantVoteMsgSig.grant_vote_msg:type_name -> pbft.transport.v1.GrantVoteMsg
-	36, // 43: pbft.transport.v1.EpochDataMsgSig.epoch_data_msg:type_name -> pbft.transport.v1.EpochDataMsg
-	35, // 44: pbft.transport.v1.EpochAggregateMsgMini.epoch_data:type_name -> pbft.transport.v1.EpochData
+	34, // 42: pbft.transport.v1.GrantVoteMsgSig.grant_vote_msg:type_name -> pbft.transport.v1.GrantVoteMsg
+	37, // 43: pbft.transport.v1.EpochDataMsgSig.epoch_data_msg:type_name -> pbft.transport.v1.EpochDataMsg
+	36, // 44: pbft.transport.v1.EpochAggregateMsgMini.epoch_data:type_name -> pbft.transport.v1.EpochData
 	4,  // 45: pbft.transport.v1.EpochAggregateMsgMini.current_action:type_name -> pbft.transport.v1.Action
-	35, // 46: pbft.transport.v1.EpochAggregateMsg.epoch_data:type_name -> pbft.transport.v1.EpochData
-	37, // 47: pbft.transport.v1.EpochAggregateMsg.epoch_data_msg_sigs:type_name -> pbft.transport.v1.EpochDataMsgSig
+	36, // 46: pbft.transport.v1.EpochAggregateMsg.epoch_data:type_name -> pbft.transport.v1.EpochData
+	38, // 47: pbft.transport.v1.EpochAggregateMsg.epoch_data_msg_sigs:type_name -> pbft.transport.v1.EpochDataMsgSig
 	4,  // 48: pbft.transport.v1.EpochAggregateMsg.current_action:type_name -> pbft.transport.v1.Action
 	9,  // 49: pbft.transport.v1.Envelope.request:type_name -> pbft.transport.v1.RequestMessage
 	13, // 50: pbft.transport.v1.Envelope.preprepare:type_name -> pbft.transport.v1.PreprepareMsg
@@ -3381,30 +3434,29 @@ var file_pbft_transport_proto_depIdxs = []int32{
 	16, // 52: pbft.transport.v1.Envelope.commit:type_name -> pbft.transport.v1.CommitMsg
 	20, // 53: pbft.transport.v1.Envelope.reply:type_name -> pbft.transport.v1.ReplyMessage
 	23, // 54: pbft.transport.v1.Envelope.close:type_name -> pbft.transport.v1.CloseMessage
-	27, // 55: pbft.transport.v1.Envelope.view_change:type_name -> pbft.transport.v1.ViewChangeMsg
-	29, // 56: pbft.transport.v1.Envelope.new_view:type_name -> pbft.transport.v1.NewViewMsg
+	28, // 55: pbft.transport.v1.Envelope.view_change:type_name -> pbft.transport.v1.ViewChangeMsg
+	30, // 56: pbft.transport.v1.Envelope.new_view:type_name -> pbft.transport.v1.NewViewMsg
 	24, // 57: pbft.transport.v1.Envelope.checkpoint:type_name -> pbft.transport.v1.CheckpointMsg
 	21, // 58: pbft.transport.v1.Envelope.commit_tps:type_name -> pbft.transport.v1.CommitTps
 	22, // 59: pbft.transport.v1.Envelope.leader_id_update:type_name -> pbft.transport.v1.LeaderIdUpdate
 	12, // 60: pbft.transport.v1.Envelope.vc_running_status:type_name -> pbft.transport.v1.VCRunningStatus
-	31, // 61: pbft.transport.v1.Envelope.request_vote:type_name -> pbft.transport.v1.RequestVoteMsg
-	33, // 62: pbft.transport.v1.Envelope.grant_vote:type_name -> pbft.transport.v1.GrantVoteMsg
+	32, // 61: pbft.transport.v1.Envelope.request_vote:type_name -> pbft.transport.v1.RequestVoteMsg
+	34, // 62: pbft.transport.v1.Envelope.grant_vote:type_name -> pbft.transport.v1.GrantVoteMsg
 	10, // 63: pbft.transport.v1.Envelope.event:type_name -> pbft.transport.v1.EventMsg
-	36, // 64: pbft.transport.v1.Envelope.epoch_data:type_name -> pbft.transport.v1.EpochDataMsg
-	39, // 65: pbft.transport.v1.Envelope.epoch_aggregate:type_name -> pbft.transport.v1.EpochAggregateMsg
-	19, // 66: pbft.transport.v1.PreparedCert.PrepareLogEntry.value:type_name -> pbft.transport.v1.PrepareMsgSig
-	26, // 67: pbft.transport.v1.ViewChangeMsg.PreparedCertsEntry.value:type_name -> pbft.transport.v1.PreparedCert
-	40, // 68: pbft.transport.v1.PBFTTransport.Deliver:input_type -> pbft.transport.v1.Envelope
-	40, // 69: pbft.transport.v1.PBFTTransport.ClientNodeChannel:input_type -> pbft.transport.v1.Envelope
-	42, // 70: pbft.transport.v1.PBFTTransport.Probe:input_type -> pbft.transport.v1.ProbeReq
-	41, // 71: pbft.transport.v1.PBFTTransport.Deliver:output_type -> pbft.transport.v1.Ack
-	40, // 72: pbft.transport.v1.PBFTTransport.ClientNodeChannel:output_type -> pbft.transport.v1.Envelope
-	43, // 73: pbft.transport.v1.PBFTTransport.Probe:output_type -> pbft.transport.v1.ProbeResp
-	71, // [71:74] is the sub-list for method output_type
-	68, // [68:71] is the sub-list for method input_type
-	68, // [68:68] is the sub-list for extension type_name
-	68, // [68:68] is the sub-list for extension extendee
-	0,  // [0:68] is the sub-list for field type_name
+	37, // 64: pbft.transport.v1.Envelope.epoch_data:type_name -> pbft.transport.v1.EpochDataMsg
+	40, // 65: pbft.transport.v1.Envelope.epoch_aggregate:type_name -> pbft.transport.v1.EpochAggregateMsg
+	27, // 66: pbft.transport.v1.ViewChangeMsg.PreparedCertsEntry.value:type_name -> pbft.transport.v1.PreparedCert
+	41, // 67: pbft.transport.v1.PBFTTransport.Deliver:input_type -> pbft.transport.v1.Envelope
+	41, // 68: pbft.transport.v1.PBFTTransport.ClientNodeChannel:input_type -> pbft.transport.v1.Envelope
+	43, // 69: pbft.transport.v1.PBFTTransport.Probe:input_type -> pbft.transport.v1.ProbeReq
+	42, // 70: pbft.transport.v1.PBFTTransport.Deliver:output_type -> pbft.transport.v1.Ack
+	41, // 71: pbft.transport.v1.PBFTTransport.ClientNodeChannel:output_type -> pbft.transport.v1.Envelope
+	44, // 72: pbft.transport.v1.PBFTTransport.Probe:output_type -> pbft.transport.v1.ProbeResp
+	70, // [70:73] is the sub-list for method output_type
+	67, // [67:70] is the sub-list for method input_type
+	67, // [67:67] is the sub-list for extension type_name
+	67, // [67:67] is the sub-list for extension extendee
+	0,  // [0:67] is the sub-list for field type_name
 }
 
 func init() { file_pbft_transport_proto_init() }
@@ -3412,7 +3464,7 @@ func file_pbft_transport_proto_init() {
 	if File_pbft_transport_proto != nil {
 		return
 	}
-	file_pbft_transport_proto_msgTypes[38].OneofWrappers = []any{
+	file_pbft_transport_proto_msgTypes[39].OneofWrappers = []any{
 		(*Envelope_Request)(nil),
 		(*Envelope_Preprepare)(nil),
 		(*Envelope_Prepare)(nil),

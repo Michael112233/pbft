@@ -3,6 +3,7 @@ package transportpb
 import (
 	"fmt"
 	"math/big"
+	"sort"
 	"time"
 
 	"github.com/michael112233/pbft/core"
@@ -821,14 +822,25 @@ func PreparedCertToPB(cert *core.PreparedCert) *PreparedCert {
 	if cert == nil {
 		return nil
 	}
-	prepareLog := make(map[int32]*PrepareMsgSig, len(cert.PrepareLog))
-	for from, prepare := range cert.PrepareLog {
-		prepareCopy := prepare
-		prepareLog[int32(from)] = PrepareMsgSigToPB(&prepareCopy)
+	// Only (from, signature) is sent; PreparedCertFromPB rebuilds view, seq and digest
+	// from the pre-prepare. Sorted because the VC signature is over the marshaled
+	// bytes and this runs again per peer in buildEnvelope, so map order would make
+	// the sent bytes differ from the signed ones.
+	froms := make([]int, 0, len(cert.PrepareLog))
+	for from := range cert.PrepareLog {
+		froms = append(froms, from)
+	}
+	sort.Ints(froms)
+	prepares := make([]*CertPrepare, 0, len(froms))
+	for _, from := range froms {
+		prepares = append(prepares, &CertPrepare{
+			From:      int32(from),
+			Signature: append([]byte(nil), cert.PrepareLog[from].Signature...),
+		})
 	}
 	return &PreparedCert{
 		PreprepareMsg: PreprepareMsgSigToPB(cert.PreprepareMsg),
-		PrepareLog:    prepareLog,
+		Prepares:      prepares,
 	}
 }
 
@@ -840,14 +852,24 @@ func PreparedCertFromPB(cert *PreparedCert) (*core.PreparedCert, error) {
 	if err != nil {
 		return nil, fmt.Errorf("preprepare message: %w", err)
 	}
-	prepareLog := make(map[int]core.PrepareMsgSig, len(cert.PrepareLog))
-	for from, prepare := range cert.PrepareLog {
-		converted, err := PrepareMsgSigFromPB(prepare)
-		if err != nil {
-			return nil, fmt.Errorf("prepare from node %d: %w", from, err)
+	mini := preprepareMsg.PreprepareMsgMini
+	prepareLog := make(map[int]core.PrepareMsgSig, len(cert.Prepares))
+	for _, prepare := range cert.Prepares {
+		if prepare == nil {
+			return nil, fmt.Errorf("nil prepare")
 		}
-		if converted != nil {
-			prepareLog[int(from)] = *converted
+		from := int(prepare.From)
+		if _, dup := prepareLog[from]; dup {
+			return nil, fmt.Errorf("duplicate prepare from node %d", from)
+		}
+		prepareLog[from] = core.PrepareMsgSig{
+			PrepareMsg: core.PrepareMsg{
+				View:   mini.View,
+				SeqNum: mini.SeqNum,
+				Digest: mini.DigestClientMsg,
+				From:   from,
+			},
+			Signature: append([]byte(nil), prepare.Signature...),
 		}
 	}
 	return &core.PreparedCert{

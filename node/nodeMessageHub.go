@@ -482,6 +482,10 @@ func (hub *NodeMessageHub) Deliver(ctx context.Context, env *transportpb.Envelop
 		if prepare == nil {
 			return &transportpb.Ack{Ok: false, Error: "missing prepare body"}, nil
 		}
+		// the vote is stored under prepare.From, so it must be the key that signed it
+		if int(env.From) != int(prepare.From) {
+			return &transportpb.Ack{Ok: false, Error: "prepare sender mismatch"}, nil
+		}
 		if !hub.verifySignature(int(env.From), env.Signature, prepare) {
 			// hub.log.Error("Signature verification failed for Prepare message from node ID: %d", env.From)
 			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
@@ -502,6 +506,9 @@ func (hub *NodeMessageHub) Deliver(ctx context.Context, env *transportpb.Envelop
 		commit := env.GetCommit()
 		if commit == nil {
 			return &transportpb.Ack{Ok: false, Error: "missing commit body"}, nil
+		}
+		if int(env.From) != int(commit.From) {
+			return &transportpb.Ack{Ok: false, Error: "commit sender mismatch"}, nil
 		}
 		if !hub.verifySignature(int(env.From), env.Signature, commit) {
 			// hub.log.Error("Signature verification failed for Commit message from node ID: %d", env.From)
