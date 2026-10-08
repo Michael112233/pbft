@@ -1,5 +1,5 @@
 {
-  "_note": "Pilot n=7 f=2, scenario pdelay, action PeriodicRoundRobin. ProposalDelay: nodes 1 and 2 (proposal_delay_nodes, f=2) sleep 100 ms in tryPropose whenever they lead, so they are slow but live leaders. The action is held for the whole run: oracle_mode feeds PeriodicRoundRobin back at every epoch, so generations advance every 75 s (timer.epoch_timer_ms) with the same action. Fixed/Perf timeout 300 ms (timer.fixed_trigger_timeout_ms). Client retry off, so latency is committed-only. latency_probe on for the RTT vectors aggregated at epoch boundaries.",
+  "_note": "Pilot n=7 f=2, scenario pdelay, action PeriodicRoundRobin. ProposalDelay: nodes 1 and 2 (proposal_delay_nodes, f=2) sleep 100 ms in tryPropose whenever they lead, so they are slow but live leaders. The action is held for the whole run: oracle_mode feeds PeriodicRoundRobin back at every epoch, so generations advance every 75 s (timer.epoch_timer_ms) with the same action. Fixed/Perf timeout 350 ms (timer.fixed_trigger_timeout_ms). Client retry off, so latency is committed-only. latency_probe on for the RTT vectors aggregated at epoch boundaries.",
   "max_tx_num": 1000000,
   "inject_speed": 200,
   "max_block_size": 1,
@@ -34,7 +34,7 @@
   },
   "timer": {
     "periodic_trigger_timeout_ms": 10000,
-    "fixed_trigger_timeout_ms": 300,
+    "fixed_trigger_timeout_ms": 350,
     "relaxed_fixed_trigger_timeout_ms": 300,
     "epoch_timer_ms": 75000
   },

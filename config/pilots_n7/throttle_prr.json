@@ -1,5 +1,5 @@
 {
-  "_note": "Pilot n=7 f=2, scenario throttle, action PeriodicRoundRobin. Throttle: targeted proposal throttling managed by the CLIENT (client/throttlemanager.go), not by the scenario machinery, which is why scenarios is [\"Healthy\"] and node 4 injects nothing. k=2 slots each gate a leader to one batch per 100 ms (proposal_min_interval_ms) once prep_ms=3000 has passed since the slot was aimed; the strategy matches the action's leader policy. The action is held for the whole run: oracle_mode feeds PeriodicRoundRobin back at every epoch, so generations advance every 75 s (timer.epoch_timer_ms) with the same action. Fixed/Perf timeout 300 ms (timer.fixed_trigger_timeout_ms). Client retry off, so latency is committed-only. latency_probe on for the RTT vectors aggregated at epoch boundaries.",
+  "_note": "Pilot n=7 f=2, scenario throttle, action PeriodicRoundRobin. Throttle: targeted proposal throttling managed by the CLIENT (client/throttlemanager.go), not by the scenario machinery, which is why scenarios is [\"Healthy\"] and node 4 injects nothing. k=2 slots each gate a leader to one batch per 100 ms (proposal_min_interval_ms) once prep_ms=3000 has passed since the slot was aimed; the strategy matches the action's leader policy. The action is held for the whole run: oracle_mode feeds PeriodicRoundRobin back at every epoch, so generations advance every 75 s (timer.epoch_timer_ms) with the same action. Fixed/Perf timeout 350 ms (timer.fixed_trigger_timeout_ms). Client retry off, so latency is committed-only. latency_probe on for the RTT vectors aggregated at epoch boundaries.",
   "max_tx_num": 1000000,
   "inject_speed": 200,
   "max_block_size": 1,
@@ -34,7 +34,7 @@
   },
   "timer": {
     "periodic_trigger_timeout_ms": 10000,
-    "fixed_trigger_timeout_ms": 300,
+    "fixed_trigger_timeout_ms": 350,
     "relaxed_fixed_trigger_timeout_ms": 300,
     "epoch_timer_ms": 75000
   },
