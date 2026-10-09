@@ -221,17 +221,37 @@ harness for measuring that cost.
    (`epochManager.go`). Payload fields are still placeholder zeros.
 3. Every node calls `SendLearningDataToAgent`, which either goes over gRPC to the
    Python agent (`learningagent/`, one process per node, ports 29000+) or, when
-   `oracle_mode` is set, into `node/oracle.go` — a local stand-in that sleeps 100 ms
-   and picks from `oracle_actions` either cyclically or seeded-randomly.
+   `oracle_mode` is set, into `node/oracle.go` — a local stand-in that sleeps
+   `oracle_decision_delay_ms` (default 100; measure the agent with
+   `learningagent/bench_learner.py` and match it) and picks from `oracle_actions` either
+   cyclically or seeded-randomly.
 4. The decision arrives on `learningAgentDecisionCh`; `handleLearningAgentDecision`
    (`node/switch.go`) drops it unless its generation matches `forViewID.Generation`,
    then calls `incrementGeneration(action)` and enters a view change.
 5. Nodes that have not yet switched catch up through the f+1 amplification rule in
    `HandleViewChangeRoundRobin`: f+1 ViewChanges for generation+1 pull a node into
    the new generation with the action carried in those messages.
+6. **Every generation reaches the decider exactly once, in order** — the agent rejects
+   everything after a gap in sequence ids. A node that catches up before its aggregate
+   arrives drops that aggregate as stale, so `incrementGeneration` calls
+   `fillDeciderGap` (`node/decidersync.go`): if the generation being left was never
+   sent (`deciderSentGen`), it sends placeholder data for it (the agent ignores the
+   node's numbers). The agent's decision for it arrives late and is dropped; if it
+   differs from the action the node caught up into, `DECIDER SYNC: … agents have
+   diverged` is logged. NewView jumps of more than one generation are only logged.
 
 Epoch timers only start when `epoch_mode` is true (`node/execution.go`, at seq 1).
 With it off, the node stays in its initial action for the whole run.
+
+**Epoch grid** (`timer.epoch_grid`, default false). Off, `incrementGeneration` re-arms
+the epoch timer for a fresh `epoch_timer_ms`, so every generation lasts epoch + δ (δ =
+timer fire → decision applied) and runs with different deciders drift apart (Adaptive
+~11 min behind the oracle baselines by epoch 700). On, generation g's timer fires at
+anchor + g × `epoch_timer_ms` (anchor = the node's seq 1), so generations average
+exactly one epoch and scenario switches line up across runs to within δ_A − δ_B.
+Native baselines use the grid with `scenario_generations: 1` and `epoch_timer_ms` =
+Adaptive's `scenario_generations` × epoch, one generation per scenario. See
+`docs/epoch-grid.md`; older runs without it: `docs/epoch-vs-time-alignment.md`.
 
 ## Config
 
@@ -245,8 +265,8 @@ key missing there is missing from every experiment built afterwards.
 - `default_action` — the action every node starts in, e.g. `"FixedRoundRobin"`.
   `Config.InitialAction()` feeds both `currAction` and the trigger manager, so the
   two can never disagree at startup. An unknown name is a fatal config error.
-- `oracle_mode`, `oracle_actions`, `oracle_random`, `oracle_seed` — replace the
-  learning agent with the local oracle.
+- `oracle_mode`, `oracle_actions`, `oracle_random`, `oracle_seed`,
+  `oracle_decision_delay_ms` — replace the learning agent with the local oracle.
 - `epoch_mode` — enable the epoch/generation machinery at all.
 - `scenario_mode`, `scenarios`, `scenario_generations` (default 100) — cycle through
   fault scenarios (`Healthy`, `ProposalDelay`, `NetworkDelay`, `NetworkDelayFCrash`;
@@ -320,6 +340,10 @@ key missing there is missing from every experiment built afterwards.
   behaviour, timer comparisons, election robustness). Read the relevant one before
   re-deriving an experiment result.
 - `plot_tps_series.ipynb`, `scripts/analyze_freq_trace.py` for plots.
+- `scripts/epoch_delta.py <run> [<baseline run>]` — δ (epoch timer fired → decision
+  applied) per scenario window from a run's logs; with a baseline, the agent's in-run
+  decision time to put in `oracle_decision_delay_ms`. `python3 -m
+  learningagent.bench_learner` measures the agent alone before any run (reads ~1.2× low).
 
 ## Gotchas
 

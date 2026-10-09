@@ -14,14 +14,51 @@ import (
 // NetworkDelayFCrash validation that refuses to crash it stays in step.
 const epochAggregatorNodeID = config.EpochAggregatorNodeID
 
-// startEpochTimer starts the epoch timer. It is only ever touched from the
-// node event loop, so no locking is needed.
+// startEpochTimer starts the epoch timer at seq 1 and, with timer.epoch_grid,
+// records the grid anchor. It is only ever touched from the node event loop, so
+// no locking is needed.
 func (n *Node) startEpochTimer() {
-	n.epochTimerCh = resetOneShotTimer(&n.epochTimer, n.cfg.EpochTimer())
+	gen := n.GetForViewID().Generation
+	n.epochAnchor = time.Now()
+	n.epochAnchorGen = gen
+	n.armEpochTimer(gen)
 }
 
-func (n *Node) resetEpochTimer() {
-	n.epochTimerCh = resetOneShotTimer(&n.epochTimer, n.cfg.EpochTimer())
+// resetEpochTimer arms the epoch timer for gen, the generation the node is
+// entering (called from incrementGeneration).
+func (n *Node) resetEpochTimer(gen uint64) {
+	n.armEpochTimer(gen)
+}
+
+func (n *Node) armEpochTimer(gen uint64) {
+	period := n.cfg.EpochTimer()
+	if !n.cfg.Timer.EpochGrid || n.epochAnchor.IsZero() {
+		n.epochTimerCh = resetOneShotTimer(&n.epochTimer, period)
+		return
+	}
+	delay, late := epochGridDelay(n.epochAnchor, n.epochAnchorGen, gen, period, time.Now())
+	if late > 0 {
+		// Only if a decision took longer than a whole epoch: fire once now, so this
+		// generation is short and the next one is back on the grid.
+		n.log.Warn("EPOCH GRID: deadline for generation %d missed by %v; firing now", gen, late)
+	}
+	n.epochTimerCh = resetOneShotTimer(&n.epochTimer, delay)
+}
+
+// epochGridDelay returns how long from now until generation gen's epoch timer is
+// due on the grid anchored at (anchor, anchorGen): the anchor generation fires one
+// period after the anchor, each later generation one period after that. A
+// deadline already past gives delay 0 and how late it is.
+func epochGridDelay(anchor time.Time, anchorGen, gen uint64, period time.Duration, now time.Time) (delay, late time.Duration) {
+	if gen < anchorGen { // generations never decrease; guards the unsigned subtraction
+		gen = anchorGen
+	}
+	deadline := anchor.Add(time.Duration(gen-anchorGen+1) * period)
+	delay = deadline.Sub(now)
+	if delay < 0 {
+		return 0, -delay
+	}
+	return delay, 0
 }
 
 func (n *Node) stopEpochTimer() {

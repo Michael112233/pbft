@@ -78,11 +78,15 @@ type Config struct {
 	// sleeps to mimic model latency and then feeds a decision straight into
 	// the node's learning-decision channel, so tests can run without a real
 	// learning-agent process.
-	OracleMode        bool     `json:"oracle_mode"`
-	OracleActions     []string `json:"oracle_actions"`
-	OracleRandom      bool     `json:"oracle_random"`
-	OracleSeed        int64    `json:"oracle_seed"`
-	OracleActionsEnum []core.Action
+	OracleMode    bool     `json:"oracle_mode"`
+	OracleActions []string `json:"oracle_actions"`
+	OracleRandom  bool     `json:"oracle_random"`
+	OracleSeed    int64    `json:"oracle_seed"`
+	// OracleDecisionDelayMs is how long the oracle sleeps before answering, to
+	// stand in for the learning agent's decision time; 0 means 100. Measure the
+	// agent on the experiment host with learningagent/bench_learner.py.
+	OracleDecisionDelayMs int `json:"oracle_decision_delay_ms"`
+	OracleActionsEnum     []core.Action
 
 	EpochMode bool `json:"epoch_mode"`
 

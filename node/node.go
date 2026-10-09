@@ -78,6 +78,13 @@ type Node struct {
 	perfTimerCh           <-chan time.Time
 	epochTimer            *time.Timer
 	epochTimerCh          <-chan time.Time
+	// Epoch grid anchor (timer.epoch_grid): the time of seq 1 and the generation
+	// the node was in then. Zero until seq 1.
+	epochAnchor    time.Time
+	epochAnchorGen uint64
+	// deciderSentGen is the highest generation whose learning data has been handed
+	// to the agent or oracle (node/decidersync.go). Loop-owned.
+	deciderSentGen        uint64
 	proposalGateTimer     *time.Timer
 	proposalGateTimerCh   <-chan time.Time
 	aggregateGraceTimer   *time.Timer

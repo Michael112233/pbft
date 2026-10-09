@@ -15,6 +15,7 @@ type epochNodeStub struct {
 	graceStarts  int
 	broadcasts   int
 	storedGens   []uint64
+	deciderGens  []uint64
 	forView      core.ViewID
 	currAction   core.Action
 	signedMini   core.EpochAggregateMsgMini
@@ -46,7 +47,8 @@ func (n *epochNodeStub) assert(condition bool, message string, args ...interface
 	}
 }
 
-func (n *epochNodeStub) SendLearningDataToAgent(uint64, core.Action, float64, float64, float64, uint8) {
+func (n *epochNodeStub) sendEpochToDecider(gen uint64, _ core.Action, _ core.EpochData) {
+	n.deciderGens = append(n.deciderGens, gen)
 }
 
 func (n *epochNodeStub) stopEpochTimer() {}

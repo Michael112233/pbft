@@ -29,7 +29,8 @@
     "periodic_trigger_timeout_ms": 10000,
     "fixed_trigger_timeout_ms": 150,
     "relaxed_fixed_trigger_timeout_ms": 300,
-    "epoch_timer_ms": 45000
+    "epoch_timer_ms": 45000,
+    "epoch_grid": false
   },
   "period": 60000,
   "number_of_periods": 4500,
@@ -90,6 +91,7 @@
   "oracle_actions": ["FixedRoundRobin", "PeriodicRoundRobin", "PeriodicElection", "PerformanceRoundRobin", "PerformanceElection"],
   "oracle_random": false,
   "oracle_seed": 42,
+  "oracle_decision_delay_ms": 100,
   "epoch_mode": false,
   "default_action": "FixedRoundRobin",
   "netem_delay": false,

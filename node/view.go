@@ -26,7 +26,11 @@ func (n *Node) incrementCounter() core.ViewID {
 
 func (n *Node) incrementGeneration(action core.Action) core.ViewID {
 	forView := n.GetForViewID()
-	n.resetEpochTimer()
+	// Leaving forView.Generation: if its learning data never went out (caught up
+	// before its aggregate arrived), send placeholder data so the agent stays in
+	// sequence. Uses the action of the generation being left, before it changes.
+	n.fillDeciderGap(forView.Generation, n.GetCurrAction())
+	n.resetEpochTimer(forView.Generation + 1)
 	n.SetCurrAction(action)
 	n.SwitchTriggerMode(action.TriggerMode) // its is some what parallel state with curr action both update together onn generation update
 	n.epochManager.GCBelow(forView.Generation + 1)
@@ -590,6 +594,14 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 		n.assert(newViewMsg.Action == n.GetCurrAction(), "new view message action %v does not match current action %v for view (%d,%d) at replica", newViewMsg.Action, n.GetCurrAction(), newViewMsg.NewViewNumber.Generation, newViewMsg.NewViewNumber.Counter)
 	}
 	// oldView := n.view
+	if newViewMsg.NewViewNumber.Generation > forView.Generation+1 {
+		// Not expected in practice (a crashed node still advances generations).
+		// incrementGeneration moves one generation only, so the generation number,
+		// the decider and the epoch grid are all left one generation behind.
+		n.log.Error("NewView for (%d,%d) is %d generations ahead of my for view (%d,%d); multi-generation catch-up is not handled",
+			newViewMsg.NewViewNumber.Generation, newViewMsg.NewViewNumber.Counter,
+			newViewMsg.NewViewNumber.Generation-forView.Generation, forView.Generation, forView.Counter)
+	}
 	if newViewMsg.NewViewNumber.Generation > forView.Generation {
 		// multiple gen jump not handled
 		// increment function only add by 1 even if here multijump

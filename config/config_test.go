@@ -181,6 +181,24 @@ func TestTimerDefaultsAndOverrides(t *testing.T) {
 	}
 }
 
+// The epoch grid is off unless asked for, and the oracle delay defaults to the
+// 100 ms it used to be hardcoded at.
+func TestEpochGridAndOracleDelay(t *testing.T) {
+	c := &Config{}
+	if c.Timer.EpochGrid || c.OracleDecisionDelay() != 100*time.Millisecond {
+		t.Fatalf("defaults: grid %t oracle delay %v", c.Timer.EpochGrid, c.OracleDecisionDelay())
+	}
+	if err := json.Unmarshal([]byte(`{"timer": {"epoch_grid": true}, "oracle_decision_delay_ms": 1050}`), c); err != nil {
+		t.Fatal(err)
+	}
+	if !c.Timer.EpochGrid || c.OracleDecisionDelay() != 1050*time.Millisecond {
+		t.Fatalf("overrides: grid %t oracle delay %v", c.Timer.EpochGrid, c.OracleDecisionDelay())
+	}
+	if err := (&Config{OracleDecisionDelayMs: -1}).ValidateTimer(); err == nil {
+		t.Fatal("negative oracle_decision_delay_ms: want error")
+	}
+}
+
 // "performance" accepts the legacy boolean as well as the object form.
 func TestPerformanceConfigForms(t *testing.T) {
 	tests := []struct {

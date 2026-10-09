@@ -17,7 +17,7 @@ type EpochNode interface {
 	signEpochAggregateMsg(msg core.EpochAggregateMsgMini) ([]byte, error)
 	GetForViewID() core.ViewID
 	assert(condition bool, message string, args ...interface{})
-	SendLearningDataToAgent(epoch uint64, currAction core.Action, throughput float64, proposalRate float64, vcrRate float64, inactiveNodes uint8)
+	sendEpochToDecider(gen uint64, action core.Action, d core.EpochData)
 	GetCurrAction() core.Action
 	stopEpochTimer()
 	startAggregateGraceTimer()
@@ -152,7 +152,7 @@ func (em *EpochManager) flushAggregate(gen uint64) {
 	// The aggregator never receives its own broadcast, so it stores the matrix here;
 	// it is applied when the node moves to the next generation.
 	em.node.storeAwareAggregate(gen, epochDataMsgSigs)
-	go em.node.SendLearningDataToAgent(gen, currAction, epochAggregateMsg.EpochData.Throughput, epochAggregateMsg.EpochData.ProposalInterval, epochAggregateMsg.EpochData.VCRate, uint8(epochAggregateMsg.EpochData.InactiveNodes))
+	em.node.sendEpochToDecider(gen, currAction, epochAggregateMsg.EpochData)
 }
 
 // GCBelow drops the collected epoch data for every generation < gen. Called when the
@@ -188,7 +188,7 @@ func (em *EpochManager) HandleEpochAggregateMsg(msg core.EpochAggregateMsg, _ []
 	// TODO(safety): the embedded epoch data signatures are not verified, and the
 	// aggregate signature does not cover them, so the aggregator can forge vectors.
 	em.node.storeAwareAggregate(msg.EpochGeneration, msg.EpochDataMsgSigs)
-	go em.node.SendLearningDataToAgent(msg.EpochGeneration, currAction, msg.EpochData.Throughput, msg.EpochData.ProposalInterval, msg.EpochData.VCRate, uint8(msg.EpochData.InactiveNodes))
+	em.node.sendEpochToDecider(msg.EpochGeneration, currAction, msg.EpochData)
 
 }
 

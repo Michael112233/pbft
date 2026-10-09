@@ -11,6 +11,13 @@ func (n *Node) handleLearningAgentDecision(decision core.LearningAgentDecision) 
 		n.assert(decision.Generation <= forView.Generation, "Received learning-agent decision for generation %d which is greater than my for view generation %d", decision.Generation, forView.Generation)
 		if decision.Generation < forView.Generation {
 			n.log.Info("Received learning-agent decision for generation %d which is less than my for view generation %d already caught up, ignoring", decision.Generation, forView.Generation)
+			// The decision for g picks generation g+1's action. If this node caught
+			// up into g+1 from the others, its own (late) decision should have picked
+			// the same action; a difference means the per-node agents have diverged.
+			if decision.Generation+1 == forView.Generation && decision.NextProtocol != n.GetCurrAction() {
+				n.log.Warn("DECIDER SYNC: late decision for generation %d picked %s but generation %d runs %s; agents have diverged",
+					decision.Generation, core.ActiontoString(decision.NextProtocol), forView.Generation, core.ActiontoString(n.GetCurrAction()))
+			}
 		}
 		return
 	}

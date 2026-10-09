@@ -8,15 +8,12 @@ import (
 	"github.com/michael112233/pbft/core"
 )
 
-// oracleDecisionDelay mimics the latency of a real learning-agent model call.
-var oracleDecisionDelay = 100 * time.Millisecond
-
 // runOracleDecision stands in for the learning-agent RPC when oracle mode is
-// enabled: it sleeps to mimic model latency and then feeds a locally computed
-// decision straight into the node's learning-decision channel, so no real
-// learning-agent process is needed.
+// enabled: it sleeps oracle_decision_delay_ms to mimic model latency and then
+// feeds a locally computed decision straight into the node's learning-decision
+// channel, so no real learning-agent process is needed.
 func (n *Node) runOracleDecision(epoch uint64) {
-	time.Sleep(oracleDecisionDelay)
+	time.Sleep(n.cfg.OracleDecisionDelay())
 
 	decision := core.LearningAgentDecision{
 		NextProtocol: n.oracleAction(epoch),
