@@ -259,3 +259,43 @@ func TestPerformanceDefaultsAndValidation(t *testing.T) {
 		}
 	}
 }
+
+// In scenario mode the Throttle scenario owns the throttle: it needs a gate
+// severity and slots, an oracle run until the agent has a synthetic model for
+// it, and throttle.enabled (static throttling) is rejected.
+func TestParseScenariosThrottle(t *testing.T) {
+	base := func() *Config {
+		return &Config{NodeNum: 7, EpochMode: true, ScenarioMode: true, OracleMode: true,
+			Scenarios: []string{"Healthy", "Throttle"}, ProposalMinIntervalMs: 100}
+	}
+	c := base()
+	if err := c.ParseScenarios(); err != nil {
+		t.Fatalf("valid Throttle config: %v", err)
+	}
+	if !c.ThrottleScenarioMode() {
+		t.Fatal("ThrottleScenarioMode() = false with Throttle in scenarios")
+	}
+
+	noThrottle := base()
+	noThrottle.Scenarios = []string{"Healthy", "NetworkDelay"}
+	if err := noThrottle.ParseScenarios(); err != nil || noThrottle.ThrottleScenarioMode() {
+		t.Fatalf("no Throttle in scenarios: err %v, ThrottleScenarioMode %t", err, noThrottle.ThrottleScenarioMode())
+	}
+
+	for name, mutate := range map[string]func(*Config){
+		"no gate severity":         func(c *Config) { c.ProposalMinIntervalMs = 0 },
+		"gate at start":            func(c *Config) { c.ProposalGateAtStart = true },
+		"learning agent, no model": func(c *Config) { c.OracleMode = false },
+		"too many slots":           func(c *Config) { c.Throttle.Slots = 8 },
+		"static throttle in scenario mode": func(c *Config) {
+			c.Scenarios = []string{"Healthy"}
+			c.Throttle.Enabled = true
+		},
+	} {
+		c := base()
+		mutate(c)
+		if err := c.ParseScenarios(); err == nil {
+			t.Errorf("%s: want error, got nil", name)
+		}
+	}
+}

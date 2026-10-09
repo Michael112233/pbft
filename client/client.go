@@ -20,6 +20,7 @@ const stallLogThreshold = 20 * time.Millisecond
 type LeaderUpdate struct {
 	view     core.ViewID
 	leaderId int
+	action   core.Action // part of the quorum key: 2f updates must agree on it too
 }
 
 type Client struct {
@@ -106,7 +107,9 @@ func NewClient(addr string, name string, config *config.Config, leaderAddr strin
 	txnManager.SetRetryPolicy(newRetryPolicy(config))
 	c.TransactionManager = txnManager
 	c.EventManager = NewEventManager(c, log, defaultEventLowerBound, defaultEventUpperBound)
-	if config.Throttle.Enabled {
+	// Static throttle runs (throttle.enabled, no scenario mode), or scenario runs
+	// with a Throttle scenario, where the manager is active only in its generations.
+	if config.Throttle.Enabled || config.ThrottleScenarioMode() {
 		c.throttle = newThrottleManager(c)
 	}
 	return c
@@ -183,6 +186,7 @@ func (c *Client) leaderTimelineLogger() {
 				"gen":         n.view.Generation,
 				"counter":     n.view.Counter,
 				"leader":      n.leaderID,
+				"action":      core.ActiontoString(n.action),
 				"observed_at": n.observedAt.UnixNano(),
 			})
 		}

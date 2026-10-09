@@ -1,5 +1,5 @@
 {
-  "_note": "Pilot n=7 f=2, scenario throttle, action PeriodicElection. Throttle: targeted proposal throttling run by the CLIENT (client/throttlemanager.go) during Throttle generations; nodes inject nothing and only allow their proposal gate while in the Throttle scenario. scenarios is [\"Throttle\"] and throttle.enabled is false: in scenario mode the scenario turns the throttle on. k=2 slots each gate a leader to one batch per 100 ms (proposal_min_interval_ms) once prep_ms=3000 has passed since the slot was aimed; the strategy follows each generation's leader policy (from the leader updates). The action is held for the whole run: oracle_mode feeds PeriodicElection back at every epoch, so generations advance every 75 s (timer.epoch_timer_ms) with the same action. Fixed/Perf timeout 350 ms (timer.fixed_trigger_timeout_ms). Client retry off, so latency is committed-only. latency_probe on for the RTT vectors aggregated at epoch boundaries.",
+  "_note": "Reproduces the n=7 pilot results/all_new_scenario_pilots/throttle_pfe for 30 min: PerformanceElection under targeted proposal throttling. Standalone throttle (throttle.enabled, strategy election), so scenario_mode is off: the current config rejects throttle.enabled in scenario mode, and the pilot's scenarios [\"Healthy\"] injected nothing anyway. k=2 slots each gate a leader to one batch per 100 ms (proposal_min_interval_ms) once prep_ms=3000 has passed since the slot was aimed. oracle_mode feeds PerformanceElection back every epoch, so generations advance every 75 s with the same action. Fixed/Perf timeout 350 ms as in the pilot. Client retry off. latency_probe on as in the pilot. Hypothesis: a fresh (ungated) leader is removed at the 4th perf tick, one second after its gate lands at prep 3 s.",
   "max_tx_num": 1000000,
   "inject_speed": 200,
   "max_block_size": 1,
@@ -36,7 +36,8 @@
     "periodic_trigger_timeout_ms": 10000,
     "fixed_trigger_timeout_ms": 350,
     "relaxed_fixed_trigger_timeout_ms": 300,
-    "epoch_timer_ms": 75000
+    "epoch_timer_ms": 75000,
+    "epoch_grid": false
   },
   "period": 60000,
   "number_of_periods": 4500,
@@ -96,17 +97,18 @@
   "parallel_workers": true,
   "oracle_mode": true,
   "oracle_actions": [
-    "PeriodicElection"
+    "PerformanceElection"
   ],
   "oracle_random": false,
   "oracle_seed": 42,
+  "oracle_decision_delay_ms": 100,
   "epoch_mode": true,
-  "default_action": "PeriodicElection",
+  "default_action": "PerformanceElection",
   "netem_delay": false,
   "scenarios": [
-    "Throttle"
+    "Healthy"
   ],
-  "scenario_mode": true,
+  "scenario_mode": false,
   "scenario_generations": 100,
   "latency_probe": true,
   "aware_probe_interval_ms": 500,
@@ -120,7 +122,7 @@
   "proposal_min_interval_ms": 100,
   "proposal_gate_at_start": false,
   "throttle": {
-    "enabled": false,
+    "enabled": true,
     "strategy": "election",
     "slots": 2,
     "prep_ms": 3000,

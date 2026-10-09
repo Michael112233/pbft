@@ -112,6 +112,9 @@ type LeaderIdUpdate struct {
 	From        string
 	NewLeaderId int
 	View        ViewID
+	// Action is the action of View's generation; the client's throttle manager
+	// takes its strategy from Action.Policy.
+	Action Action
 }
 
 type CloseMessage struct {

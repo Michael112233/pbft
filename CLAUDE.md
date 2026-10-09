@@ -269,7 +269,8 @@ key missing there is missing from every experiment built afterwards.
   `oracle_decision_delay_ms` — replace the learning agent with the local oracle.
 - `epoch_mode` — enable the epoch/generation machinery at all.
 - `scenario_mode`, `scenarios`, `scenario_generations` (default 100) — cycle through
-  fault scenarios (`Healthy`, `ProposalDelay`, `NetworkDelay`, `NetworkDelayFCrash`;
+  fault scenarios (`Healthy`, `ProposalDelay`, `NetworkDelay`, `NetworkDelayFCrash`,
+  `Throttle`;
   `core/scenario.go`), one
   per `scenario_generations` generations, derived from the generation in
   `SetForViewID` → `maybeSwitchScenario` (`node/scenario.go`). A switch turns everything
@@ -290,6 +291,20 @@ key missing there is missing from every experiment built afterwards.
   actually aggregates. In scenario mode the scenario owns both `proposalDelay` and `dead`, so
   `proposal_delay_nodes` and `nodes_dead` only take effect inside their scenario.
   The old int key `proposal_delay_node` is gone and silently ignored if present.
+  **Throttle** is driven by the client's throttle manager (`client/throttlemanager.go`),
+  not by node 4: nodes inject nothing, but a node's proposal gate may be on only in a
+  Throttle generation — it turns its own gate off when it leaves one
+  (`clearThrottleGateOnScenarioSwitch`) and refuses enables outside one
+  (`throttleGateAllowed`, `node/proposalgate.go`). The client works out each
+  generation's scenario from accepted leader notices with the same formula
+  (`core.ScenarioForGeneration`), is active only in Throttle generations, drains its
+  slots on leaving, and takes its strategy from the notice's leader policy
+  (RoundRobin → `roundrobin`, otherwise `election`), switching in place when the agent
+  changes policy. `LeaderIdUpdate` carries the generation's `Action` for this, and it is
+  part of the client's 2f quorum key. In scenario mode `throttle.enabled` is rejected
+  (list `Throttle` instead) and `throttle.strategy` is ignored; Throttle needs
+  `proposal_min_interval_ms > 0` and, until the agent has synthetic state/reward for
+  it (`learningagent/simulate_quadrf.py` raises), `oracle_mode`.
   Requires `epoch_mode`; incompatible with `netem.enabled` and with the script's
   `netem_delay`.
 - `leader_type` (`roundrobin` | `election` | `wrr`) — legacy `VCType`, separate from

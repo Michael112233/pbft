@@ -637,6 +637,7 @@ func LeaderIdUpdateToPB(msg core.LeaderIdUpdate) *LeaderIdUpdate {
 		From:        msg.From,
 		NewLeaderId: int32(msg.NewLeaderId),
 		View:        ViewIDToPB(msg.View),
+		Action:      ActionToPB(msg.Action),
 	}
 }
 
@@ -648,11 +649,16 @@ func LeaderIdUpdateFromPB(msg *LeaderIdUpdate) (core.LeaderIdUpdate, error) {
 	if err != nil {
 		return core.LeaderIdUpdate{}, err
 	}
+	action, err := ActionFromPB(msg.Action)
+	if err != nil {
+		return core.LeaderIdUpdate{}, err
+	}
 	return core.LeaderIdUpdate{
 		To:          msg.To,
 		From:        msg.From,
 		NewLeaderId: int(msg.NewLeaderId),
 		View:        view,
+		Action:      action,
 	}, nil
 }
 

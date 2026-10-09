@@ -390,9 +390,13 @@ func TestLeaderIdUpdateRoundTrip(t *testing.T) {
 		From:        "node-3",
 		NewLeaderId: 4,
 		View:        core.ViewID{Generation: 2, Counter: 7},
+		Action:      core.PeriodicElection,
 	}
 
 	pb := LeaderIdUpdateToPB(in)
+	if out, err := LeaderIdUpdateFromPB(pb); err != nil || out.Action != in.Action {
+		t.Fatalf("Action round trip: got %v (err %v), want %v", out.Action, err, in.Action)
+	}
 	out, err := LeaderIdUpdateFromPB(pb)
 	if err != nil {
 		t.Fatalf("LeaderIdUpdateFromPB returned error: %v", err)
@@ -704,5 +708,15 @@ func TestFixedAwareAndAwareRowsRoundTrip(t *testing.T) {
 
 	if core.StringtoAction("FixedAware") != core.FixedAware || core.ActiontoString(core.FixedAware) != "FixedAware" {
 		t.Fatal("FixedAware string round trip failed")
+	}
+}
+
+// The client's throttle manager takes its strategy from the leader update's
+// action, so an update without one is rejected rather than read as a zero action.
+func TestLeaderIdUpdateRejectsMissingAction(t *testing.T) {
+	pb := LeaderIdUpdateToPB(core.LeaderIdUpdate{View: core.ViewID{Generation: 1, Counter: 2}})
+	pb.Action = nil
+	if _, err := LeaderIdUpdateFromPB(pb); err == nil {
+		t.Fatal("leader update without an action was accepted")
 	}
 }

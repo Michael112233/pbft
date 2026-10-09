@@ -28,6 +28,10 @@ def generate_state(
     protocol: ProtocolName,
 ) -> np.ndarray:
     """Generate a one-feature state containing only shadow_count."""
+    if scenario == Scenario.Throttle:
+        raise NotImplementedError(
+            "no synthetic model for the Throttle scenario yet; derive it from the n=7 throttle pilots"
+        )
     vc_rate = 0.0
     proposal_interval = 0.0
     u = 0.0
@@ -143,6 +147,10 @@ def generate_reward(
     scenario: Scenario,
 ) -> float:
     """Generate synthetic throughput for the selected protocol."""
+    if scenario == Scenario.Throttle:
+        raise NotImplementedError(
+            "no synthetic model for the Throttle scenario yet; derive it from the n=7 throttle pilots"
+        )
     if scenario == Scenario.Healthy:
         if protocol == ProtocolName.FixedRoundRobin:
             return float(266)

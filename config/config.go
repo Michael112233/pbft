@@ -238,7 +238,50 @@ func (c *Config) ParseScenarios() error {
 				return err
 			}
 		}
+		if scenario == core.ScenarioThrottle {
+			if err := c.validateScenarioThrottle(); err != nil {
+				return err
+			}
+		}
 		c.ScenariosEnum[i] = scenario
+	}
+	if c.Throttle.Enabled {
+		// In scenario mode the scenario owns the throttle, as it owns dead and
+		// proposalDelay: nodes only allow a gate in Throttle generations, so a
+		// throttle enabled outside that scenario would never bite.
+		return fmt.Errorf("throttle.enabled is for runs without scenario_mode; in scenario mode list \"Throttle\" in scenarios instead")
+	}
+	return nil
+}
+
+// ThrottleScenarioMode reports whether the throttle is driven by the Throttle
+// scenario: the client runs its throttle manager only in Throttle generations,
+// with the strategy taken from each generation's leader policy.
+func (c *Config) ThrottleScenarioMode() bool {
+	for _, s := range c.ScenariosEnum {
+		if s == core.ScenarioThrottle {
+			return true
+		}
+	}
+	return false
+}
+
+// validateScenarioThrottle checks what the Throttle scenario needs: a gate
+// severity, the slot/prep parameters the client uses, and an oracle run until the
+// learning agent has a synthetic model for Throttle (generate_state /
+// generate_reward in learningagent/simulate_quadrf.py raise for it).
+func (c *Config) validateScenarioThrottle() error {
+	if c.ProposalMinIntervalMs <= 0 {
+		return fmt.Errorf("Throttle needs proposal_min_interval_ms > 0, otherwise the gate does nothing")
+	}
+	if c.ProposalGateAtStart {
+		return fmt.Errorf("Throttle and proposal_gate_at_start both drive the gate; proposal_gate_at_start is for calibration runs with no controller")
+	}
+	if k := c.ThrottleSlots(); k < 1 || int64(k) > c.NodeNum {
+		return fmt.Errorf("Throttle needs 1..%d slots, got %d", c.NodeNum, k)
+	}
+	if !c.OracleMode {
+		return fmt.Errorf("Throttle needs oracle_mode for now: the learning agent has no synthetic state/reward for it yet (learningagent/simulate_quadrf.py)")
 	}
 	return nil
 }

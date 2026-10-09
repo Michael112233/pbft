@@ -677,7 +677,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	// here we may have buffer
 	// buffer probably emptied to channel
 	n.replayBufferedMessagesForView(view)
-	go n.sendLeaderIdUpdate(n.leaderId, view)
+	go n.sendLeaderIdUpdate(n.leaderId, view, n.GetCurrAction())
 	duration := time.Since(timestart)
 	n.log.Info("New view (%d,%d) processing completed in %v", view.Generation, view.Counter, duration)
 	n.acceptNewViewTimers()

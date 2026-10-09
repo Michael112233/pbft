@@ -1,5 +1,5 @@
 {
-  "_note": "Pilot n=7 f=2, scenario throttle, action PeriodicRoundRobin. Throttle: targeted proposal throttling managed by the CLIENT (client/throttlemanager.go), not by the scenario machinery, which is why scenarios is [\"Healthy\"] and node 4 injects nothing. k=2 slots each gate a leader to one batch per 100 ms (proposal_min_interval_ms) once prep_ms=3000 has passed since the slot was aimed; the strategy matches the action's leader policy. The action is held for the whole run: oracle_mode feeds PeriodicRoundRobin back at every epoch, so generations advance every 75 s (timer.epoch_timer_ms) with the same action. Fixed/Perf timeout 350 ms (timer.fixed_trigger_timeout_ms). Client retry off, so latency is committed-only. latency_probe on for the RTT vectors aggregated at epoch boundaries.",
+  "_note": "Pilot n=7 f=2, scenario throttle, action PeriodicRoundRobin. Throttle: targeted proposal throttling run by the CLIENT (client/throttlemanager.go) during Throttle generations; nodes inject nothing and only allow their proposal gate while in the Throttle scenario. scenarios is [\"Throttle\"] and throttle.enabled is false: in scenario mode the scenario turns the throttle on. k=2 slots each gate a leader to one batch per 100 ms (proposal_min_interval_ms) once prep_ms=3000 has passed since the slot was aimed; the strategy follows each generation's leader policy (from the leader updates). The action is held for the whole run: oracle_mode feeds PeriodicRoundRobin back at every epoch, so generations advance every 75 s (timer.epoch_timer_ms) with the same action. Fixed/Perf timeout 350 ms (timer.fixed_trigger_timeout_ms). Client retry off, so latency is committed-only. latency_probe on for the RTT vectors aggregated at epoch boundaries.",
   "max_tx_num": 1000000,
   "inject_speed": 200,
   "max_block_size": 1,
@@ -104,7 +104,7 @@
   "default_action": "PeriodicRoundRobin",
   "netem_delay": false,
   "scenarios": [
-    "Healthy"
+    "Throttle"
   ],
   "scenario_mode": true,
   "scenario_generations": 100,
@@ -120,7 +120,7 @@
   "proposal_min_interval_ms": 100,
   "proposal_gate_at_start": false,
   "throttle": {
-    "enabled": true,
+    "enabled": false,
     "strategy": "roundrobin",
     "slots": 2,
     "prep_ms": 3000,

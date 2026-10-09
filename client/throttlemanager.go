@@ -34,11 +34,23 @@ import (
 // The manager runs on one goroutine; all slot state is owned by it. Gate
 // commands are sent on per-slot worker goroutines so a slow node never blocks
 // other slots, and their acks come back on ackCh.
+//
+// Two modes. Static (throttle.enabled, no scenario mode): active for the whole
+// run with throttle.strategy. Scenario (a Throttle scenario in scenarios): every
+// leader notice carries its view's generation and action; the manager works out
+// the generation's scenario with the nodes' formula (core.ScenarioForGeneration)
+// and is active only in Throttle generations, taking its strategy from the
+// action's leader policy, which the learning agent may change every generation.
+// Leaving Throttle drains every slot (targets cleared, reconcile disables what is
+// on). The nodes turn their own gates off when they leave Throttle and refuse
+// enables outside it (node/proposalgate.go), so the drain is housekeeping, not
+// what keeps other scenarios clean.
 
 // leaderNotice is one accepted-leader observation handed to the manager.
 type leaderNotice struct {
 	view       core.ViewID
 	leaderID   int
+	action     core.Action // the action of view's generation
 	observedAt time.Time
 }
 
@@ -112,6 +124,12 @@ type throttleManager struct {
 	prep     time.Duration
 	tenure   time.Duration
 
+	// Scenario mode: active only in Throttle generations (see followScenario).
+	scenarioMode bool
+	scenarios    []core.Scenario
+	scenarioSpan uint64
+	active       bool
+
 	slots     []slot
 	slotCmdCh []chan gateCmd
 	ackCh     chan gateAck
@@ -131,24 +149,33 @@ const (
 func newThrottleManager(c *Client) *throttleManager {
 	k := c.config.ThrottleSlots()
 	m := &throttleManager{
-		cfg:       c.config,
-		hub:       c.messageHub,
-		log:       c.log,
-		nodeNum:   int(c.config.NodeNum),
-		k:         k,
-		strategy:  c.config.Throttle.Strategy,
-		prep:      c.config.ThrottlePrep(),
-		tenure:    c.config.ThrottleTenure(),
-		slots:     make([]slot, k),
-		slotCmdCh: make([]chan gateCmd, k),
-		ackCh:     make(chan gateAck, 2*k),
-		noticeCh:  make(chan leaderNotice, throttleNoticeBuffer),
-		stop:      make(chan struct{}),
-		done:      make(chan struct{}),
-		out:       newJSONLWriter("logs/throttle_manager.jsonl", c.log),
+		cfg:      c.config,
+		hub:      c.messageHub,
+		log:      c.log,
+		nodeNum:  int(c.config.NodeNum),
+		k:        k,
+		strategy: c.config.Throttle.Strategy,
+		prep:     c.config.ThrottlePrep(),
+		tenure:   c.config.ThrottleTenure(),
+
+		scenarioMode: c.config.ThrottleScenarioMode(),
+		scenarios:    c.config.ScenariosEnum,
+		scenarioSpan: c.config.ScenarioGenerations,
+		slots:        make([]slot, k),
+		slotCmdCh:    make([]chan gateCmd, k),
+		ackCh:        make(chan gateAck, 2*k),
+		noticeCh:     make(chan leaderNotice, throttleNoticeBuffer),
+		stop:         make(chan struct{}),
+		done:         make(chan struct{}),
+		out:          newJSONLWriter("logs/throttle_manager.jsonl", c.log),
 	}
 	for i := 0; i < k; i++ {
 		m.slotCmdCh[i] = make(chan gateCmd, 4)
+	}
+	if m.scenarioMode {
+		m.strategy = "" // set from each Throttle generation's leader policy
+	} else {
+		m.active = true
 	}
 	return m
 }
@@ -180,7 +207,7 @@ func (m *throttleManager) notify(n leaderNotice) {
 // 50ms reconcile funnel everything
 func (m *throttleManager) run() {
 	defer close(m.done)
-	m.log.Info("THROTTLE: manager started strategy=%s slots=%d prep=%v tenure=%v", m.strategy, m.k, m.prep, m.tenure)
+	m.log.Info("THROTTLE: manager started scenario_mode=%t strategy=%q slots=%d prep=%v tenure=%v", m.scenarioMode, m.strategy, m.k, m.prep, m.tenure)
 
 	ticker := time.NewTicker(throttleReconcileTick)
 	defer ticker.Stop()
@@ -205,6 +232,9 @@ func (m *throttleManager) run() {
 }
 
 func (m *throttleManager) onNotice(n leaderNotice) {
+	if m.scenarioMode {
+		m.followScenario(n)
+	}
 	lag := time.Since(n.observedAt)
 	// holds, not targetNode: this must record the same judgement the strategies
 	// below act on, or the analysis undercounts free coverage.
@@ -224,7 +254,12 @@ func (m *throttleManager) onNotice(n leaderNotice) {
 		"observed_at":      n.observedAt.UnixNano(),
 		"lag_ms":           lag.Milliseconds(),
 		"already_targeted": alreadyTargeted,
+		"action":           core.ActiontoString(n.action),
+		"active":           m.active,
 	})
+	if !m.active {
+		return
+	}
 
 	switch m.strategy {
 	case config.ThrottleStrategyRoundRobin:
@@ -232,6 +267,67 @@ func (m *throttleManager) onNotice(n leaderNotice) {
 	case config.ThrottleStrategyElection:
 		m.onNoticeElection(n)
 	}
+}
+
+// followScenario turns the manager on or off for the notice's generation and
+// picks the strategy from its leader policy. Scenario mode only.
+func (m *throttleManager) followScenario(n leaderNotice) {
+	scenario := core.ScenarioForGeneration(n.view.Generation, m.scenarios, m.scenarioSpan)
+	if scenario != core.ScenarioThrottle {
+		if m.active {
+			m.drain(n, scenario)
+		}
+		return
+	}
+	strategy := strategyForPolicy(n.action.Policy)
+	switch {
+	case !m.active:
+		m.active = true
+		m.strategy = strategy
+		m.log.Info("THROTTLE: active from gen %d, strategy %s (%s)", n.view.Generation, strategy, core.ActiontoString(n.action))
+		m.out.write(map[string]any{"t": time.Now().UnixNano(), "kind": "activate", "gen": n.view.Generation, "strategy": strategy, "action": core.ActiontoString(n.action)})
+	case strategy != m.strategy:
+		// Both strategies run on the same slot state and both keep a slot that
+		// holds the sitting leader, so switching in place is safe; only the
+		// RoundRobin k=1 scheduled release is strategy-specific.
+		m.clearRRSchedule()
+		m.log.Info("THROTTLE: gen %d strategy %s -> %s (%s)", n.view.Generation, m.strategy, strategy, core.ActiontoString(n.action))
+		m.out.write(map[string]any{"t": time.Now().UnixNano(), "kind": "strategy", "gen": n.view.Generation, "from": m.strategy, "to": strategy})
+		m.strategy = strategy
+	}
+}
+
+// drain releases every slot when the run leaves the Throttle scenario: targets
+// are cleared, so reconcile disables every gate still on and cancels every
+// pending prep; an enable already in flight is disabled after its ack. The nodes
+// have already turned their own gates off, so these disables are no-ops there.
+func (m *throttleManager) drain(n leaderNotice, scenario core.Scenario) {
+	for i := range m.slots {
+		m.slots[i].targetNode = 0
+		m.slots[i].readyAt = time.Time{}
+	}
+	m.clearRRSchedule()
+	m.active = false
+	m.strategy = ""
+	m.log.Info("THROTTLE: inactive from gen %d (%s), draining slots", n.view.Generation, core.ScenarioToString(scenario))
+	m.out.write(map[string]any{"t": time.Now().UnixNano(), "kind": "deactivate", "gen": n.view.Generation, "scenario": core.ScenarioToString(scenario)})
+}
+
+func (m *throttleManager) clearRRSchedule() {
+	for i := range m.slots {
+		m.slots[i].rrRetargetAt = time.Time{}
+		m.slots[i].rrSuccessor = 0
+	}
+}
+
+// strategyForPolicy maps a leader policy to the throttle strategy that matches
+// what an attacker can know about it: RoundRobin's schedule is public, anything
+// else is treated reactively.
+func strategyForPolicy(p core.Policy) string {
+	if p == core.PolicyRoundRobin {
+		return config.ThrottleStrategyRoundRobin
+	}
+	return config.ThrottleStrategyElection
 }
 
 func (m *throttleManager) onNoticeRoundRobin(n leaderNotice) {

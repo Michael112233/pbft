@@ -42,7 +42,7 @@ func (c netemCmd) String() string {
 // the generation rather than triggered on gen%span, so a node that jumps several
 // generations at once (NewView catch-up) still lands in the right scenario.
 func scenarioForGeneration(gen uint64, list []core.Scenario, span uint64) core.Scenario {
-	return list[((gen-1)/span)%uint64(len(list))]
+	return core.ScenarioForGeneration(gen, list, span)
 }
 
 // scenarioEffects says what nodeID must run to enter next. Everything is turned
@@ -75,6 +75,7 @@ func (n *Node) maybeSwitchScenario(gen uint64) {
 	proposalDelay, dead, cmds := scenarioEffects(n.GetNodeID(), n.cfg.ProposalDelayNodes, n.cfg.NodesDead, next)
 	n.SetProposalDelay(proposalDelay)
 	n.SetDead(dead)
+	n.clearThrottleGateOnScenarioSwitch(next)
 	for _, cmd := range cmds {
 		n.enqueueNetemCmd(cmd)
 	}

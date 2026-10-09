@@ -27,6 +27,7 @@ func newTestManager(t *testing.T, k int, strategy string) *throttleManager {
 		stop:      make(chan struct{}),
 		done:      make(chan struct{}),
 		out:       &jsonlWriter{}, // nil file: write is a no-op
+		active:    true,           // static mode, as with throttle.enabled
 	}
 	for i := 0; i < k; i++ {
 		m.slotCmdCh[i] = make(chan gateCmd, 4)
@@ -271,5 +272,123 @@ func TestRoundRobinSingleSlotSchedulesSuccessor(t *testing.T) {
 	m.reconcile(wantAt.Add(time.Millisecond))
 	if m.slots[0].targetNode != 3 {
 		t.Fatalf("slot not retargeted to successor 3 after release: %+v", m.slots[0])
+	}
+}
+
+// Scenario mode: generations 1-10 Healthy, 11-20 Throttle, 21-30 Healthy, ...
+func newScenarioTestManager(t *testing.T, k int) *throttleManager {
+	t.Helper()
+	m := newTestManager(t, k, "")
+	m.scenarioMode = true
+	m.scenarios = []core.Scenario{core.ScenarioHealthy, core.ScenarioThrottle}
+	m.scenarioSpan = 10
+	m.active = false
+	return m
+}
+
+func notice(gen, counter uint64, leader int, action core.Action, at time.Time) leaderNotice {
+	return leaderNotice{view: core.ViewID{Generation: gen, Counter: counter}, leaderID: leader, action: action, observedAt: at}
+}
+
+// ackAll answers every queued command successfully and returns them.
+func ackAll(m *throttleManager) []gateCmd {
+	var cmds []gateCmd
+	for i := range m.slotCmdCh {
+		if c, ok := drainCmd(m, i); ok {
+			m.onAck(gateAck{cmd: c})
+			cmds = append(cmds, c)
+		}
+	}
+	return cmds
+}
+
+// Off in Healthy generations, on in Throttle ones with the policy's strategy,
+// and leaving Throttle disables every gate the slots hold.
+func TestScenarioModeActivatesAndDrains(t *testing.T) {
+	m := newScenarioTestManager(t, 2)
+	t0 := time.Now()
+
+	m.onNotice(notice(5, 3, 3, core.FixedRoundRobin, t0)) // Healthy
+	if m.active {
+		t.Fatal("active in a Healthy generation")
+	}
+	for i := range m.slots {
+		if m.slots[i].occupied() {
+			t.Fatalf("slot %d occupied in a Healthy generation: %+v", i, m.slots[i])
+		}
+	}
+
+	m.onNotice(notice(11, 1, 1, core.PeriodicRoundRobin, t0)) // Throttle, RoundRobin
+	if !m.active || m.strategy != "roundrobin" {
+		t.Fatalf("after a Throttle notice: active %v strategy %q, want true roundrobin", m.active, m.strategy)
+	}
+	if m.slots[0].targetNode != 1 || m.slots[1].targetNode != 2 {
+		t.Fatalf("RoundRobin window not {1,2}: %d %d", m.slots[0].targetNode, m.slots[1].targetNode)
+	}
+	m.reconcile(t0.Add(3 * time.Second)) // prep elapsed: both enabled
+	if cmds := ackAll(m); len(cmds) != 2 || !cmds[0].enable || !cmds[1].enable {
+		t.Fatalf("want two enables, got %+v", cmds)
+	}
+
+	m.onNotice(notice(21, 1, 1, core.PeriodicRoundRobin, t0.Add(4*time.Second))) // Healthy again
+	if m.active || m.strategy != "" {
+		t.Fatalf("after leaving Throttle: active %v strategy %q", m.active, m.strategy)
+	}
+	m.reconcile(t0.Add(4 * time.Second))
+	cmds := ackAll(m)
+	if len(cmds) != 2 || cmds[0].enable || cmds[1].enable {
+		t.Fatalf("want two disables on leaving Throttle, got %+v", cmds)
+	}
+	for i := range m.slots {
+		if m.slots[i].occupied() {
+			t.Fatalf("slot %d still occupied after drain: %+v", i, m.slots[i])
+		}
+	}
+	m.onNotice(notice(21, 2, 2, core.PeriodicRoundRobin, t0.Add(5*time.Second)))
+	if m.slots[0].occupied() || m.slots[1].occupied() {
+		t.Fatal("a Healthy notice retargeted a slot")
+	}
+}
+
+// Inside a Throttle window the strategy follows each generation's policy; the
+// switch keeps the slot state and drops the RoundRobin k=1 scheduled release.
+func TestScenarioModeStrategyFollowsPolicy(t *testing.T) {
+	m := newScenarioTestManager(t, 1)
+	t0 := time.Now()
+	m.onNotice(notice(11, 1, 1, core.PeriodicRoundRobin, t0))
+	if m.strategy != "roundrobin" || m.slots[0].rrRetargetAt.IsZero() {
+		t.Fatalf("RoundRobin k=1: strategy %q, scheduled release %v", m.strategy, m.slots[0].rrRetargetAt)
+	}
+	m.onNotice(notice(12, 1, 4, core.PeriodicElection, t0.Add(time.Second)))
+	if m.strategy != "election" {
+		t.Fatalf("strategy %q after an Election generation, want election", m.strategy)
+	}
+	if !m.slots[0].rrRetargetAt.IsZero() || m.slots[0].rrSuccessor != 0 {
+		t.Fatal("RoundRobin scheduled release survived the switch to Election")
+	}
+	if m.slots[0].targetNode != 4 {
+		t.Fatalf("Election did not retarget to the new leader: %d", m.slots[0].targetNode)
+	}
+	m.onNotice(notice(13, 1, 1, core.PerformanceRoundRobin, t0.Add(2*time.Second)))
+	if m.strategy != "roundrobin" {
+		t.Fatalf("strategy %q after a RoundRobin generation", m.strategy)
+	}
+}
+
+// An enable still in flight when the run leaves Throttle is disabled once acked.
+func TestScenarioModeDrainWithEnableInFlight(t *testing.T) {
+	m := newScenarioTestManager(t, 1)
+	t0 := time.Now()
+	m.onNotice(notice(11, 1, 1, core.PeriodicElection, t0))
+	m.reconcile(t0.Add(3 * time.Second))
+	enable, ok := drainCmd(m, 0)
+	if !ok || !enable.enable {
+		t.Fatalf("want an enable in flight, got %+v ok=%v", enable, ok)
+	}
+	m.onNotice(notice(21, 1, 1, core.PeriodicElection, t0.Add(3*time.Second))) // leaves Throttle
+	m.onAck(gateAck{cmd: enable})                                              // the enable lands
+	m.reconcile(t0.Add(3 * time.Second))
+	if c, ok := drainCmd(m, 0); !ok || c.enable || c.node != 1 {
+		t.Fatalf("want disable node 1 after the in-flight enable, got %+v ok=%v", c, ok)
 	}
 }

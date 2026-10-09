@@ -155,6 +155,9 @@ message LeaderIdUpdate {
   string from = 2;
   int32 new_leader_id = 3;
   ViewID view = 4;
+  // The action of view's generation, so the client's throttle manager can follow
+  // the leader policy (RoundRobin or Election) generation by generation.
+  Action action = 5;
 }
 
 message CloseMessage {

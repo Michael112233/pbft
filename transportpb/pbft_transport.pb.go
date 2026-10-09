@@ -1338,11 +1338,14 @@ func (x *CommitTps) GetClientMsg() *ClientMsgReply {
 }
 
 type LeaderIdUpdate struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	To            string                 `protobuf:"bytes,1,opt,name=to,proto3" json:"to,omitempty"`
-	From          string                 `protobuf:"bytes,2,opt,name=from,proto3" json:"from,omitempty"`
-	NewLeaderId   int32                  `protobuf:"varint,3,opt,name=new_leader_id,json=newLeaderId,proto3" json:"new_leader_id,omitempty"`
-	View          *ViewID                `protobuf:"bytes,4,opt,name=view,proto3" json:"view,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	To          string                 `protobuf:"bytes,1,opt,name=to,proto3" json:"to,omitempty"`
+	From        string                 `protobuf:"bytes,2,opt,name=from,proto3" json:"from,omitempty"`
+	NewLeaderId int32                  `protobuf:"varint,3,opt,name=new_leader_id,json=newLeaderId,proto3" json:"new_leader_id,omitempty"`
+	View        *ViewID                `protobuf:"bytes,4,opt,name=view,proto3" json:"view,omitempty"`
+	// The action of view's generation, so the client's throttle manager can follow
+	// the leader policy (RoundRobin or Election) generation by generation.
+	Action        *Action `protobuf:"bytes,5,opt,name=action,proto3" json:"action,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1401,6 +1404,13 @@ func (x *LeaderIdUpdate) GetNewLeaderId() int32 {
 func (x *LeaderIdUpdate) GetView() *ViewID {
 	if x != nil {
 		return x.View
+	}
+	return nil
+}
+
+func (x *LeaderIdUpdate) GetAction() *Action {
+	if x != nil {
+		return x.Action
 	}
 	return nil
 }
@@ -3089,12 +3099,13 @@ const file_pbft_transport_proto_rawDesc = "" +
 	"\x02to\x18\x01 \x01(\tR\x02to\x12\x12\n" +
 	"\x04from\x18\x02 \x01(\tR\x04from\x12@\n" +
 	"\n" +
-	"client_msg\x18\x03 \x01(\v2!.pbft.transport.v1.ClientMsgReplyR\tclientMsg\"\x87\x01\n" +
+	"client_msg\x18\x03 \x01(\v2!.pbft.transport.v1.ClientMsgReplyR\tclientMsg\"\xba\x01\n" +
 	"\x0eLeaderIdUpdate\x12\x0e\n" +
 	"\x02to\x18\x01 \x01(\tR\x02to\x12\x12\n" +
 	"\x04from\x18\x02 \x01(\tR\x04from\x12\"\n" +
 	"\rnew_leader_id\x18\x03 \x01(\x05R\vnewLeaderId\x12-\n" +
-	"\x04view\x18\x04 \x01(\v2\x19.pbft.transport.v1.ViewIDR\x04view\"P\n" +
+	"\x04view\x18\x04 \x01(\v2\x19.pbft.transport.v1.ViewIDR\x04view\x121\n" +
+	"\x06action\x18\x05 \x01(\v2\x19.pbft.transport.v1.ActionR\x06action\"P\n" +
 	"\fCloseMessage\x12\x1c\n" +
 	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\x12\x12\n" +
 	"\x04from\x18\x02 \x01(\tR\x04from\x12\x0e\n" +
@@ -3337,62 +3348,63 @@ var file_pbft_transport_proto_depIdxs = []int32{
 	6,  // 19: pbft.transport.v1.ReplyMessage.client_msg:type_name -> pbft.transport.v1.ClientMsg
 	7,  // 20: pbft.transport.v1.CommitTps.client_msg:type_name -> pbft.transport.v1.ClientMsgReply
 	2,  // 21: pbft.transport.v1.LeaderIdUpdate.view:type_name -> pbft.transport.v1.ViewID
-	24, // 22: pbft.transport.v1.CheckpointMsgSig.checkpoint_msg:type_name -> pbft.transport.v1.CheckpointMsg
-	18, // 23: pbft.transport.v1.PreparedCert.preprepare_msg:type_name -> pbft.transport.v1.PreprepareMsgSig
-	44, // 24: pbft.transport.v1.PreparedCert.prepare_log:type_name -> pbft.transport.v1.PreparedCert.PrepareLogEntry
-	2,  // 25: pbft.transport.v1.ViewChangeMsg.view_number:type_name -> pbft.transport.v1.ViewID
-	45, // 26: pbft.transport.v1.ViewChangeMsg.prepared_certs:type_name -> pbft.transport.v1.ViewChangeMsg.PreparedCertsEntry
-	4,  // 27: pbft.transport.v1.ViewChangeMsg.action:type_name -> pbft.transport.v1.Action
-	25, // 28: pbft.transport.v1.ViewChangeMsg.checkpoint_proof:type_name -> pbft.transport.v1.CheckpointMsgSig
-	46, // 29: pbft.transport.v1.ViewChangeMsg.checkpoint_balances:type_name -> pbft.transport.v1.ViewChangeMsg.CheckpointBalancesEntry
-	3,  // 30: pbft.transport.v1.ViewChangeMsg.aware_rows:type_name -> pbft.transport.v1.AwareRow
-	27, // 31: pbft.transport.v1.ViewChangeMsgSig.view_change_msg:type_name -> pbft.transport.v1.ViewChangeMsg
-	18, // 32: pbft.transport.v1.NewViewMsg.preprepare_log:type_name -> pbft.transport.v1.PreprepareMsgSig
-	28, // 33: pbft.transport.v1.NewViewMsg.view_change_log:type_name -> pbft.transport.v1.ViewChangeMsgSig
-	2,  // 34: pbft.transport.v1.NewViewMsg.new_view_number:type_name -> pbft.transport.v1.ViewID
-	4,  // 35: pbft.transport.v1.NewViewMsg.action:type_name -> pbft.transport.v1.Action
-	3,  // 36: pbft.transport.v1.NewViewMsg.aware_rows:type_name -> pbft.transport.v1.AwareRow
-	29, // 37: pbft.transport.v1.NewViewMsgSig.new_view_msg:type_name -> pbft.transport.v1.NewViewMsg
-	2,  // 38: pbft.transport.v1.RequestVoteMsg.view_number:type_name -> pbft.transport.v1.ViewID
-	31, // 39: pbft.transport.v1.RequestVoteMsgSig.request_vote_msg:type_name -> pbft.transport.v1.RequestVoteMsg
-	2,  // 40: pbft.transport.v1.GrantVoteMsg.view_number:type_name -> pbft.transport.v1.ViewID
-	33, // 41: pbft.transport.v1.GrantVoteMsgSig.grant_vote_msg:type_name -> pbft.transport.v1.GrantVoteMsg
-	36, // 42: pbft.transport.v1.EpochDataMsgSig.epoch_data_msg:type_name -> pbft.transport.v1.EpochDataMsg
-	35, // 43: pbft.transport.v1.EpochAggregateMsgMini.epoch_data:type_name -> pbft.transport.v1.EpochData
-	4,  // 44: pbft.transport.v1.EpochAggregateMsgMini.current_action:type_name -> pbft.transport.v1.Action
-	35, // 45: pbft.transport.v1.EpochAggregateMsg.epoch_data:type_name -> pbft.transport.v1.EpochData
-	37, // 46: pbft.transport.v1.EpochAggregateMsg.epoch_data_msg_sigs:type_name -> pbft.transport.v1.EpochDataMsgSig
-	4,  // 47: pbft.transport.v1.EpochAggregateMsg.current_action:type_name -> pbft.transport.v1.Action
-	9,  // 48: pbft.transport.v1.Envelope.request:type_name -> pbft.transport.v1.RequestMessage
-	13, // 49: pbft.transport.v1.Envelope.preprepare:type_name -> pbft.transport.v1.PreprepareMsg
-	15, // 50: pbft.transport.v1.Envelope.prepare:type_name -> pbft.transport.v1.PrepareMsg
-	16, // 51: pbft.transport.v1.Envelope.commit:type_name -> pbft.transport.v1.CommitMsg
-	20, // 52: pbft.transport.v1.Envelope.reply:type_name -> pbft.transport.v1.ReplyMessage
-	23, // 53: pbft.transport.v1.Envelope.close:type_name -> pbft.transport.v1.CloseMessage
-	27, // 54: pbft.transport.v1.Envelope.view_change:type_name -> pbft.transport.v1.ViewChangeMsg
-	29, // 55: pbft.transport.v1.Envelope.new_view:type_name -> pbft.transport.v1.NewViewMsg
-	24, // 56: pbft.transport.v1.Envelope.checkpoint:type_name -> pbft.transport.v1.CheckpointMsg
-	21, // 57: pbft.transport.v1.Envelope.commit_tps:type_name -> pbft.transport.v1.CommitTps
-	22, // 58: pbft.transport.v1.Envelope.leader_id_update:type_name -> pbft.transport.v1.LeaderIdUpdate
-	12, // 59: pbft.transport.v1.Envelope.vc_running_status:type_name -> pbft.transport.v1.VCRunningStatus
-	31, // 60: pbft.transport.v1.Envelope.request_vote:type_name -> pbft.transport.v1.RequestVoteMsg
-	33, // 61: pbft.transport.v1.Envelope.grant_vote:type_name -> pbft.transport.v1.GrantVoteMsg
-	10, // 62: pbft.transport.v1.Envelope.event:type_name -> pbft.transport.v1.EventMsg
-	36, // 63: pbft.transport.v1.Envelope.epoch_data:type_name -> pbft.transport.v1.EpochDataMsg
-	39, // 64: pbft.transport.v1.Envelope.epoch_aggregate:type_name -> pbft.transport.v1.EpochAggregateMsg
-	19, // 65: pbft.transport.v1.PreparedCert.PrepareLogEntry.value:type_name -> pbft.transport.v1.PrepareMsgSig
-	26, // 66: pbft.transport.v1.ViewChangeMsg.PreparedCertsEntry.value:type_name -> pbft.transport.v1.PreparedCert
-	40, // 67: pbft.transport.v1.PBFTTransport.Deliver:input_type -> pbft.transport.v1.Envelope
-	40, // 68: pbft.transport.v1.PBFTTransport.ClientNodeChannel:input_type -> pbft.transport.v1.Envelope
-	42, // 69: pbft.transport.v1.PBFTTransport.Probe:input_type -> pbft.transport.v1.ProbeReq
-	41, // 70: pbft.transport.v1.PBFTTransport.Deliver:output_type -> pbft.transport.v1.Ack
-	40, // 71: pbft.transport.v1.PBFTTransport.ClientNodeChannel:output_type -> pbft.transport.v1.Envelope
-	43, // 72: pbft.transport.v1.PBFTTransport.Probe:output_type -> pbft.transport.v1.ProbeResp
-	70, // [70:73] is the sub-list for method output_type
-	67, // [67:70] is the sub-list for method input_type
-	67, // [67:67] is the sub-list for extension type_name
-	67, // [67:67] is the sub-list for extension extendee
-	0,  // [0:67] is the sub-list for field type_name
+	4,  // 22: pbft.transport.v1.LeaderIdUpdate.action:type_name -> pbft.transport.v1.Action
+	24, // 23: pbft.transport.v1.CheckpointMsgSig.checkpoint_msg:type_name -> pbft.transport.v1.CheckpointMsg
+	18, // 24: pbft.transport.v1.PreparedCert.preprepare_msg:type_name -> pbft.transport.v1.PreprepareMsgSig
+	44, // 25: pbft.transport.v1.PreparedCert.prepare_log:type_name -> pbft.transport.v1.PreparedCert.PrepareLogEntry
+	2,  // 26: pbft.transport.v1.ViewChangeMsg.view_number:type_name -> pbft.transport.v1.ViewID
+	45, // 27: pbft.transport.v1.ViewChangeMsg.prepared_certs:type_name -> pbft.transport.v1.ViewChangeMsg.PreparedCertsEntry
+	4,  // 28: pbft.transport.v1.ViewChangeMsg.action:type_name -> pbft.transport.v1.Action
+	25, // 29: pbft.transport.v1.ViewChangeMsg.checkpoint_proof:type_name -> pbft.transport.v1.CheckpointMsgSig
+	46, // 30: pbft.transport.v1.ViewChangeMsg.checkpoint_balances:type_name -> pbft.transport.v1.ViewChangeMsg.CheckpointBalancesEntry
+	3,  // 31: pbft.transport.v1.ViewChangeMsg.aware_rows:type_name -> pbft.transport.v1.AwareRow
+	27, // 32: pbft.transport.v1.ViewChangeMsgSig.view_change_msg:type_name -> pbft.transport.v1.ViewChangeMsg
+	18, // 33: pbft.transport.v1.NewViewMsg.preprepare_log:type_name -> pbft.transport.v1.PreprepareMsgSig
+	28, // 34: pbft.transport.v1.NewViewMsg.view_change_log:type_name -> pbft.transport.v1.ViewChangeMsgSig
+	2,  // 35: pbft.transport.v1.NewViewMsg.new_view_number:type_name -> pbft.transport.v1.ViewID
+	4,  // 36: pbft.transport.v1.NewViewMsg.action:type_name -> pbft.transport.v1.Action
+	3,  // 37: pbft.transport.v1.NewViewMsg.aware_rows:type_name -> pbft.transport.v1.AwareRow
+	29, // 38: pbft.transport.v1.NewViewMsgSig.new_view_msg:type_name -> pbft.transport.v1.NewViewMsg
+	2,  // 39: pbft.transport.v1.RequestVoteMsg.view_number:type_name -> pbft.transport.v1.ViewID
+	31, // 40: pbft.transport.v1.RequestVoteMsgSig.request_vote_msg:type_name -> pbft.transport.v1.RequestVoteMsg
+	2,  // 41: pbft.transport.v1.GrantVoteMsg.view_number:type_name -> pbft.transport.v1.ViewID
+	33, // 42: pbft.transport.v1.GrantVoteMsgSig.grant_vote_msg:type_name -> pbft.transport.v1.GrantVoteMsg
+	36, // 43: pbft.transport.v1.EpochDataMsgSig.epoch_data_msg:type_name -> pbft.transport.v1.EpochDataMsg
+	35, // 44: pbft.transport.v1.EpochAggregateMsgMini.epoch_data:type_name -> pbft.transport.v1.EpochData
+	4,  // 45: pbft.transport.v1.EpochAggregateMsgMini.current_action:type_name -> pbft.transport.v1.Action
+	35, // 46: pbft.transport.v1.EpochAggregateMsg.epoch_data:type_name -> pbft.transport.v1.EpochData
+	37, // 47: pbft.transport.v1.EpochAggregateMsg.epoch_data_msg_sigs:type_name -> pbft.transport.v1.EpochDataMsgSig
+	4,  // 48: pbft.transport.v1.EpochAggregateMsg.current_action:type_name -> pbft.transport.v1.Action
+	9,  // 49: pbft.transport.v1.Envelope.request:type_name -> pbft.transport.v1.RequestMessage
+	13, // 50: pbft.transport.v1.Envelope.preprepare:type_name -> pbft.transport.v1.PreprepareMsg
+	15, // 51: pbft.transport.v1.Envelope.prepare:type_name -> pbft.transport.v1.PrepareMsg
+	16, // 52: pbft.transport.v1.Envelope.commit:type_name -> pbft.transport.v1.CommitMsg
+	20, // 53: pbft.transport.v1.Envelope.reply:type_name -> pbft.transport.v1.ReplyMessage
+	23, // 54: pbft.transport.v1.Envelope.close:type_name -> pbft.transport.v1.CloseMessage
+	27, // 55: pbft.transport.v1.Envelope.view_change:type_name -> pbft.transport.v1.ViewChangeMsg
+	29, // 56: pbft.transport.v1.Envelope.new_view:type_name -> pbft.transport.v1.NewViewMsg
+	24, // 57: pbft.transport.v1.Envelope.checkpoint:type_name -> pbft.transport.v1.CheckpointMsg
+	21, // 58: pbft.transport.v1.Envelope.commit_tps:type_name -> pbft.transport.v1.CommitTps
+	22, // 59: pbft.transport.v1.Envelope.leader_id_update:type_name -> pbft.transport.v1.LeaderIdUpdate
+	12, // 60: pbft.transport.v1.Envelope.vc_running_status:type_name -> pbft.transport.v1.VCRunningStatus
+	31, // 61: pbft.transport.v1.Envelope.request_vote:type_name -> pbft.transport.v1.RequestVoteMsg
+	33, // 62: pbft.transport.v1.Envelope.grant_vote:type_name -> pbft.transport.v1.GrantVoteMsg
+	10, // 63: pbft.transport.v1.Envelope.event:type_name -> pbft.transport.v1.EventMsg
+	36, // 64: pbft.transport.v1.Envelope.epoch_data:type_name -> pbft.transport.v1.EpochDataMsg
+	39, // 65: pbft.transport.v1.Envelope.epoch_aggregate:type_name -> pbft.transport.v1.EpochAggregateMsg
+	19, // 66: pbft.transport.v1.PreparedCert.PrepareLogEntry.value:type_name -> pbft.transport.v1.PrepareMsgSig
+	26, // 67: pbft.transport.v1.ViewChangeMsg.PreparedCertsEntry.value:type_name -> pbft.transport.v1.PreparedCert
+	40, // 68: pbft.transport.v1.PBFTTransport.Deliver:input_type -> pbft.transport.v1.Envelope
+	40, // 69: pbft.transport.v1.PBFTTransport.ClientNodeChannel:input_type -> pbft.transport.v1.Envelope
+	42, // 70: pbft.transport.v1.PBFTTransport.Probe:input_type -> pbft.transport.v1.ProbeReq
+	41, // 71: pbft.transport.v1.PBFTTransport.Deliver:output_type -> pbft.transport.v1.Ack
+	40, // 72: pbft.transport.v1.PBFTTransport.ClientNodeChannel:output_type -> pbft.transport.v1.Envelope
+	43, // 73: pbft.transport.v1.PBFTTransport.Probe:output_type -> pbft.transport.v1.ProbeResp
+	71, // [71:74] is the sub-list for method output_type
+	68, // [68:71] is the sub-list for method input_type
+	68, // [68:68] is the sub-list for extension type_name
+	68, // [68:68] is the sub-list for extension extendee
+	0,  // [0:68] is the sub-list for field type_name
 }
 
 func init() { file_pbft_transport_proto_init() }

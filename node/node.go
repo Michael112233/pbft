@@ -1061,12 +1061,15 @@ func (n *Node) asyncBroadCast(msgType string, msg interface{}, signature []byte)
 		go n.messageHub.Send(msgType, othersIp, msg, signature)
 	}
 }
-func (n *Node) sendLeaderIdUpdate(newLeaderID int, view core.ViewID) {
+// sendLeaderIdUpdate runs off the event loop, so the caller passes the action of
+// view's generation in rather than it being read here.
+func (n *Node) sendLeaderIdUpdate(newLeaderID int, view core.ViewID, action core.Action) {
 	leaderUpdateMsg := core.LeaderIdUpdate{
 		From:        n.GetAddr(),
 		To:          config.ClientAddr,
 		NewLeaderId: newLeaderID,
 		View:        view,
+		Action:      action,
 	}
 	// time.Sleep(1000 * time.Millisecond) // add delay to ensure client receives view change messages before leader update, can remove when client can handle out of order messages
 	n.messageHub.Send(core.MsgLeaderIdUpdateMessage, config.ClientAddr, leaderUpdateMsg, nil)

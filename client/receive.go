@@ -31,6 +31,7 @@ func (c *Client) HandleLeaderUpdate(data core.LeaderIdUpdate) {
 	leaderUpdate := LeaderUpdate{
 		view:     data.View,
 		leaderId: data.NewLeaderId,
+		action:   data.Action,
 	}
 	c.newLeaderQuorum[leaderUpdate]++
 	oldLeader := c.leaderAddr
@@ -53,7 +54,7 @@ func (c *Client) HandleLeaderUpdate(data core.LeaderIdUpdate) {
 	// This quorum is the controller's first permitted notice of the new leader
 	// (client/throttlemanager.go). Off the mutex, never blocking.
 	if observed {
-		c.notifyLeaderObserved(leaderNotice{view: data.View, leaderID: data.NewLeaderId, observedAt: observedAt})
+		c.notifyLeaderObserved(leaderNotice{view: data.View, leaderID: data.NewLeaderId, action: data.Action, observedAt: observedAt})
 	}
 
 	// a non-leader drops client requests, so what is still queued for the old

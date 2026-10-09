@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"time"
 
@@ -30,8 +31,11 @@ import (
 // loop actually applied the change, which is what the controller's slot state
 // machine needs before it reuses a slot.
 type throttleGateCmd struct {
-	enable  bool
-	applied chan struct{}
+	enable bool
+	// applied receives the loop's verdict exactly once, as soon as the claim is
+	// won: nil if the command takes effect, errThrottleGateOutsideScenario if an
+	// enable was refused. Buffered, so the loop never blocks on it.
+	applied chan error
 
 	// claimed is won exactly once, by whichever of the event loop and the gRPC
 	// handler reaches it first: the loop claims before applying, the handler
@@ -50,6 +54,33 @@ type throttleGateCmd struct {
 // command's fate.
 func (c throttleGateCmd) claim() bool {
 	return c.claimed.CompareAndSwap(false, true)
+}
+
+// errThrottleGateOutsideScenario refuses a gate enable while this node is not in
+// the Throttle scenario. The client's throttle manager treats it like any failed
+// command and retries with backoff, so a node that has not switched into a
+// Throttle generation yet is gated as soon as it has.
+var errThrottleGateOutsideScenario = errors.New("throttle gate enable refused: node is not in the Throttle scenario")
+
+// throttleGateAllowed reports whether this node's gate may be turned on. In
+// scenario mode only Throttle generations allow it, so the gate can never bite in
+// another scenario, however late the client hears about a switch. Without scenario
+// mode (static throttle runs) it is always allowed.
+func (n *Node) throttleGateAllowed() bool {
+	return !n.scenarioMode || (n.scenarioApplied && n.currScenario == core.ScenarioThrottle)
+}
+
+// clearThrottleGateOnScenarioSwitch turns the gate off when the node leaves the
+// Throttle scenario. Each node does this itself, deterministically from the
+// generation, as it clears dead and proposalDelay, so closing needs no
+// coordination with the client; the client's later disables are no-ops. A
+// pending gate timer is left to fire: it only re-drives tryPropose. Loop-owned.
+func (n *Node) clearThrottleGateOnScenarioSwitch(next core.Scenario) {
+	if next == core.ScenarioThrottle || !n.proposalGateOn {
+		return
+	}
+	n.proposalGateOn = false
+	n.log.Info("GATE enabled=false: left the Throttle scenario for %s", core.ScenarioToString(next))
 }
 
 func (n *Node) resetProposalGateTimer(wait time.Duration) {
@@ -86,11 +117,11 @@ func (n *Node) handleProposalGateTimeout() {
 // Disabling cancels any pending limit immediately and re-drives proposing in
 // the same tick, so releasing a slot takes effect at once.
 //
-// applied is closed as soon as the claim is won, before the flag is even
-// written, because from that point the command is certain to take effect in this
-// tick and nothing below blocks. That releases the gRPC handler, and with it the
-// client's 1s deadline, without waiting for tryPropose — which computes a batch
-// digest and broadcasts, and can take a while.
+// The verdict is sent on applied as soon as the claim is won, before the flag is
+// even written, because from that point the outcome is certain in this tick and
+// nothing below blocks. That releases the gRPC handler, and with it the client's
+// 1s deadline, without waiting for tryPropose — which computes a batch digest and
+// broadcasts, and can take a while.
 func (n *Node) handleThrottleGateCmd(cmd throttleGateCmd) {
 	// event loop comes here
 	if !cmd.claim() {
@@ -100,9 +131,15 @@ func (n *Node) handleThrottleGateCmd(cmd throttleGateCmd) {
 		n.log.Info("GATE_RPC cancelled enable=%v: client deadline expired before the loop applied it", cmd.enable)
 		return
 	}
-	close(cmd.applied)
-
 	view := n.GetViewID()
+	if cmd.enable && !n.throttleGateAllowed() {
+		cmd.applied <- errThrottleGateOutsideScenario
+		n.log.Info("GATE enable refused: scenario %s is not Throttle view=(%d,%d)",
+			core.ScenarioToString(n.currScenario), view.Generation, view.Counter)
+		return
+	}
+	cmd.applied <- nil
+
 	if n.proposalGateOn == cmd.enable {
 		n.log.Info("GATE unchanged enabled=%v interval=%v view=(%d,%d)",
 			cmd.enable, n.proposalMinInterval, view.Generation, view.Counter)
@@ -121,9 +158,9 @@ func (n *Node) handleThrottleGateCmd(cmd throttleGateCmd) {
 // ReceiveThrottleGateCmd hands a gate command to the event loop and waits for it
 // to be applied. Runs on a gRPC handler goroutine, never on the loop.
 func (n *Node) ReceiveThrottleGateCmd(ctx context.Context, enable bool) error {
-	cmd := throttleGateCmd{enable: enable, applied: make(chan struct{}), claimed: &atomic.Bool{}}
-	// close applied means the loop owns the command and applies it in this tick,
-	// so the unary Ack reports that to the client.
+	cmd := throttleGateCmd{enable: enable, applied: make(chan error, 1), claimed: &atomic.Bool{}}
+	// A verdict on applied means the loop owns the command and decided it in this
+	// tick, so the unary Ack reports that to the client.
 	select {
 	case n.throttleGateCh <- cmd: // send to loop
 	case <-ctx.Done():
@@ -136,8 +173,8 @@ func (n *Node) ReceiveThrottleGateCmd(ctx context.Context, enable bool) error {
 	}
 
 	select {
-	case <-cmd.applied: // happy path
-		return nil
+	case err := <-cmd.applied: // happy path, or refused outside the Throttle scenario
+		return err
 	case <-ctx.Done():
 		// The command is already queued, so claim it to stop the loop applying
 		// something the client has given up on. That keeps "failed Ack" meaning
@@ -146,11 +183,14 @@ func (n *Node) ReceiveThrottleGateCmd(ctx context.Context, enable bool) error {
 			n.log.Info("GATE_RPC expired after enqueue enable=%v: cancelled, not applied", enable)
 			return ctx.Err()
 		}
+		// now loop can claim and still failt if throttle scenario off
 		// Lost the claim: the loop got there first, so the command did take
 		// effect. gRPC has already failed the call client-side at the deadline,
 		// so the controller believes otherwise and its view of this node's gate
 		// may be stale until its next command. Watch this line.
-		<-cmd.applied
+		if err := <-cmd.applied; err != nil {
+			return err // refused, so nothing was applied after all
+		}
 		n.log.Error("GATE_RPC expired after enqueue enable=%v: APPLIED ANYWAY, controller recorded a failure", enable)
 		return nil
 	case <-n.eventLoopStopCh:
