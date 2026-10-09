@@ -22,9 +22,12 @@ Pilot conditions that differ from the planned multi-scenario run:
     2 slots, 100 ms gate), not the Throttle scenario.
   - ProposalDelay delays nodes {1, 2}; NetworkDelayFCrash crashes {3, 5}.
 
-Throttle PerformanceElection is bimodal: generations 2-5 at ~3 600 tx/s (bar stuck at
-the 145.6 default, fresh ungated leaders evicted at the 1 s tick at ~130 slots/s),
-generations 6-8 at ~5 200 (the throttle-prep-sweep 4.2 model). Both regimes are kept.
+Throttle PerformanceElection comes from a 30-min run of the same configuration
+(config/pilots_n7/throttle_pfe_30min.json, scenario_mode off with the standalone
+throttle), 23 generations at 4 917-5 587 tx/s, not from the 10-min pilot. The pilot ran
+on a slow stretch of the machine and fell into a tick-1 eviction cascade in generations
+2-5 (~3 600 tx/s); in 30 min 92% of fresh leaders were evicted at tick 4 as the
+throttle-prep-sweep 4.2 model predicts, and none cascaded.
 
 State (measured while the previous action ran):
   [vc_rate, proposal_interval, inactive_nodes]   (server.LEARNING_DATA_STATE_KEYS)
@@ -99,7 +102,14 @@ GENERATIONS: dict[str, dict[ProtocolName, list[tuple[float, float]]]] = {
         PRR: [(489, 0.107), (491, 0.107), (489, 0.107), (489, 0.107), (491, 0.107), (486, 0.107), (483, 0.107)],
         PE: [(1997, 0.107), (1716, 0.107), (2019, 0.107), (2617, 0.107), (1416, 0.107), (2321, 0.107), (2572, 0.107)],
         PFRR: [(4791, 0.506), (5247, 0.533), (4899, 0.519), (4878, 0.519), (5105, 0.519), (4946, 0.519), (4780, 0.506)],
-        PFE: [(3633, 0.490), (3482, 0.543), (3690, 0.544), (3897, 0.519), (4784, 0.306), (5228, 0.293), (5184, 0.266)],
+        # 30-min run (results/all_new_scenario_pilots/throttle_pfe_30min_20261009_173627),
+        # 23 generations; the 10-min pilot's PFE was bimodal (see module docstring)
+        PFE: [
+            (5216, 0.333), (5102, 0.333), (5407, 0.320), (5425, 0.306), (5303, 0.320), (5560, 0.306),
+            (5418, 0.293), (5440, 0.320), (5392, 0.306), (5400, 0.320), (5284, 0.306), (5147, 0.333),
+            (5414, 0.306), (5246, 0.320), (4917, 0.359), (5178, 0.320), (5404, 0.320), (5343, 0.306),
+            (5393, 0.293), (5093, 0.346), (5381, 0.306), (5359, 0.320), (5587, 0.293),
+        ],
     },
 }
 
@@ -188,15 +198,24 @@ def overlap_report(tolerance: float, drop_inactive: bool, pad: float) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--steps", type=int, default=len(ROTATING_SCENARIOS) * SCENARIO_SPAN)
+    parser.add_argument("--steps", type=int, default=None, help="default: one span per scenario in the order")
     parser.add_argument("--span", type=int, default=SCENARIO_SPAN, help="epochs per scenario")
     parser.add_argument("--seed", type=int, default=5)
     parser.add_argument("--tolerance", type=float, default=OPTIMAL_TOLERANCE)
     parser.add_argument("--drop-inactive", action="store_true", help="state without inactive_nodes")
     parser.add_argument("--overlap", action="store_true", help="print the state overlap report and exit")
     parser.add_argument("--pad", type=float, default=0.05, help="relative widening of each range in --overlap")
+    parser.add_argument("--order", default=None,
+                        help="comma-separated scenario sequence, e.g. pdelay,ndelay,ndfcrash,throttle,healthy "
+                             "(healthy, pdelay, ndelay, ndfcrash, throttle); default ROTATING_SCENARIOS")
     parser.add_argument("--quiet", action="store_true", help="no per-step lines")
     args = parser.parse_args()
+
+    rotation = ROTATING_SCENARIOS
+    if args.order:
+        short = {"healthy": HEALTHY, "pdelay": PDELAY, "ndelay": NDELAY, "ndfcrash": NDFCRASH, "throttle": THROTTLE}
+        rotation = [short[s.strip().lower()] for s in args.order.split(",")]
+    steps = args.steps if args.steps is not None else len(rotation) * args.span
 
     if args.overlap:
         overlap_report(args.tolerance, args.drop_inactive, args.pad)
@@ -215,8 +234,8 @@ def main() -> None:
     prev = INIT_PROTOCOL
     blocks: list[dict] = []
     start = time()
-    for step in range(1, args.steps + 1):
-        scenario = ROTATING_SCENARIOS[((step - 1) // args.span) % len(ROTATING_SCENARIOS)]
+    for step in range(1, steps + 1):
+        scenario = rotation[((step - 1) // args.span) % len(rotation)]
         if (step - 1) % args.span == 0:
             blocks.append({"scenario": scenario, "choices": [], "rewards": []})
             if not args.quiet:

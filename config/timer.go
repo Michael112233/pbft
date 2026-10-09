@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"time"
+
+	"github.com/michael112233/pbft/core"
 )
 
 // Trigger timeouts (node/triggerManager.go). Each one is used for both the
@@ -12,7 +14,7 @@ import (
 const (
 	defaultPeriodicTriggerTimeout     = 10 * time.Second
 	defaultFixedTriggerTimeout        = 150 * time.Millisecond
-	defaultRelaxedFixedTriggerTimeout = 300 * time.Millisecond
+	defaultRelaxedFixedTriggerTimeout = 350 * time.Millisecond
 	defaultEpochTimer                 = 45 * time.Second
 )
 
@@ -20,9 +22,11 @@ type TimerConfig struct {
 	// PeriodicTriggerTimeoutMs is the Periodic leader tenure; 0 means 10000.
 	PeriodicTriggerTimeoutMs int `json:"periodic_trigger_timeout_ms"`
 	// FixedTriggerTimeoutMs is the Fixed (and Perf floor) timeout; 0 means 150.
+	// In scenario mode it applies only in NetworkDelay and NetworkDelayFCrash
+	// generations (see FixedFloorForScenario).
 	FixedTriggerTimeoutMs int `json:"fixed_trigger_timeout_ms"`
-	// RelaxedFixedTriggerTimeoutMs is a longer fixed timeout; 0 means 300. Not
-	// read by the protocol yet.
+	// RelaxedFixedTriggerTimeoutMs is the Fixed/Perf timeout in scenario mode for
+	// every scenario other than NetworkDelay and NetworkDelayFCrash; 0 means 350.
 	RelaxedFixedTriggerTimeoutMs int `json:"relaxed_fixed_trigger_timeout_ms"`
 	// EpochTimerMs is the epoch length: how long after seq 1 (and after each
 	// generation switch) a node sends its epoch data; 0 means 45000.
@@ -57,6 +61,20 @@ func (c *Config) FixedTriggerTimeout() time.Duration {
 
 func (c *Config) RelaxedFixedTriggerTimeout() time.Duration {
 	return msOrDefault(c.Timer.RelaxedFixedTriggerTimeoutMs, defaultRelaxedFixedTriggerTimeout)
+}
+
+// FixedFloorForScenario is the Fixed/Perf timeout for a generation running
+// scenario. Experiment scaffolding, as the per-scenario election pool is: the
+// network-delay scenarios keep the short fixed timeout, so Fixed and Perf still
+// cascade under the 170 ms delay while Periodic makes progress, and every other
+// scenario gets the relaxed one, which a n=7 view change fits inside until
+// view-change cost is optimised. Outside scenario mode it is always the fixed
+// timeout. Every node derives the scenario from the generation, so all agree.
+func (c *Config) FixedFloorForScenario(scenario core.Scenario) time.Duration {
+	if !c.ScenarioMode || scenario == core.ScenarioNetworkDelay || scenario == core.ScenarioNetworkDelayFCrash {
+		return c.FixedTriggerTimeout()
+	}
+	return c.RelaxedFixedTriggerTimeout()
 }
 
 func msOrDefault(ms int, def time.Duration) time.Duration {

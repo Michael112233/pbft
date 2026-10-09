@@ -32,7 +32,7 @@ func (n *Node) incrementGeneration(action core.Action) core.ViewID {
 	n.fillDeciderGap(forView.Generation, n.GetCurrAction())
 	n.resetEpochTimer(forView.Generation + 1)
 	n.SetCurrAction(action)
-	n.SwitchTriggerMode(action.TriggerMode) // its is some what parallel state with curr action both update together onn generation update
+	n.SwitchTriggerMode(action.TriggerMode, forView.Generation+1) // its is some what parallel state with curr action both update together onn generation update
 	n.epochManager.GCBelow(forView.Generation + 1)
 	// Leaving forView.Generation: apply its stored aggregate now, so rows and
 	// candidates for the next generation appear together with the switch. Runs

@@ -28,7 +28,7 @@
   "timer": {
     "periodic_trigger_timeout_ms": 10000,
     "fixed_trigger_timeout_ms": 150,
-    "relaxed_fixed_trigger_timeout_ms": 300,
+    "relaxed_fixed_trigger_timeout_ms": 350,
     "epoch_timer_ms": 45000,
     "epoch_grid": false
   },

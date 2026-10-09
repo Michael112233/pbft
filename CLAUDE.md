@@ -101,10 +101,22 @@ currently trying to reach). They differ while a view change is running.
 Mode logic in `node/triggerManager.go`; timer plumbing in `node/viewtimers.go`. The
 timeouts come from the config's `timer` block (`config/timer.go`):
 `periodic_trigger_timeout_ms` (default 10000), `fixed_trigger_timeout_ms` (default 150,
-also the Perf floor), and `relaxed_fixed_trigger_timeout_ms` (default 300, parsed but not
-read by the protocol yet). `timeoutForMode` picks Periodic's or the fixed one, and is
-used both by the constructor and by `SwitchTriggerMode`, so a mode switch never leaves a
-stale timeout behind. The values below are the defaults.
+also the Perf floor), and `relaxed_fixed_trigger_timeout_ms` (default 350). `timeoutForMode`
+picks Periodic's or the Fixed/Perf floor, and is used both by the constructor and by
+`SwitchTriggerMode`, so a mode switch never leaves a stale timeout behind.
+
+**The Fixed/Perf floor depends on the generation's scenario** (`config.FixedFloorForScenario`,
+`Node.fixedFloorForGeneration`): in scenario mode, NetworkDelay and NetworkDelayFCrash
+generations use `fixed_trigger_timeout_ms` (150, so Fixed and Perf still cascade under the
+170 ms delay while Periodic makes progress) and every other scenario uses
+`relaxed_fixed_trigger_timeout_ms` (350, which an n=7 view change fits inside until
+view-change cost is optimised). Outside scenario mode it is always
+`fixed_trigger_timeout_ms`. `incrementGeneration` passes the new generation to
+`SwitchTriggerMode`, which derives the scenario with `scenarioForGeneration` (as the
+election pool does), so every node agrees; the constructor uses generation 1. Each switch
+logs `TIMER: gen G scenario S mode M fixed floor X`. Experiment scaffolding, matching the
+n=7 pilots (350 ms for Healthy/ProposalDelay/Throttle, 150 ms for the network-delay
+scenarios). The values below are the defaults outside scenario mode.
 
 | Mode | Progress / new-view timeout | Reset on execution | Effect |
 |---|---|---|---|

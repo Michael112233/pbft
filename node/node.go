@@ -276,7 +276,8 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 	n.ArmBatchTimer()
 	n.StopBatchTimer()
 	checkpointManager := NewCheckpointManager(log, n)
-	triggerManager := NewTriggerManager(log, n.currAction.TriggerMode, n, cfg.PeriodicTriggerTimeout(), cfg.FixedTriggerTimeout())
+	// genesis view is generation 1, so its scenario sets the first Fixed/Perf floor
+	triggerManager := NewTriggerManager(log, n.currAction.TriggerMode, n, cfg.PeriodicTriggerTimeout(), n.fixedFloorForGeneration(1))
 	n.triggerManager = triggerManager
 	epochManager := NewEpochManager(log, n)
 	n.epochManager = epochManager

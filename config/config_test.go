@@ -152,7 +152,7 @@ func TestParseScenariosChecksOnlyListedScenarios(t *testing.T) {
 func TestTimerDefaultsAndOverrides(t *testing.T) {
 	c := &Config{}
 	if c.PeriodicTriggerTimeout() != 10*time.Second || c.FixedTriggerTimeout() != 150*time.Millisecond ||
-		c.RelaxedFixedTriggerTimeout() != 300*time.Millisecond || c.EpochTimer() != 45*time.Second {
+		c.RelaxedFixedTriggerTimeout() != 350*time.Millisecond || c.EpochTimer() != 45*time.Second {
 		t.Fatalf("defaults: periodic %v fixed %v relaxed %v",
 			c.PeriodicTriggerTimeout(), c.FixedTriggerTimeout(), c.RelaxedFixedTriggerTimeout())
 	}

@@ -18,7 +18,9 @@ type TriggerManager struct {
 	log                  *logger.Logger
 	node                 NodeTrigger
 
-	// From the config's timer block (config/timer.go); fixed for the run.
+	// From the config's timer block (config/timer.go). periodicTimeout is fixed for
+	// the run; fixedTimeout is the Fixed/Perf floor of the current generation, set
+	// on every SwitchTriggerMode (config.FixedFloorForScenario).
 	periodicTimeout time.Duration
 	fixedTimeout    time.Duration
 }
@@ -46,12 +48,15 @@ func NewTriggerManager(log *logger.Logger, triggerMode core.TriggerMode, node No
 	return tm
 }
 
-func (tm *TriggerManager) SwitchTriggerMode(newMode core.TriggerMode) {
+// SwitchTriggerMode sets the mode and the Fixed/Perf floor for the generation
+// being entered; Periodic keeps its own timeout.
+func (tm *TriggerManager) SwitchTriggerMode(newMode core.TriggerMode, fixedTimeout time.Duration) {
 	// no need to stop perf already going to call view change when jump gen by amplification or model
 	// if tm.triggerMode == core.PerfTrigger && newMode != core.PerfTrigger {
 	// 	tm.node.stopPerfTimer()
 	// }
 	tm.triggerMode = newMode
+	tm.fixedTimeout = fixedTimeout
 	if newMode != core.NullTrigger {
 		timeout := tm.timeoutForMode(newMode)
 		tm.progressTimeoutValue = timeout
@@ -95,6 +100,27 @@ func (n *Node) GetNewViewTimeout() time.Duration {
 	return n.triggerManager.GetNewViewTimeout()
 }
 
-func (n *Node) SwitchTriggerMode(newMode core.TriggerMode) {
-	n.triggerManager.SwitchTriggerMode(newMode)
+// SwitchTriggerMode switches to newMode for generation gen, with the Fixed/Perf
+// floor of gen's scenario.
+func (n *Node) SwitchTriggerMode(newMode core.TriggerMode, gen uint64) {
+	floor := n.fixedFloorForGeneration(gen)
+	n.triggerManager.SwitchTriggerMode(newMode, floor)
+	n.log.Info("TIMER: gen %d scenario %s mode %d fixed floor %v (progress/new-view timeout %v)",
+		gen, n.scenarioNameForGeneration(gen), newMode, floor, n.triggerManager.GetProgressTimeout())
+}
+
+// fixedFloorForGeneration is the Fixed/Perf timeout for gen: the scenario is
+// derived from the generation, as for the election pool, so every node agrees.
+func (n *Node) fixedFloorForGeneration(gen uint64) time.Duration {
+	if !n.cfg.ScenarioMode {
+		return n.cfg.FixedTriggerTimeout()
+	}
+	return n.cfg.FixedFloorForScenario(scenarioForGeneration(gen, n.cfg.ScenariosEnum, n.cfg.ScenarioGenerations))
+}
+
+func (n *Node) scenarioNameForGeneration(gen uint64) string {
+	if !n.cfg.ScenarioMode {
+		return "none"
+	}
+	return core.ScenarioToString(scenarioForGeneration(gen, n.cfg.ScenariosEnum, n.cfg.ScenarioGenerations))
 }
