@@ -28,9 +28,13 @@ type transactionDetails struct {
 	latency          int64
 	done             bool
 	committed        bool
-	clientMsgSig     core.ClientMsgSignature
-	nextRetryTime    time.Time
-	retryCount       int
+	// clientMsgSig is the signed request, kept only so a retry can resend it; nil
+	// when the manager does not keep request bodies (no retry path in this run).
+	// A request that never commits is never removed from the shards, so without
+	// retries this field would be kept, unread, for the whole run.
+	clientMsgSig  *core.ClientMsgSignature
+	nextRetryTime time.Time
+	retryCount    int
 }
 
 type shard struct {
@@ -56,7 +60,15 @@ type TransactionManager struct {
 	elapsedTime         float64
 	txnRetryManager     *TransactionRetryManager
 	retry               retryPolicy
-	retriesSent         atomic.Int64
+	// keepRequestBody stores each request's signed body for resending. Only a
+	// retry path reads it (client_retry, or the complete_suite drain), so runs
+	// without one drop it and an uncommitted request costs a few timestamps instead.
+	keepRequestBody bool
+	// droppedUnsent counts requests registered for a batch that was then dropped
+	// before sending (full send queue), and removed again because nothing would
+	// ever resend them (ForgetUnsent). They are not in uncommittedCount.
+	droppedUnsent atomic.Int64
+	retriesSent   atomic.Int64
 	tpsSeries           []TPSPoint
 	lastSampleTime      int64
 	lastSampleCommitted int64
@@ -102,6 +114,7 @@ func NewTransactionManager(client ClientTxnManager, log *logger.Logger) *Transac
 		tpsSamplerStopCh:  make(chan struct{}),
 		client:            client,
 		log:               log,
+		keepRequestBody:   true, // safe default; NewClient turns it off when nothing retries
 	}
 	for i := range tm.shards {
 		tm.shards[i].txns = make(map[int64]*transactionDetails)
@@ -113,6 +126,12 @@ func NewTransactionManager(client ClientTxnManager, log *logger.Logger) *Transac
 // before any transaction is added.
 func (tm *TransactionManager) SetRetryPolicy(p retryPolicy) {
 	tm.retry = p
+}
+
+// SetKeepRequestBody says whether AddTransaction stores the signed request for
+// resending. Call before any transaction is added.
+func (tm *TransactionManager) SetKeepRequestBody(keep bool) {
+	tm.keepRequestBody = keep
 }
 
 func (tm *TransactionManager) retryTimerWorker(normalStart bool) {
@@ -135,6 +154,11 @@ func (tm *TransactionManager) retryTimerWorker(normalStart bool) {
 }
 
 func (tm *TransactionManager) StartRetryTimer(normalStart bool) {
+	if !tm.keepRequestBody {
+		// Nothing to resend: AddTransaction did not keep the bodies.
+		tm.log.Error("retry timer not started: request bodies are not kept (SetKeepRequestBody(false))")
+		return
+	}
 	if tm.txnRetryManager.timerStarted.CompareAndSwap(false, true) {
 		go tm.retryTimerWorker(normalStart)
 	}
@@ -192,16 +216,20 @@ func (tm *TransactionManager) GetThroughput() (tps float64, elapsed float64, txn
 func (tm *TransactionManager) AddTransaction(batch []core.ClientMsgSignature, createdAt time.Time) {
 	timeNow := time.Now()
 	for _, msgSig := range batch {
-		s := tm.getShard(msgSig.Data.Id)
-		s.mu.Lock()
-		s.txns[msgSig.Data.Id] = &transactionDetails{
+		details := &transactionDetails{
 			createdTimestamp: createdAt.UnixNano(), // created -> send: pacer slot wait (+ pacer lock wait if retries are sending)
 			startTimestamp:   timeNow.UnixNano(),   // taken just before send: latency includes send/stream wait, network, consensus and reply
 			done:             false,
-			clientMsgSig:     msgSig,
 			retryCount:       0,
 			nextRetryTime:    timeNow.Add(tm.retry.first()),
 		}
+		if tm.keepRequestBody {
+			body := msgSig
+			details.clientMsgSig = &body
+		}
+		s := tm.getShard(msgSig.Data.Id)
+		s.mu.Lock()
+		s.txns[msgSig.Data.Id] = details
 		s.mu.Unlock()
 	}
 	if len(batch) > 0 {
@@ -209,6 +237,33 @@ func (tm *TransactionManager) AddTransaction(batch []core.ClientMsgSignature, cr
 		tm.queueSamples = append(tm.queueSamples, timeNow.Sub(createdAt).Nanoseconds())
 		tm.latencyMu.Unlock()
 	}
+}
+
+// ForgetUnsent stops tracking a batch that AddTransaction registered but that was
+// dropped before it was sent. With a retry path the entries stay, so the retry
+// sweep resends them; without one they could never commit, so keeping them would
+// only grow the client for the rest of the run. Returns how many were removed;
+// they are counted in droppedUnsent instead of uncommitted.
+func (tm *TransactionManager) ForgetUnsent(batch []core.ClientMsgSignature) int {
+	if tm.keepRequestBody {
+		return 0
+	}
+	removed := 0
+	for _, msgSig := range batch {
+		s := tm.getShard(msgSig.Data.Id)
+		s.mu.Lock()
+		if txn, ok := s.txns[msgSig.Data.Id]; ok {
+			txn.mu.Lock()
+			if !txn.committed {
+				delete(s.txns, msgSig.Data.Id)
+				removed++
+			}
+			txn.mu.Unlock()
+		}
+		s.mu.Unlock()
+	}
+	tm.droppedUnsent.Add(int64(removed))
+	return removed
 }
 
 func (tm *TransactionManager) sendTxsForRetry() {
@@ -222,8 +277,8 @@ func (tm *TransactionManager) sendTxsForRetry() {
 		for _, txn := range s.txns {
 			txnsIterated++
 			txn.mu.Lock()
-			if !txn.committed && now.After(txn.nextRetryTime) {
-				candidates = append(candidates, txn.clientMsgSig)
+			if !txn.committed && txn.clientMsgSig != nil && now.After(txn.nextRetryTime) {
+				candidates = append(candidates, *txn.clientMsgSig)
 				txn.retryCount++
 				if txn.retryCount > 1 {
 					candidatesWithMultipleRetries++
@@ -438,10 +493,17 @@ type LatencySummaryResult struct {
 	RetriedP50Ms float64 `json:"retried_p50_ms"`
 	RetriedP99Ms float64 `json:"retried_p99_ms"`
 	RetriesSent  int64   `json:"retries_sent"`
-	// Uncommitted counts requests sent but never committed by the time of the summary.
+	// Uncommitted counts requests still tracked and never committed by the time of
+	// the summary.
 	Uncommitted int `json:"uncommitted"`
+	// DroppedUnsent counts requests dropped before sending that were removed from
+	// tracking because no retry path could resend them (TransactionManager.
+	// ForgetUnsent). uncommitted + dropped_unsent is every request that never
+	// committed; with retry on it is 0 and dropped requests stay in uncommitted.
+	DroppedUnsent int64 `json:"dropped_unsent"`
 	// Requests dropped on a full per-node send queue, and discarded from the old
-	// leader's queue on a leader change (sendqueue.go). Both stay registered.
+	// leader's queue on a leader change (sendqueue.go). Discarded ones stay
+	// registered; dropped ones too unless counted in dropped_unsent.
 	SendQueueDropped   int64 `json:"send_queue_dropped"`
 	SendQueueDiscarded int64 `json:"send_queue_discarded"`
 	// Client-side wait between a batch leaving the signer pipeline and being
@@ -475,6 +537,7 @@ func (tm *TransactionManager) LatencySummary(path string) error {
 		RetryEnabled:        tm.retry.includeRetried,
 		RetriesSent:         tm.retriesSent.Load(),
 		Uncommitted:         tm.uncommittedCount(),
+		DroppedUnsent:       tm.droppedUnsent.Load(),
 	}
 	result.SendQueueDropped, result.SendQueueDiscarded = tm.client.sendQueueStats()
 	if tm.retry.includeRetried {

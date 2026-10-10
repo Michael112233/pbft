@@ -267,9 +267,9 @@ func (c *Config) ThrottleScenarioMode() bool {
 }
 
 // validateScenarioThrottle checks what the Throttle scenario needs: a gate
-// severity, the slot/prep parameters the client uses, and an oracle run until the
-// learning agent has a synthetic model for Throttle (generate_state /
-// generate_reward in learningagent/simulate_quadrf.py raise for it).
+// severity and the slot/prep parameters the client uses. The learning agent's
+// synthetic model covers Throttle (learningagent/simulate_quadrf_n7.py), so it runs
+// with or without oracle_mode.
 func (c *Config) validateScenarioThrottle() error {
 	if c.ProposalMinIntervalMs <= 0 {
 		return fmt.Errorf("Throttle needs proposal_min_interval_ms > 0, otherwise the gate does nothing")
@@ -279,9 +279,6 @@ func (c *Config) validateScenarioThrottle() error {
 	}
 	if k := c.ThrottleSlots(); k < 1 || int64(k) > c.NodeNum {
 		return fmt.Errorf("Throttle needs 1..%d slots, got %d", c.NodeNum, k)
-	}
-	if !c.OracleMode {
-		return fmt.Errorf("Throttle needs oracle_mode for now: the learning agent has no synthetic state/reward for it yet (learningagent/simulate_quadrf.py)")
 	}
 	return nil
 }

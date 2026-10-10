@@ -128,6 +128,84 @@ func TestTransactionManagerAddTransactionStoresMetadata(t *testing.T) {
 	}
 }
 
+// Without a retry path the signed body is not kept; with one it is, and only
+// entries that have a body are resent.
+func TestAddTransactionKeepsBodyOnlyForRetry(t *testing.T) {
+	body := core.ClientMsgSignature{Data: core.ClientMsg{Id: 7, ClientName: "c"}, Signature: []byte{1, 2, 3}}
+
+	sent := &recordingTestClient{}
+	tm := NewTransactionManager(sent, &logger.Logger{})
+	tm.SetKeepRequestBody(false)
+	tm.AddTransaction([]core.ClientMsgSignature{body}, time.Now())
+	if txn := tm.getShard(7).txns[7]; txn == nil || txn.clientMsgSig != nil {
+		t.Fatalf("keep=false: entry %+v, want an entry without a body", txn)
+	}
+	tm.getShard(7).txns[7].nextRetryTime = time.Time{} // due
+	tm.sendTxsForRetry()
+	if len(sent.sent) != 0 {
+		t.Fatalf("keep=false: retry resent %d requests without a body", len(sent.sent))
+	}
+
+	tm = NewTransactionManager(sent, &logger.Logger{})
+	tm.AddTransaction([]core.ClientMsgSignature{body}, time.Now())
+	txn := tm.getShard(7).txns[7]
+	if txn.clientMsgSig == nil || txn.clientMsgSig.Data.ClientName != "c" || len(txn.clientMsgSig.Signature) != 3 {
+		t.Fatalf("keep=true (default): body %+v, want the signed request", txn.clientMsgSig)
+	}
+	txn.nextRetryTime = time.Time{}
+	tm.sendTxsForRetry()
+	if len(sent.sent) != 1 || sent.sent[0].Data.Id != 7 {
+		t.Fatalf("keep=true: retry sent %+v, want request 7", sent.sent)
+	}
+}
+
+// A batch dropped before sending is forgotten and counted when nothing can resend
+// it, kept when a retry path can, and the report adds it up separately.
+func TestForgetUnsentOnlyWithoutRetry(t *testing.T) {
+	tm := newTestTransactionManager()
+	tm.SetKeepRequestBody(false)
+	addTestTransactions(tm, 1, 2, 3)
+	if !tm.CommitTps(core.CommitTps{ClientMsg: core.ClientMsgReply{Id: 3}}) {
+		t.Fatal("commit of 3 failed")
+	}
+	batch := []core.ClientMsgSignature{{Data: core.ClientMsg{Id: 1}}, {Data: core.ClientMsg{Id: 2}}, {Data: core.ClientMsg{Id: 3}}}
+	if n := tm.ForgetUnsent(batch); n != 2 {
+		t.Fatalf("ForgetUnsent removed %d, want 2 (3 had already committed)", n)
+	}
+	for _, id := range []int64{1, 2} {
+		if transactionExists(tm, id) {
+			t.Fatalf("request %d still tracked after ForgetUnsent", id)
+		}
+	}
+	path := filepath.Join(t.TempDir(), "latency.json")
+	if err := tm.LatencySummary(path); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(path)
+	var got LatencySummaryResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.DroppedUnsent != 2 || got.Uncommitted != 0 {
+		t.Fatalf("report dropped_unsent=%d uncommitted=%d, want 2 and 0", got.DroppedUnsent, got.Uncommitted)
+	}
+
+	retry := newTestTransactionManager() // keeps bodies: a retry path will resend
+	addTestTransactions(retry, 1, 2)
+	if n := retry.ForgetUnsent(batch[:2]); n != 0 || !transactionExists(retry, 1) || !transactionExists(retry, 2) {
+		t.Fatalf("with retry: ForgetUnsent removed %d, want 0 and both still tracked", n)
+	}
+}
+
+type recordingTestClient struct {
+	transactionManagerTestClient
+	sent []core.ClientMsgSignature
+}
+
+func (r *recordingTestClient) sendTransactions(txs []core.ClientMsgSignature) {
+	r.sent = append(r.sent, txs...)
+}
+
 func addTestTransactions(tm *TransactionManager, ids ...int64) {
 	batch := make([]core.ClientMsgSignature, 0, len(ids))
 	for _, id := range ids {

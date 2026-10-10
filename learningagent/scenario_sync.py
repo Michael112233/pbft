@@ -25,9 +25,8 @@ class Scenario(StrEnum):
     ProposalDelay = "proposal_delay"
     NetworkDelay = "network_delay"
     NetworkDelayFCrash = "network_delay_f_crash"
-    # Client-driven proposal throttling (client/throttlemanager.go). No synthetic
-    # state/reward yet: generate_state / generate_reward in simulate_quadrf raise
-    # for it, and the Go config only allows it in oracle runs until they exist.
+    # Client-driven proposal throttling (client/throttlemanager.go). Synthetic
+    # state/reward in simulate_quadrf_n7; the old n=4 simulate_quadrf has none.
     Throttle = "throttle"
 
 

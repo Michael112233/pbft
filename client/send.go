@@ -236,13 +236,19 @@ func (c *Client) pacedSendRequestTransactions(txs []core.ClientMsgSignature, req
 			leader := c.leaderAddr
 			c.leaderMu.RUnlock()
 
+			// Registered before the enqueue, as before: the latency clock starts here
+			// and the entry exists before any reply for it could arrive.
 			if beforeSend != nil { // retry send nil
 				beforeSend(batch)
 			}
 			// non-blocking: the node's sender goroutine does the stream write, so a
 			// node that stops reading cannot hold the pacer (sendqueue.go). A batch
-			// dropped on a full queue stays registered, like a lost message.
-			c.messageHub.EnqueueRequest(leader, core.RequestMessage{Txs: batch, MsgType: requestMessageType})
+			// dropped on a full queue stays registered when a retry path can resend
+			// it; otherwise it is forgotten and counted as dropped_unsent.
+			enqueued := c.messageHub.EnqueueRequest(leader, core.RequestMessage{Txs: batch, MsgType: requestMessageType})
+			if !enqueued && beforeSend != nil && c.TransactionManager != nil {
+				c.TransactionManager.ForgetUnsent(batch)
+			}
 		})
 	})
 }

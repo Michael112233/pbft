@@ -50,6 +50,7 @@ from time import time
 import numpy as np
 
 from learningagent.protocols import LearningData, ProtocolName
+from learningagent.scenario_sync import Scenario
 
 FRR = ProtocolName.FixedRoundRobin
 PRR = ProtocolName.PeriodicRoundRobin
@@ -58,17 +59,21 @@ PFRR = ProtocolName.PerformanceRoundRobin
 PFE = ProtocolName.PerformanceElection
 ACTIONS = [FRR, PRR, PE, PFRR, PFE]
 
-HEALTHY, PDELAY, NDELAY, NDFCRASH, THROTTLE = (
-    "Healthy",
-    "ProposalDelay",
-    "NetworkDelay",
-    "NetworkDelayFCrash",
-    "Throttle",
-)
+# The same enum the live agent gets from scenario_sync, so server.py can call
+# generate_state / generate_reward with the scenario it derives for a sequence.
+HEALTHY = Scenario.Healthy
+PDELAY = Scenario.ProposalDelay
+NDELAY = Scenario.NetworkDelay
+NDFCRASH = Scenario.NetworkDelayFCrash
+THROTTLE = Scenario.Throttle
 SCENARIOS = [HEALTHY, PDELAY, NDELAY, NDFCRASH, THROTTLE]
 
+# Seed of the generation sampler: server.py's QuadRF seed + 1, as main() uses here, so
+# the live agent reproduces a simulated run draw for draw.
+SYNTHETIC_RNG_SEED = 6
+
 # (throughput tx/s, vc_rate /s) for every complete generation of each pilot.
-GENERATIONS: dict[str, dict[ProtocolName, list[tuple[float, float]]]] = {
+GENERATIONS: dict[Scenario, dict[ProtocolName, list[tuple[float, float]]]] = {
     HEALTHY: {
         FRR: [(8137, 0.013), (8137, 0.027), (8139, 0.013), (8132, 0.013), (8140, 0.013), (8138, 0.013), (8064, 0.013)],
         PRR: [(7941, 0.107), (8044, 0.107), (7933, 0.107), (8039, 0.107), (7940, 0.107), (8035, 0.107), (7879, 0.107)],
@@ -133,11 +138,11 @@ INIT_PROTOCOL = FRR
 OPTIMAL_TOLERANCE = 0.03
 
 
-def mean_throughput(scenario: str, action: ProtocolName) -> float:
+def mean_throughput(scenario: Scenario, action: ProtocolName) -> float:
     return float(np.mean([t for t, _ in GENERATIONS[scenario][action]]))
 
 
-def optimal_actions(scenario: str, tolerance: float) -> set[ProtocolName]:
+def optimal_actions(scenario: Scenario, tolerance: float) -> set[ProtocolName]:
     means = {a: mean_throughput(scenario, a) for a in ACTIONS}
     best = max(means.values())
     return {a for a, t in means.items() if t >= (1 - tolerance) * best}
@@ -151,19 +156,19 @@ def noisy(value: float, sigma: float, rng: np.random.Generator) -> float:
     return max(0.0, value * (1.0 + sigma * rng.standard_normal())) if sigma > 0 else value
 
 
-def state_vector(throughput: float, vc_rate: float, scenario: str, drop_inactive: bool) -> np.ndarray:
+def state_vector(throughput: float, vc_rate: float, scenario: Scenario, drop_inactive: bool) -> np.ndarray:
     s = [vc_rate, interval_ms(throughput)]
     if not drop_inactive:
         s.append(INACTIVE_NODES.get(scenario, 0.0))
     return np.asarray(s, dtype=np.float64)
 
 
-def generate_state(scenario: str, prev_action: ProtocolName, rng: np.random.Generator, drop_inactive: bool = False) -> np.ndarray:
+def generate_state(scenario: Scenario, prev_action: ProtocolName, rng: np.random.Generator, drop_inactive: bool = False) -> np.ndarray:
     throughput, vc_rate = GENERATIONS[scenario][prev_action][rng.integers(len(GENERATIONS[scenario][prev_action]))]
     return state_vector(noisy(throughput, STATE_NOISE, rng), noisy(vc_rate, STATE_NOISE, rng), scenario, drop_inactive)
 
 
-def generate_reward(action: ProtocolName, scenario: str, rng: np.random.Generator) -> float:
+def generate_reward(action: ProtocolName, scenario: Scenario, rng: np.random.Generator) -> float:
     throughput, _ = GENERATIONS[scenario][action][rng.integers(len(GENERATIONS[scenario][action]))]
     return noisy(throughput, THROUGHPUT_NOISE, rng)
 

@@ -38,13 +38,15 @@ import statistics
 import sys
 import time
 
+import numpy as np
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 
 from learningagent.protocols import LearningData, ProtocolName  # noqa: E402
 from learningagent.scenario_sync import load_scenario_schedule, scenario_for_sequence  # noqa: E402
 from learningagent.server import QuadRF  # noqa: E402
-from learningagent.simulate_quadrf import generate_reward, generate_state  # noqa: E402
+from learningagent.simulate_quadrf_n7 import SYNTHETIC_RNG_SEED, generate_reward, generate_state  # noqa: E402
 
 AGENT_SEED = 5  # server.run_server builds QuadRF(seed=5)
 
@@ -53,15 +55,16 @@ def worker(rank, gens, scenarios, span, barrier, out):
     logging.disable(logging.CRITICAL)  # QuadRF.predict logs every decision
     cmab = QuadRF(seed=AGENT_SEED)
     selected = ProtocolName.FixedRoundRobin
+    rng = np.random.default_rng(SYNTHETIC_RNG_SEED)  # as server.run_decision_worker_quadrf
     times = []
     for seq in range(1, gens + 1):
         scenario = scenario_for_sequence(seq, scenarios, span)
         barrier.wait()
         start = time.perf_counter()
         prev = selected
-        state = generate_state(scenario, prev)
+        state = generate_state(scenario, prev, rng)
         selected = ProtocolName(cmab.predict(state, prev))
-        reward = generate_reward(selected, scenario)
+        reward = generate_reward(selected, scenario, rng)
         cmab.record_state_action_reward(
             LearningData(sequence_id=seq, current_protocol=selected, reward=reward, state=state), prev
         )

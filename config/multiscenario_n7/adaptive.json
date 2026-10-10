@@ -1,0 +1,144 @@
+{
+  "_note": "n=7 multi-scenario run. Schedule: ProposalDelay, NetworkDelay, NetworkDelayFCrash, Throttle, ProposalDelay, NetworkDelay, NetworkDelayFCrash, Throttle, Healthy (cycles after Healthy). ProposalDelay delays nodes 1,2; NetworkDelay is 170 ms on every pair; NetworkDelayFCrash adds nodes 3,5 crashed (Election draws from live nodes only there); Throttle: client gates the leader to 1 batch/100 ms after a 3 s prep, k=2, strategy from the leader policy. Fixed/Perf floor 150 ms in NetworkDelay/NetworkDelayFCrash, 350 ms elsewhere. Epoch grid on, so Adaptive and the baselines switch scenario on the same grid lines (docs/epoch-grid.md); a full cycle is 9 x 7500 s = 18 h 45 m. Client offers 200 tx per 24 ms (8,333 tx/s); period x number_of_periods = 600M tx, ~20 h. ADAPTIVE: the learning agent (QuadRF, synthetic state/reward from learningagent/simulate_quadrf_n7.py) picks the action every 75 s epoch; 100 generations per scenario; starts in FixedRoundRobin. Expected after the first visit: ProposalDelay -> PerformanceElection, NetworkDelay -> PeriodicRoundRobin/PeriodicElection, NetworkDelayFCrash -> PeriodicElection, Throttle -> PerformanceElection, Healthy -> any.",
+  "max_tx_num": 1000000,
+  "inject_speed": 200,
+  "max_block_size": 1,
+  "client_msg_padding_bytes": 0,
+  "node_num": 7,
+  "nodes_dead": {
+    "1": false,
+    "2": false,
+    "3": true,
+    "4": false,
+    "5": true,
+    "6": false,
+    "7": false
+  },
+  "nodes_in_dark": {
+    "1": false,
+    "2": false,
+    "3": false,
+    "4": false,
+    "5": false,
+    "6": false,
+    "7": false
+  },
+  "performance": {
+    "enabled": true,
+    "view_strategy": "max",
+    "window_delay_slots": 3,
+    "interval_slots": 250,
+    "grace_ms": 1000,
+    "bar_factor": 0.91,
+    "default_max_throughput": 160
+  },
+  "timer": {
+    "periodic_trigger_timeout_ms": 10000,
+    "fixed_trigger_timeout_ms": 150,
+    "relaxed_fixed_trigger_timeout_ms": 350,
+    "epoch_timer_ms": 75000,
+    "epoch_grid": true
+  },
+  "period": 60000,
+  "number_of_periods": 10000,
+  "peak_tps_test": false,
+  "far_node_id": 0,
+  "far_node_delay_ms": 0,
+  "netem": {
+    "enabled": false,
+    "interface": "lo",
+    "socket_path": "logs/netem-controller.sock",
+    "pid_path": "logs/netem-controller.sock.pid",
+    "limit": 100000,
+    "rules": [
+      {
+        "id": "delay-after-seq-2",
+        "event": {
+          "type": "execution",
+          "node_id": 1,
+          "seq": 2
+        },
+        "action": {
+          "delay_ms": 250,
+          "lifetime": "until_next_event"
+        }
+      }
+    ]
+  },
+  "proposal_delay_nodes": {
+    "1": true,
+    "2": true,
+    "3": false,
+    "4": false,
+    "5": false,
+    "6": false,
+    "7": false
+  },
+  "proposal_delay_ms": 2000,
+  "gc": true,
+  "logging": true,
+  "carry_state": false,
+  "dummy_account_count": 100000,
+  "log_shares": true,
+  "retry_sleep": 200,
+  "max_inflight_seq": 40,
+  "node_latency_logger": true,
+  "complete_suite": false,
+  "client_retry": false,
+  "client_retry_mode": "backoff",
+  "client_retry_interval_ms": 50,
+  "client_retry_max_ms": 2000,
+  "pending_queue_capacity": 2000,
+  "max_batch_size": 50,
+  "max_batch_delay": 100,
+  "consensus_chan_size": 5000,
+  "min_vdf_delay": 100,
+  "max_vdf_delay": 20000,
+  "parallel_workers": true,
+  "oracle_mode": false,
+  "oracle_actions": [
+    "FixedRoundRobin",
+    "PeriodicRoundRobin",
+    "PeriodicElection",
+    "PerformanceRoundRobin",
+    "PerformanceElection"
+  ],
+  "oracle_random": false,
+  "oracle_seed": 42,
+  "oracle_decision_delay_ms": 100,
+  "epoch_mode": true,
+  "default_action": "FixedRoundRobin",
+  "netem_delay": false,
+  "scenarios": [
+    "ProposalDelay",
+    "NetworkDelay",
+    "NetworkDelayFCrash",
+    "Throttle",
+    "ProposalDelay",
+    "NetworkDelay",
+    "NetworkDelayFCrash",
+    "Throttle",
+    "Healthy"
+  ],
+  "scenario_mode": true,
+  "scenario_generations": 100,
+  "latency_probe": false,
+  "aware_probe_interval_ms": 500,
+  "aware_probe_timeout_ms": 2000,
+  "aware_rtt_window_s": 10,
+  "aware_grace_ms": 500,
+  "aware_staleness_epochs": 3,
+  "aware_alpha": 0.1,
+  "aware_epsilon_ms": 1.0,
+  "far_node_netem": false,
+  "proposal_min_interval_ms": 100,
+  "proposal_gate_at_start": false,
+  "throttle": {
+    "enabled": false,
+    "strategy": "election",
+    "slots": 2,
+    "prep_ms": 3000,
+    "tenure_ms": 10000
+  },
+  "pilot_exec_trace": false
+}

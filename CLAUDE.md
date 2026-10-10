@@ -58,8 +58,12 @@ that picks randomly among the nodes except the crashed `nodes_dead`, standing in
 
 The agent currently decides on a **synthetic** state and reward; the real
 `node_reward`/`node_state` arrive as zeros and are logged as `ignored`, because the
-`EpochAggregateMsg` payload is still placeholder. Replacing the synthetic data with
-the real aggregate is planned work.
+`EpochAggregateMsg` payload is still placeholder. The synthetic data comes from
+`learningagent/simulate_quadrf_n7.py`: per-generation (throughput, VC rate) measured in
+the n=7 scenario × action pilots, resampled with a per-worker rng
+(`SYNTHETIC_RNG_SEED`), so a live run makes the same decisions as
+`python -m learningagent.simulate_quadrf_n7 --seed 5` on the same scenario schedule.
+Replacing the synthetic data with the real aggregate is planned work.
 
 ## Build and run
 
@@ -315,8 +319,7 @@ key missing there is missing from every experiment built afterwards.
   changes policy. `LeaderIdUpdate` carries the generation's `Action` for this, and it is
   part of the client's 2f quorum key. In scenario mode `throttle.enabled` is rejected
   (list `Throttle` instead) and `throttle.strategy` is ignored; Throttle needs
-  `proposal_min_interval_ms > 0` and, until the agent has synthetic state/reward for
-  it (`learningagent/simulate_quadrf.py` raises), `oracle_mode`.
+  `proposal_min_interval_ms > 0`, and runs with the learning agent or the oracle.
   Requires `epoch_mode`; incompatible with `netem.enabled` and with the script's
   `netem_delay`.
 - `leader_type` (`roundrobin` | `election` | `wrr`) — legacy `VCType`, separate from
@@ -352,6 +355,18 @@ key missing there is missing from every experiment built afterwards.
   send-rate CSV. Before this, a leader that stopped reading its stream (ProposalDelay:
   the 100 ms sleep runs on node 1's event loop) froze the whole client once the 8 MiB
   gRPC window filled, starving the next leader for ~300 ms.
+- **The client never forgets an uncommitted request.** Every sent request is registered
+  in `TransactionManager` (`client/transactionmanager.go`) and only a commit deletes it,
+  so client memory grows with the number of requests that never commit (cascades,
+  slow/throttled leaders, send-queue drops), not with run length. The signed body is
+  kept only when something can resend it (`client_retry` or `complete_suite`,
+  `SetKeepRequestBody`); without it an entry is ~134 B of heap instead of ~374 B.
+  Without a retry path, a batch dropped on a full send queue is registered and then
+  forgotten again (`ForgetUnsent`, in `pacedSendRequestTransactions`), and reported as
+  `dropped_unsent` in `latencyreport.json`; `uncommitted + dropped_unsent` is every
+  request that never committed. Discarded and sent-but-lost requests stay tracked.
+  `latencySamples` also grows by 8 B per committed request, and `LatencySummary`
+  copies it twice at export.
 - `proposal_delay_ms` is parsed but unused; the proposal delay is a hardcoded 100 ms
   sleep in `tryPropose`.
 

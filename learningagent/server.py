@@ -19,7 +19,7 @@ from learningagent import learning_agent_pb2_grpc
 from learningagent.address import SUPPORTED_MODES, node_address, server_address
 from learningagent.protocols import PROTOCOLS, LearningData, MultiObjectiveData, ProtocolName
 from learningagent.scenario_sync import load_scenario_schedule, scenario_for_sequence
-from learningagent.simulate_quadrf import generate_state, generate_reward
+from learningagent.simulate_quadrf_n7 import SYNTHETIC_RNG_SEED, generate_reward, generate_state
 
 LOGGER = logging.getLogger(__name__)
 GRACEFUL_STOP_SECONDS = 5
@@ -28,7 +28,7 @@ MAX_REPLAY_LENGTH = -1
 LEARNING_DATA_REWARD_KEY = "reward"
 # Must match the keys the node puts in LearningDecision.Data
 # (node/learning_agent_client.go) and the feature order of the synthetic state
-# vector [vc_rate, proposal_interval, u] in simulate_quadrf.generate_state.
+# vector [vc_rate, proposal_interval, inactive_nodes] in simulate_quadrf_n7.generate_state.
 LEARNING_DATA_STATE_KEYS = ("vc_rate", "proposal_interval", "inactive_nodes")
 DEFAULT_CONFIG_PATH = "config/run2new.json"
 Quad_RF = True
@@ -713,12 +713,19 @@ def run_decision_worker_quadrf(
     """Drive QuadRF from real node traffic but synthetic state and reward.
 
     The state and reward the node reports are logged and then ignored; both come
-    from simulate_quadrf instead, keyed on the scenario the node is running (see
-    scenario_sync). The decision is sent back to the node, which applies it.
+    from simulate_quadrf_n7 instead (measured n=7 pilot generations), keyed on the
+    scenario the node is running (see scenario_sync). The decision is sent back to
+    the node, which applies it.
+
+    The generation sampler has its own rng per worker, seeded like the simulator's
+    and drawn in the same order (state, then reward), so every node's agent makes
+    the same decisions as `python -m learningagent.simulate_quadrf_n7 --seed 5` run
+    on the same scenario schedule.
     """
     sequence_id = 0
     selected_protocol: ProtocolName | None = ProtocolName.FixedRoundRobin
     last_scenario = None
+    synthetic_rng = np.random.default_rng(SYNTHETIC_RNG_SEED)
     while True:
 
         task = request_queue.get()
@@ -745,11 +752,11 @@ def run_decision_worker_quadrf(
                     last_scenario = scenario
                     # indicates scenario switch point
                 prev_protocol = selected_protocol
-                state = generate_state(scenario, prev_protocol)
+                state = generate_state(scenario, prev_protocol, synthetic_rng)
                 # predict() returns a bare string (its keys come from PROTOCOLS),
-                # so wrap it the way simulate_quadrf.main does.
+                # so wrap it the way simulate_quadrf_n7.main does.
                 selected_protocol = ProtocolName(cmab.predict(state, prev_protocol))
-                reward = generate_reward(selected_protocol, scenario)
+                reward = generate_reward(selected_protocol, scenario, synthetic_rng)
                 learning_data = LearningData(
                     sequence_id=task.sequence_id,
                     current_protocol=selected_protocol,

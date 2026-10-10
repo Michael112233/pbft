@@ -105,6 +105,9 @@ func NewClient(addr string, name string, config *config.Config, leaderAddr strin
 	}
 	txnManager := NewTransactionManager(c, log)
 	txnManager.SetRetryPolicy(newRetryPolicy(config))
+	// Only a retry path resends a request; without one, keeping every body would
+	// grow the client by ~0.5 KB per request that never commits.
+	txnManager.SetKeepRequestBody(config.ClientRetry || config.CompleteSuite)
 	c.TransactionManager = txnManager
 	c.EventManager = NewEventManager(c, log, defaultEventLowerBound, defaultEventUpperBound)
 	// Static throttle runs (throttle.enabled, no scenario mode), or scenario runs
