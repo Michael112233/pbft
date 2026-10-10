@@ -60,7 +60,21 @@ func (t *idTracker) add(id int64) bool {
 }
 
 type intakeFilter struct {
-	executed map[string]*idTracker
+	// trackExecuted records executed ids so a client retry of an executed request
+	// is not proposed again. Only a retry path (client_retry, complete_suite) ever
+	// resends a request; without one no duplicate can arrive, and recording would
+	// cost ~30 B per executed request on every node for the rest of the run: the
+	// first request that never commits (dropped, discarded, lost in a view change)
+	// leaves a gap that is never filled, so the watermark stops and every later id
+	// stays in idTracker.above.
+	//
+	// TODO(retry on): bound idTracker.above when trackExecuted is set. A gap that
+	// no retry fills within some window (e.g. above > 1M entries, or the oldest gap
+	// older than the client's retry max) should be treated as lost: advance the
+	// watermark past it so the set drains. Until then, long runs with client_retry
+	// still grow by ~30 B per executed request per node after the first lost one.
+	trackExecuted bool
+	executed      map[string]*idTracker
 	// queued holds requests enqueued or proposed by this node in the current view
 	// plus the O-set it re-proposed as new primary. Cleared with the pending queue
 	// on every new-view install, so a retry of a request whose slot the view change
@@ -73,10 +87,13 @@ type intakeFilter struct {
 	duplicateExecuted int64
 }
 
-func newIntakeFilter() *intakeFilter {
+// newIntakeFilter builds the filter; trackExecuted should be true only when the
+// client can resend requests (see intakeFilter.trackExecuted).
+func newIntakeFilter(trackExecuted bool) *intakeFilter {
 	return &intakeFilter{
-		executed: make(map[string]*idTracker),
-		queued:   make(map[requestKey]struct{}),
+		trackExecuted: trackExecuted,
+		executed:      make(map[string]*idTracker),
+		queued:        make(map[requestKey]struct{}),
 	}
 }
 
@@ -93,7 +110,7 @@ func (f *intakeFilter) tracker(client string) *idTracker {
 // marks it queued if so. If the enqueue then fails, the caller must unqueue it.
 func (f *intakeFilter) admit(msg core.ClientMsg) bool {
 	key := requestKey{client: msg.ClientName, id: msg.Id}
-	if _, ok := f.queued[key]; ok || f.tracker(msg.ClientName).contains(msg.Id) {
+	if _, ok := f.queued[key]; ok || (f.trackExecuted && f.tracker(msg.ClientName).contains(msg.Id)) {
 		f.droppedAtIntake++
 		return false
 	}
@@ -118,8 +135,12 @@ func (f *intakeFilter) resetQueued() {
 }
 
 // markExecuted records an executed request and counts it if it had executed before.
+// Without trackExecuted it only clears the request from the queued set.
 func (f *intakeFilter) markExecuted(msg core.ClientMsg) {
 	delete(f.queued, requestKey{client: msg.ClientName, id: msg.Id})
+	if !f.trackExecuted {
+		return
+	}
 	if f.tracker(msg.ClientName).add(msg.Id) {
 		f.duplicateExecuted++
 	}

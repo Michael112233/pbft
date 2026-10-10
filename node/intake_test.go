@@ -32,7 +32,7 @@ func TestIDTrackerWatermarkAdvancesOverGaps(t *testing.T) {
 }
 
 func TestIntakeDropsQueuedAndExecutedRetries(t *testing.T) {
-	f := newIntakeFilter()
+	f := newIntakeFilter(true)
 	if !f.admit(req(7)) {
 		t.Fatal("first arrival rejected")
 	}
@@ -50,7 +50,7 @@ func TestIntakeDropsQueuedAndExecutedRetries(t *testing.T) {
 
 // A request whose slot a view change discarded must be admitted again on retry.
 func TestIntakeAdmitsRetryAfterNewView(t *testing.T) {
-	f := newIntakeFilter()
+	f := newIntakeFilter(true)
 	f.admit(req(9))
 	f.resetQueued()
 	if !f.admit(req(9)) {
@@ -59,7 +59,7 @@ func TestIntakeAdmitsRetryAfterNewView(t *testing.T) {
 }
 
 func TestIntakeUnqueueAfterFailedEnqueue(t *testing.T) {
-	f := newIntakeFilter()
+	f := newIntakeFilter(true)
 	f.admit(req(4))
 	f.unqueue(req(4))
 	if !f.admit(req(4)) {
@@ -69,7 +69,7 @@ func TestIntakeUnqueueAfterFailedEnqueue(t *testing.T) {
 
 // The O-set a new primary re-proposes counts as queued, so its retries are dropped.
 func TestIntakeOSetMarkedQueued(t *testing.T) {
-	f := newIntakeFilter()
+	f := newIntakeFilter(true)
 	f.markQueued([]core.ClientMsgSignature{{Data: req(11)}})
 	if f.admit(req(11)) {
 		t.Fatal("retry of an O-set request admitted")
@@ -77,10 +77,35 @@ func TestIntakeOSetMarkedQueued(t *testing.T) {
 }
 
 func TestIntakeCountsDuplicateExecution(t *testing.T) {
-	f := newIntakeFilter()
+	f := newIntakeFilter(true)
 	f.markExecuted(req(5))
 	f.markExecuted(req(5))
 	if _, dups := f.takeCounters(); dups != 1 {
 		t.Fatalf("dups=%d, want 1", dups)
+	}
+}
+
+// Without a retry path no executed id is recorded, even after a gap that would
+// freeze the watermark, while requests queued in this view are still deduplicated.
+func TestIntakeWithoutRetryKeepsNoExecutedIDs(t *testing.T) {
+	f := newIntakeFilter(false)
+	msg := func(id int64) core.ClientMsg { return core.ClientMsg{ClientName: "c", Id: id} }
+
+	if !f.admit(msg(5)) || f.admit(msg(5)) {
+		t.Fatal("queued request 5: first admit should pass, the second should be dropped")
+	}
+	// id 0 never executes: with tracking this gap would keep every later id in above
+	for id := int64(1); id <= 1000; id++ {
+		f.markExecuted(msg(id))
+	}
+	if n := len(f.executed); n != 0 {
+		t.Fatalf("executed trackers = %d, want 0 without a retry path", n)
+	}
+	if _, ok := f.queued[requestKey{client: "c", id: 5}]; ok {
+		t.Fatal("request 5 still queued after it executed")
+	}
+	f.markExecuted(msg(7))
+	if _, dups := f.takeCounters(); dups != 0 {
+		t.Fatalf("duplicates = %d, want 0 (not tracked without a retry path)", dups)
 	}
 }

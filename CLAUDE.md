@@ -222,6 +222,12 @@ at-least-once: a node that jumps to a checkpoint (`fastPathStablizeCheckpointvia
 has no record of the skipped requests. `exeLoop` logs `INTAKE:` counts (retries
 dropped, duplicate executions) at each local checkpoint. `Pool.executed` is not a
 dedup record: GC drops it and checkpoint transfer does not carry it.
+**Executed ids are recorded only when the client can resend** (`client_retry` or
+`complete_suite`; `intakeFilter.trackExecuted`). Every node records them in `exeLoop`,
+and the first request that never commits leaves a gap no retry fills, so the watermark
+stops and every later id stays in `idTracker.above` (~30 B each, per node): ~13 GB per
+node after 15 h of the n=7 multi-scenario runs. With retry off nothing can arrive twice,
+so nothing is recorded; with retry on the set is still unbounded (TODO in `intake.go`).
 
 Transport is gRPC bidirectional streams (`proto/pbft_transport.proto`,
 `transportpb/`), one peer stream per target, 8 MiB flow-control windows. ViewChange

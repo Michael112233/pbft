@@ -215,7 +215,7 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		electionVDFResultCh:            make(chan electionVDFResult, 1),
 
 		pendingRequests:            NewRequestQueue(cfg.PendingQueueCapacity),
-		intake:                     newIntakeFilter(),
+		intake:                     newIntakeFilter(cfg.ClientRetry || cfg.CompleteSuite), // executed ids only matter if the client resends
 		clientReceiveRateStop:      make(chan struct{}),
 		clientReceiveRateDone:      make(chan struct{}),
 		leaderPreprepareRateStop:   make(chan struct{}),
