@@ -119,6 +119,18 @@ fired → decision applied), `scripts/perf_tick_misses.py` (Perf trigger behavio
   ids without retry. **Still open:** during view-change cascades (ND/NDF windows under Fixed
   or Perf) the request pool grows ~1.8 GB/h per node and is freed at the next stable
   checkpoint. Projected peak 65–100 GB per machine. Check the `_mem` logs.
+- **PFE run (`baseline_pfe_native_20261010_175337`) has valid data for window 1 only**
+  (ProposalDelay, 57.26 M committed, ~7,630 req/s); it committed nothing after 19:58:44.
+  In NetworkDelay, Election never installed a view, so the ViewChange log (pruned only on
+  install) kept every 0.49 MiB ViewChange: ~33 GB/h per node. At 20:29 node 1 died (most
+  likely OOM-killed: 7 nodes ≈ 126 GiB). The next election candidate, for view (2,2864),
+  was node 1, and Election arms the new-view timer only on the candidate or a voter, so
+  the cluster froze. In gen 3 (NetworkDelayFCrash) 3 nodes were down (> f), so the epoch
+  aggregate never reached quorum and no later generation started. FRR/PFRR were unaffected:
+  the RoundRobin primary installs locally every n views, which prunes. Fixed afterwards by
+  pruning per-view state below `forViewID` (`pruneBelowForView`); verified in
+  `results/verify_vcprune_pfe_20261011_145919` (flat heap over 1,093 view changes). The
+  Election liveness gap (dead candidate outside `nodes_dead` → no timer) is still open.
 - **Startup transient:** node 1 leads the genesis view and the client gets no leader notice
   for it, so the first two tenures of a run are not representative (throttle controller is
   blind to them). Only matters if a run starts in Throttle; this one starts in ProposalDelay.
