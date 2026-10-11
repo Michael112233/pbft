@@ -66,6 +66,45 @@ func TestSelectAwareCandidates(t *testing.T) {
 	}
 }
 
+func TestSelectAwareMembersThresholdOrAll(t *testing.T) {
+	if got := selectAwareMembersThresholdOrAll([]float64{71, 3, 3, 3}, 1, 0.1, 1); !reflect.DeepEqual(got, []int{2, 3, 4}) {
+		t.Fatalf("far node: got %v", got)
+	}
+	// Threshold set {1} is below 2f+1: every node, not the next best by score.
+	if got := selectAwareMembersThresholdOrAll([]float64{10, 100, 90, math.Inf(1)}, 1, 0.1, 1); !reflect.DeepEqual(got, []int{1, 2, 3, 4}) {
+		t.Fatalf("below floor: got %v", got)
+	}
+	// aware_leader/sim attack, n=7, far {1,4}, Byzantine {2,3}: threshold set
+	// {2,5}. Padding by score picks {1,2,3,4,5} (ties go to the low ids, the far
+	// nodes); this rule falls back to every node.
+	attacked := []float64{105, 60, 105, 105, 60, 105, 105}
+	if got := selectAwareCandidates(attacked, 2, 0.1, 1); !reflect.DeepEqual(got, []int{2, 5, 1, 3, 4}) {
+		t.Fatalf("attack, pad rule: got %v", got)
+	}
+	if got := selectAwareMembersThresholdOrAll(attacked, 2, 0.1, 1); !reflect.DeepEqual(got, []int{1, 2, 3, 4, 5, 6, 7}) {
+		t.Fatalf("attack, threshold-or-all: got %v", got)
+	}
+	// Threshold set of 6 >= 2f+1 is used as is (the 0.33 case).
+	if got := selectAwareMembersThresholdOrAll([]float64{105, 105, 105, 105, 105, 150, 105}, 2, 0.1, 1); !reflect.DeepEqual(got, []int{1, 2, 3, 4, 5, 7}) {
+		t.Fatalf("threshold set at or above floor: got %v", got)
+	}
+	// Crashed nodes (+Inf) stay out when the live nodes reach the floor.
+	inf := math.Inf(1)
+	if got := selectAwareMembersThresholdOrAll([]float64{510, 510, inf, 510, inf, 510, 510}, 2, 0.1, 1); !reflect.DeepEqual(got, []int{1, 2, 4, 6, 7}) {
+		t.Fatalf("crashed nodes: got %v", got)
+	}
+}
+
+func TestOrderAwareMembersByID(t *testing.T) {
+	in := []int{5, 2, 7, 1}
+	if got := orderAwareMembersByID(in); !reflect.DeepEqual(got, []int{1, 2, 5, 7}) {
+		t.Fatalf("got %v", got)
+	}
+	if !reflect.DeepEqual(in, []int{5, 2, 7, 1}) {
+		t.Fatalf("input modified: %v", in)
+	}
+}
+
 func TestAwareMatrixCarryForwardStalenessAndMax(t *testing.T) {
 	s := newAwareState()
 	s.applyRows([]core.AwareRow{

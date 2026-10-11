@@ -119,6 +119,7 @@ type Config struct {
 	AwareStalenessEpochs uint64  `json:"aware_staleness_epochs"`
 	AwareAlpha           float64 `json:"aware_alpha"`
 	AwareEpsilonMs       float64 `json:"aware_epsilon_ms"`
+	AwareCandidates      string  `json:"aware_candidates"`
 }
 
 const DefaultScenarioGenerations = 100
@@ -188,6 +189,11 @@ func ReadCfg(filename string) *Config {
 
 	if err := config.ValidateTimer(); err != nil {
 		fmt.Printf("Invalid timer config: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := config.ValidateAware(); err != nil {
+		fmt.Printf("Invalid aware config: %v\n", err)
 		os.Exit(1)
 	}
 

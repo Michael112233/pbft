@@ -80,6 +80,49 @@ func selectAwareCandidates(scores []float64, f int, alpha, eps float64) []int {
 	return out
 }
 
+// selectAwareMembersThresholdOrAll returns the Aware member set as node ids
+// (1-based) in id order: every node whose score is within max(best*alpha, eps)
+// of the best if there are at least 2f+1 of them, otherwise every node. Unlike
+// selectAwareCandidates it never pads with the next-best by score, so a lying
+// node cannot pick the padding (aware_leader/README.md, section 4.2).
+func selectAwareMembersThresholdOrAll(scores []float64, f int, alpha, eps float64) []int {
+	n := len(scores)
+	best := math.Inf(1)
+	for _, s := range scores {
+		if s < best {
+			best = s
+		}
+	}
+	threshold := best + math.Max(best*alpha, eps)
+	floor := 2*f + 1
+	if floor > n {
+		floor = n
+	}
+	members := make([]int, 0, n)
+	for i, s := range scores {
+		if s <= threshold {
+			members = append(members, i+1)
+		}
+	}
+	if len(members) >= floor {
+		return members
+	}
+	all := make([]int, n)
+	for i := range all {
+		all[i] = i + 1
+	}
+	return all
+}
+
+// orderAwareMembersByID returns a copy of members sorted by node id, so the
+// rotation order does not depend on scores: a lying node can move its position
+// only by changing who is a member.
+func orderAwareMembersByID(members []int) []int {
+	out := append([]int(nil), members...)
+	sort.Ints(out)
+	return out
+}
+
 // lowe score mean faster to commit as leader
 // // order[0] is node with lowest score, order is soreted by increasing score
 

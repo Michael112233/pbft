@@ -1,6 +1,19 @@
 package config
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
+
+// Aware candidate-list rules (aware_candidates).
+const (
+	// AwareCandidatesPad: threshold set padded with the next-best nodes by
+	// (score, id) up to 2f+1, ordered by (score, id). The pilot rule.
+	AwareCandidatesPad = "pad"
+	// AwareCandidatesThresholdOrAll: threshold set if it has 2f+1 nodes, else
+	// every node; ordered by id.
+	AwareCandidatesThresholdOrAll = "threshold_or_all"
+)
 
 const (
 	defaultAwareProbeInterval   = 500 * time.Millisecond
@@ -10,6 +23,7 @@ const (
 	defaultAwareStalenessEpochs = 3
 	defaultAwareAlpha           = 0.1
 	defaultAwareEpsilonMs       = 1.0
+	defaultAwareCandidates      = AwareCandidatesThresholdOrAll
 )
 
 // how freq we probe peers
@@ -67,4 +81,23 @@ func (c *Config) AwareEpsilon() float64 {
 		return c.AwareEpsilonMs
 	}
 	return defaultAwareEpsilonMs
+}
+
+// AwareCandidateRule is how the candidate list is built from the scores:
+// AwareCandidatesThresholdOrAll (default) or AwareCandidatesPad.
+func (c *Config) AwareCandidateRule() string {
+	if c.AwareCandidates != "" {
+		return c.AwareCandidates
+	}
+	return defaultAwareCandidates
+}
+
+func (c *Config) ValidateAware() error {
+	switch c.AwareCandidateRule() {
+	case AwareCandidatesPad, AwareCandidatesThresholdOrAll:
+		return nil
+	default:
+		return fmt.Errorf("aware_candidates must be %q or %q, got %q",
+			AwareCandidatesPad, AwareCandidatesThresholdOrAll, c.AwareCandidates)
+	}
 }

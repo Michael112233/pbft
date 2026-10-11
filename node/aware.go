@@ -62,8 +62,9 @@ func (n *Node) applyPendingAwareAggregate(fromGen uint64) {
 }
 
 func (n *Node) computeAwareCandidates(gen uint64, source string) {
-	D, scores, cands := n.aware.computeCandidates(gen, int(n.cfg.NodeNum), n.fNodes, n.cfg.AwareStaleness(), n.cfg.AwareAlphaFraction(), n.cfg.AwareEpsilon())
-	n.log.Info("AWARE: source=%s gen=%d rows=%v D=%v scores=%v candidates=%v", source, gen, n.aware.snapshotRows(), D, scores, cands)
+	rule := n.cfg.AwareCandidateRule()
+	D, scores, cands := n.aware.computeCandidates(gen, int(n.cfg.NodeNum), n.fNodes, n.cfg.AwareStaleness(), n.cfg.AwareAlphaFraction(), n.cfg.AwareEpsilon(), rule)
+	n.log.Info("AWARE: source=%s gen=%d rule=%s rows=%v D=%v scores=%v candidates=%v", source, gen, rule, n.aware.snapshotRows(), D, scores, cands)
 }
 
 // awareRowsForMessage returns the rows to attach to an outgoing ViewChange /

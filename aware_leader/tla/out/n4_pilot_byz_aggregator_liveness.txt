@@ -1,0 +1,126 @@
+TLC2 Version 2026.10.06.014338 (rev: 94d0c50)
+Running breadth-first search Model-Checking with fp 87 and seed -5893733868470197917 with 56 workers on 56 cores with 27305MB heap and 64MB offheap memory [pid: 537805] (Linux 5.15.0-187-generic amd64, Eclipse Adoptium 21.0.12.1 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file /users/HamzaK/pbft/aware_leader/tla/AwareSchedule.tla
+Parsing file /tmp/tlc-2267273673187030717/Integers.tla (jar:file:/tmp/claude-20003/-users-HamzaK-pbft/ffef246d-6e79-4f45-8761-404dee60b637/scratchpad/tools/tla/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Parsing file /tmp/tlc-2267273673187030717/FiniteSets.tla (jar:file:/tmp/claude-20003/-users-HamzaK-pbft/ffef246d-6e79-4f45-8761-404dee60b637/scratchpad/tools/tla/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-2267273673187030717/_TLCTrace.tla (jar:file:/tmp/claude-20003/-users-HamzaK-pbft/ffef246d-6e79-4f45-8761-404dee60b637/scratchpad/tools/tla/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-2267273673187030717/Naturals.tla (jar:file:/tmp/claude-20003/-users-HamzaK-pbft/ffef246d-6e79-4f45-8761-404dee60b637/scratchpad/tools/tla/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-2267273673187030717/Sequences.tla (jar:file:/tmp/claude-20003/-users-HamzaK-pbft/ffef246d-6e79-4f45-8761-404dee60b637/scratchpad/tools/tla/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-2267273673187030717/TLC.tla (jar:file:/tmp/claude-20003/-users-HamzaK-pbft/ffef246d-6e79-4f45-8761-404dee60b637/scratchpad/tools/tla/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-2267273673187030717/TLCExt.tla (jar:file:/tmp/claude-20003/-users-HamzaK-pbft/ffef246d-6e79-4f45-8761-404dee60b637/scratchpad/tools/tla/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Semantic processing of module Naturals
+Semantic processing of module Integers
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module AwareSchedule
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module AwareSchedule
+Starting... (2026-10-11 19:35:30)
+Implied-temporal checking--satisfiability problem has 1 branches.
+Computing initial states...
+Computed 2 initial states...
+Computed 4 initial states...
+Computed 8 initial states...
+Computed 16 initial states...
+Finished computing initial states: 20 distinct states generated at 2026-10-11 19:35:30.
+Checking temporal properties for the current state space with 22629 total distinct states at (2026-10-11 19:35:34)
+Finished checking temporal properties in 00s at 2026-10-11 19:35:34
+Progress(5) at 2026-10-11 19:35:34: 46,845 states generated (46,845 s/min), 25,246 distinct states found (25,246 ds/min), 21,187 states left on queue.
+Error: Invariant BoundedBadRun is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ dec = <<{}, {}>>
+/\ run = <<-1, -1, -1>>
+/\ gen = <<1, 1, 1>>
+/\ sched = <<{1, 2, 4}, {1, 2, 4}, {1, 2, 4}>>
+/\ agg = <<<<{}, {}>>, <<{}, {}>>, <<{}, {}>>>>
+/\ gst = FALSE
+/\ ctr = <<0, 0, 0>>
+/\ aggVal = <<{}, {}>>
+/\ installed = <<FALSE, FALSE, FALSE>>
+
+State 2: <AggDeliver(1,1) line 122, col 5 to line 134, col 62 of module AwareSchedule>
+/\ dec = <<{}, {}>>
+/\ run = <<-1, -1, -1>>
+/\ gen = <<1, 1, 1>>
+/\ sched = <<{1, 2, 4}, {1, 2, 4}, {1, 2, 4}>>
+/\ agg = <<<<{1, 2, 3}, {}>>, <<{}, {}>>, <<{}, {}>>>>
+/\ gst = FALSE
+/\ ctr = <<0, 0, 0>>
+/\ aggVal = <<{}, {}>>
+/\ installed = <<FALSE, FALSE, FALSE>>
+
+State 3: <Switch(1) line 150, col 5 to line 159, col 58 of module AwareSchedule>
+/\ dec = <<{}, {}>>
+/\ run = <<-1, -1, -1>>
+/\ gen = <<2, 1, 1>>
+/\ sched = <<{1, 2, 3}, {1, 2, 4}, {1, 2, 4}>>
+/\ agg = <<<<{1, 2, 3}, {}>>, <<{}, {}>>, <<{}, {}>>>>
+/\ gst = FALSE
+/\ ctr = <<0, 0, 0>>
+/\ aggVal = <<{}, {}>>
+/\ installed = <<FALSE, FALSE, FALSE>>
+
+State 4: <CatchUp(2) line 169, col 5 to line 184, col 58 of module AwareSchedule>
+/\ dec = <<{}, {}>>
+/\ run = <<-1, -1, -1>>
+/\ gen = <<2, 2, 1>>
+/\ sched = <<{1, 2, 3}, {1, 2, 3}, {1, 2, 4}>>
+/\ agg = <<<<{1, 2, 3}, {}>>, <<{}, {}>>, <<{}, {}>>>>
+/\ gst = FALSE
+/\ ctr = <<0, 0, 0>>
+/\ aggVal = <<{}, {}>>
+/\ installed = <<FALSE, FALSE, FALSE>>
+
+State 5: <CatchUp(3) line 169, col 5 to line 184, col 58 of module AwareSchedule>
+/\ dec = <<{}, {}>>
+/\ run = <<-1, -1, -1>>
+/\ gen = <<2, 2, 2>>
+/\ sched = <<{1, 2, 3}, {1, 2, 3}, {2, 3, 4}>>
+/\ agg = <<<<{1, 2, 3}, {}>>, <<{}, {}>>, <<{}, {}>>>>
+/\ gst = FALSE
+/\ ctr = <<0, 0, 0>>
+/\ aggVal = <<{}, {}>>
+/\ installed = <<FALSE, FALSE, FALSE>>
+
+State 6: <GST line 217, col 5 to line 220, col 65 of module AwareSchedule>
+/\ dec = <<{}, {}>>
+/\ run = <<-1, 0, -1>>
+/\ gen = <<2, 2, 2>>
+/\ sched = <<{1, 2, 3}, {1, 2, 3}, {2, 3, 4}>>
+/\ agg = <<<<{1, 2, 3}, {}>>, <<{}, {}>>, <<{}, {}>>>>
+/\ gst = TRUE
+/\ ctr = <<0, 0, 0>>
+/\ aggVal = <<{}, {}>>
+/\ installed = <<FALSE, FALSE, FALSE>>
+
+State 7: <ViewFails(2) line 206, col 5 to line 214, col 65 of module AwareSchedule>
+/\ dec = <<{}, {}>>
+/\ run = <<-1, 1, -1>>
+/\ gen = <<2, 2, 2>>
+/\ sched = <<{1, 2, 3}, {1, 2, 3}, {2, 3, 4}>>
+/\ agg = <<<<{1, 2, 3}, {}>>, <<{}, {}>>, <<{}, {}>>>>
+/\ gst = TRUE
+/\ ctr = <<0, 1, 0>>
+/\ aggVal = <<{}, {}>>
+/\ installed = <<FALSE, FALSE, FALSE>>
+
+State 8: <ViewFails(2) line 206, col 5 to line 214, col 65 of module AwareSchedule>
+/\ dec = <<{}, {}>>
+/\ run = <<-1, 2, -1>>
+/\ gen = <<2, 2, 2>>
+/\ sched = <<{1, 2, 3}, {1, 2, 3}, {2, 3, 4}>>
+/\ agg = <<<<{1, 2, 3}, {}>>, <<{}, {}>>, <<{}, {}>>>>
+/\ gst = TRUE
+/\ ctr = <<0, 2, 0>>
+/\ aggVal = <<{}, {}>>
+/\ installed = <<FALSE, FALSE, FALSE>>
+
+13935463 states generated, 3568252 distinct states found, 2685572 states left on queue.
+The depth of the complete state graph search is 8.
+Finished in 56s at (2026-10-11 19:36:26)
+Trace exploration spec path: ./AwareSchedule_TTrace_1791747330.tla

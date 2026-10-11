@@ -4,6 +4,7 @@ import (
 	"math"
 	"sort"
 
+	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
 )
 
@@ -122,14 +123,21 @@ func (s *awareState) buildMatrix(n int, gen, staleness uint64) [][]float64 {
 
 // computeCandidates builds the matrix as of generation gen and stores the
 // candidate list for gen. Rows carry the generation they feed, so the matrix and
-// the list share one generation. It returns the matrix and scores for logging.
-func (s *awareState) computeCandidates(gen uint64, n, f int, staleness uint64, alpha, eps float64) ([][]float64, []float64, []int) {
+// the list share one generation. rule is config.AwareCandidatesPad or
+// config.AwareCandidatesThresholdOrAll. It returns the matrix and scores for
+// logging.
+func (s *awareState) computeCandidates(gen uint64, n, f int, staleness uint64, alpha, eps float64, rule string) ([][]float64, []float64, []int) {
 	D := s.buildMatrix(n, gen, staleness)
 	scores := make([]float64, n)
 	for p := 0; p < n; p++ {
 		scores[p] = predictAwareLatency(D, f, p)
 	}
-	cands := selectAwareCandidates(scores, f, alpha, eps)
+	var cands []int
+	if rule == config.AwareCandidatesPad {
+		cands = selectAwareCandidates(scores, f, alpha, eps)
+	} else {
+		cands = orderAwareMembersByID(selectAwareMembersThresholdOrAll(scores, f, alpha, eps))
+	}
 	s.candidates[gen] = cands
 	for g := range s.candidates {
 		if g+2 < gen {

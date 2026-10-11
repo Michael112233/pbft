@@ -1,0 +1,18 @@
+Healthy (uniform 0.2 ms)
+  scores: 1:0.6 2:0.6 3:0.6 4:0.6 5:0.6 6:0.6 7:0.6
+  pad {1,2,3,4,5,6,7} | or-all {1,2,3,4,5,6,7} | hybrid {1,2,3,4,5,6,7}
+NetworkDelay (uniform 170 ms)
+  scores: 1:510.0 2:510.0 3:510.0 4:510.0 5:510.0 6:510.0 7:510.0
+  pad {1,2,3,4,5,6,7} | or-all {1,2,3,4,5,6,7} | hybrid {1,2,3,4,5,6,7}
+NetworkDelayFCrash (170 ms, 3 and 5 dead)
+  scores: 1:510.0 2:510.0 3:inf 4:510.0 5:inf 6:510.0 7:510.0
+  pad {1,2,4,6,7} | or-all {1,2,4,6,7} | hybrid {1,2,4,6,7}
+FarNode (6,7 at 50 ms, rest 5 ms)
+  scores: 1:15.0 2:15.0 3:15.0 4:15.0 5:15.0 6:105.0 7:105.0
+  pad {1,2,3,4,5} | or-all {1,2,3,4,5} | hybrid {1,2,3,4,5}
+FarNode + 2 close dead (3, 5)
+  scores: 1:105.0 2:105.0 3:inf 4:105.0 5:inf 6:105.0 7:105.0
+  pad {1,2,4,6,7} | or-all {1,2,4,6,7} | hybrid {1,2,4,6,7}
+FarNode + 1 close dead (3)
+  scores: 1:105.0 2:105.0 3:inf 4:105.0 5:105.0 6:105.0 7:105.0
+  pad {1,2,4,5,6,7} | or-all {1,2,4,5,6,7} | hybrid {1,2,4,5,6,7}

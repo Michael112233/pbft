@@ -110,6 +110,7 @@
   "aware_staleness_epochs": 3,
   "aware_alpha": 0.1,
   "aware_epsilon_ms": 1.0,
+  "aware_candidates": "threshold_or_all",
   "far_node_netem": false,
   
   "proposal_min_interval_ms": 100,

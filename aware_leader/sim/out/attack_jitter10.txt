@@ -1,0 +1,50 @@
+
+=== far 6,7; Byzantine close 1,2: Byzantine {1,2}, far {6,7} ===
+true scores (ms): 1:16.2 2:16.2 3:15.0 4:16.2 5:15.5 6:105.1 7:109.1
+honest reports -> pilot members {1,2,3,4,5} | or-all members {1,2,3,4,5}
+  pilot (pad by score): 6 reachable member sets; min honest-close members 2; max far members 2; worst set {1,2,3,4,6} good share 0.40 (round robin 0.43)
+    reachable sets: {1,2,3,4,5} {1,2,3,4,6} {3,4,5,6,7} {1,3,4,5,6,7} {2,3,4,5,6,7} {1,2,3,4,5,6,7}
+    first leader of a generation can be made Byzantine: score order 1.00 (truthful 0.40); id ring 0.57 (truthful 0.57); id order 0.64 (truthful 0.40); seeded perm 0.46 (truthful 0.39)
+  threshold-or-all: 5 reachable member sets; min honest-close members 3; max far members 2; worst set {1,2,3,4,5,6,7} good share 0.43 (round robin 0.43)
+    reachable sets: {1,2,3,4,5} {3,4,5,6,7} {1,3,4,5,6,7} {2,3,4,5,6,7} {1,2,3,4,5,6,7}
+    first leader of a generation can be made Byzantine: score order 1.00 (truthful 0.40); id ring 0.57 (truthful 0.57); id order 0.64 (truthful 0.40); seeded perm 0.39 (truthful 0.39)
+
+=== far 6,7; Byzantine close 2,4: Byzantine {2,4}, far {6,7} ===
+true scores (ms): 1:16.2 2:16.2 3:15.0 4:16.2 5:15.5 6:105.1 7:109.1
+honest reports -> pilot members {1,2,3,4,5} | or-all members {1,2,3,4,5}
+  pilot (pad by score): 7 reachable member sets; min honest-close members 2; max far members 2; worst set {1,2,3,4,6} good share 0.40 (round robin 0.43)
+    reachable sets: {1,2,3,4,5} {1,2,3,4,6} {1,3,5,6,7} {1,2,3,4,5,6} {1,2,3,5,6,7} {1,3,4,5,6,7} {1,2,3,4,5,6,7}
+    first leader of a generation can be made Byzantine: score order 1.00 (truthful 0.40); id ring 0.29 (truthful 0.29); id order 0.79 (truthful 0.40); seeded perm 0.47 (truthful 0.39)
+  threshold-or-all: 6 reachable member sets; min honest-close members 3; max far members 2; worst set {1,2,3,4,5,6,7} good share 0.43 (round robin 0.43)
+    reachable sets: {1,2,3,4,5} {1,3,5,6,7} {1,2,3,4,5,6} {1,2,3,5,6,7} {1,3,4,5,6,7} {1,2,3,4,5,6,7}
+    first leader of a generation can be made Byzantine: score order 1.00 (truthful 0.40); id ring 0.29 (truthful 0.29); id order 0.79 (truthful 0.40); seeded perm 0.39 (truthful 0.39)
+
+=== far 6,7; one Byzantine close, one far: Byzantine {1,6}, far {6,7} ===
+true scores (ms): 1:16.2 2:16.2 3:15.0 4:16.2 5:15.5 6:105.1 7:109.1
+honest reports -> pilot members {1,2,3,4,5} | or-all members {1,2,3,4,5}
+  pilot (pad by score): 9 reachable member sets; min honest-close members 3; max far members 2; worst set {1,2,3,4,5,6,7} good share 0.57 (round robin 0.57)
+    reachable sets: {1,2,3,4,5} {1,2,3,4,6} {1,2,4,5,6} {1,3,4,5,6} {2,3,4,5,6} {2,3,4,5,7} {1,2,3,4,5,7} {2,3,4,5,6,7} {1,2,3,4,5,6,7}
+    first leader of a generation can be made Byzantine: score order 1.00 (truthful 0.20); id ring 0.57 (truthful 0.43); id order 0.71 (truthful 0.20); seeded perm 0.52 (truthful 0.20)
+  threshold-or-all: 5 reachable member sets; min honest-close members 4; max far members 2; worst set {1,2,3,4,5,6,7} good share 0.57 (round robin 0.57)
+    reachable sets: {1,2,3,4,5} {2,3,4,5,7} {1,2,3,4,5,7} {2,3,4,5,6,7} {1,2,3,4,5,6,7}
+    first leader of a generation can be made Byzantine: score order 1.00 (truthful 0.20); id ring 0.43 (truthful 0.43); id order 0.62 (truthful 0.20); seeded perm 0.31 (truthful 0.20)
+
+=== far 1,4; Byzantine close 2,3: Byzantine {2,3}, far {1,4} ===
+true scores (ms): 1:105.8 2:15.5 3:15.4 4:105.8 5:15.7 6:15.7 7:15.7
+honest reports -> pilot members {2,3,5,6,7} | or-all members {2,3,5,6,7}
+  pilot (pad by score): 5 reachable member sets; min honest-close members 3; max far members 2; worst set {1,2,3,4,5,6,7} good share 0.43 (round robin 0.43)
+    reachable sets: {1,4,5,6,7} {2,3,5,6,7} {1,2,4,5,6,7} {1,3,4,5,6,7} {1,2,3,4,5,6,7}
+    first leader of a generation can be made Byzantine: score order 1.00 (truthful 0.40); id ring 0.43 (truthful 0.43); id order 0.64 (truthful 0.40); seeded perm 0.39 (truthful 0.39)
+  threshold-or-all: 5 reachable member sets; min honest-close members 3; max far members 2; worst set {1,2,3,4,5,6,7} good share 0.43 (round robin 0.43)
+    reachable sets: {1,4,5,6,7} {2,3,5,6,7} {1,2,4,5,6,7} {1,3,4,5,6,7} {1,2,3,4,5,6,7}
+    first leader of a generation can be made Byzantine: score order 1.00 (truthful 0.40); id ring 0.43 (truthful 0.43); id order 0.64 (truthful 0.40); seeded perm 0.39 (truthful 0.39)
+
+=== far 1,4; Byzantine close 5,7: Byzantine {5,7}, far {1,4} ===
+true scores (ms): 1:105.8 2:15.5 3:15.4 4:105.8 5:15.7 6:15.7 7:15.7
+honest reports -> pilot members {2,3,5,6,7} | or-all members {2,3,5,6,7}
+  pilot (pad by score): 16 reachable member sets; min honest-close members 2; max far members 2; worst set {1,3,4,5,6,7} good share 0.33 (round robin 0.43)
+    reachable sets: {1,2,3,4,6} {1,2,3,5,6} {1,2,3,6,7} {1,3,4,5,6} {1,3,4,6,7} {1,3,5,6,7} {2,3,4,5,6} {2,3,4,6,7} {2,3,5,6,7} {3,4,5,6,7} {1,2,3,4,5,6} {1,2,3,4,6,7} {1,2,3,5,6,7} {1,3,4,5,6,7} {2,3,4,5,6,7} {1,2,3,4,5,6,7}
+    first leader of a generation can be made Byzantine: score order 1.00 (truthful 0.40); id ring 0.43 (truthful 0.43); id order 0.86 (truthful 0.40); seeded perm 0.47 (truthful 0.40)
+  threshold-or-all: 15 reachable member sets; min honest-close members 2; max far members 2; worst set {1,3,4,5,6,7} good share 0.33 (round robin 0.43)
+    reachable sets: {1,2,3,4,6} {1,2,3,5,6} {1,3,4,5,6} {1,3,4,6,7} {1,3,5,6,7} {2,3,4,5,6} {2,3,4,6,7} {2,3,5,6,7} {3,4,5,6,7} {1,2,3,4,5,6} {1,2,3,4,6,7} {1,2,3,5,6,7} {1,3,4,5,6,7} {2,3,4,5,6,7} {1,2,3,4,5,6,7}
+    first leader of a generation can be made Byzantine: score order 1.00 (truthful 0.40); id ring 0.43 (truthful 0.43); id order 0.86 (truthful 0.40); seeded perm 0.47 (truthful 0.40)

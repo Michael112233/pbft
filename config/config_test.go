@@ -304,3 +304,18 @@ func TestParseScenariosThrottle(t *testing.T) {
 		}
 	}
 }
+
+func TestAwareCandidatesDefaultAndValidation(t *testing.T) {
+	c := &Config{}
+	if c.AwareCandidateRule() != AwareCandidatesThresholdOrAll {
+		t.Fatalf("default aware_candidates = %q, want %q", c.AwareCandidateRule(), AwareCandidatesThresholdOrAll)
+	}
+	for _, rule := range []string{"", AwareCandidatesPad, AwareCandidatesThresholdOrAll} {
+		if err := (&Config{AwareCandidates: rule}).ValidateAware(); err != nil {
+			t.Fatalf("aware_candidates %q rejected: %v", rule, err)
+		}
+	}
+	if err := (&Config{AwareCandidates: "padded"}).ValidateAware(); err == nil {
+		t.Fatal(`aware_candidates "padded" accepted`)
+	}
+}

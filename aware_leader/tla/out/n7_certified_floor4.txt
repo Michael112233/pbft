@@ -1,0 +1,132 @@
+TLC2 Version 2026.10.06.014338 (rev: 94d0c50)
+Running breadth-first search Model-Checking with fp 82 and seed -2802852505389879089 with 56 workers on 56 cores with 27305MB heap and 64MB offheap memory [pid: 544517] (Linux 5.15.0-187-generic amd64, Eclipse Adoptium 21.0.12.1 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file /users/HamzaK/pbft/aware_leader/tla/AwareSchedule.tla
+Parsing file /tmp/tlc-4084745217633869795/Integers.tla (jar:file:/tmp/claude-20003/-users-HamzaK-pbft/ffef246d-6e79-4f45-8761-404dee60b637/scratchpad/tools/tla/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Parsing file /tmp/tlc-4084745217633869795/FiniteSets.tla (jar:file:/tmp/claude-20003/-users-HamzaK-pbft/ffef246d-6e79-4f45-8761-404dee60b637/scratchpad/tools/tla/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-4084745217633869795/_TLCTrace.tla (jar:file:/tmp/claude-20003/-users-HamzaK-pbft/ffef246d-6e79-4f45-8761-404dee60b637/scratchpad/tools/tla/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-4084745217633869795/Naturals.tla (jar:file:/tmp/claude-20003/-users-HamzaK-pbft/ffef246d-6e79-4f45-8761-404dee60b637/scratchpad/tools/tla/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-4084745217633869795/Sequences.tla (jar:file:/tmp/claude-20003/-users-HamzaK-pbft/ffef246d-6e79-4f45-8761-404dee60b637/scratchpad/tools/tla/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-4084745217633869795/TLC.tla (jar:file:/tmp/claude-20003/-users-HamzaK-pbft/ffef246d-6e79-4f45-8761-404dee60b637/scratchpad/tools/tla/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-4084745217633869795/TLCExt.tla (jar:file:/tmp/claude-20003/-users-HamzaK-pbft/ffef246d-6e79-4f45-8761-404dee60b637/scratchpad/tools/tla/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Semantic processing of module Naturals
+Semantic processing of module Integers
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module AwareSchedule
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module AwareSchedule
+Starting... (2026-10-11 20:13:31)
+Implied-temporal checking--satisfiability problem has 1 branches.
+Computing initial states...
+Computed 2 initial states...
+Computed 4 initial states...
+Computed 8 initial states...
+Computed 16 initial states...
+Computed 32 initial states...
+Computed 64 initial states...
+Computed 128 initial states...
+Computed 256 initial states...
+Finished computing initial states: 448 distinct states generated at 2026-10-11 20:13:32.
+Checking temporal properties for the current state space with 31583 total distinct states at (2026-10-11 20:13:35)
+Finished checking temporal properties in 00s at 2026-10-11 20:13:35
+Progress(3) at 2026-10-11 20:13:35: 36,793 states generated (36,793 s/min), 33,209 distinct states found (33,209 ds/min), 29,079 states left on queue.
+Error: Invariant BoundedBadRun is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ dec = <<{}>>
+/\ run = <<0, -1>>
+/\ gen = (3 :> 1 @@ 4 :> 1 @@ 5 :> 1 @@ 6 :> 1 @@ 7 :> 1)
+/\ sched = ( 3 :> {1, 2, 6, 7} @@
+  4 :> {1, 2, 6, 7} @@
+  5 :> {1, 2, 6, 7} @@
+  6 :> {1, 2, 6, 7} @@
+  7 :> {1, 2, 6, 7} )
+/\ agg = (3 :> <<{}>> @@ 4 :> <<{}>> @@ 5 :> <<{}>> @@ 6 :> <<{}>> @@ 7 :> <<{}>>)
+/\ gst = TRUE
+/\ ctr = <<3, 0>>
+/\ aggVal = <<{}>>
+/\ installed = <<FALSE, FALSE>>
+
+State 2: <ViewFails(1) line 206, col 5 to line 214, col 65 of module AwareSchedule>
+/\ dec = <<{}>>
+/\ run = <<1, -1>>
+/\ gen = (3 :> 1 @@ 4 :> 1 @@ 5 :> 1 @@ 6 :> 1 @@ 7 :> 1)
+/\ sched = ( 3 :> {1, 2, 6, 7} @@
+  4 :> {1, 2, 6, 7} @@
+  5 :> {1, 2, 6, 7} @@
+  6 :> {1, 2, 6, 7} @@
+  7 :> {1, 2, 6, 7} )
+/\ agg = (3 :> <<{}>> @@ 4 :> <<{}>> @@ 5 :> <<{}>> @@ 6 :> <<{}>> @@ 7 :> <<{}>>)
+/\ gst = TRUE
+/\ ctr = <<4, 0>>
+/\ aggVal = <<{}>>
+/\ installed = <<FALSE, FALSE>>
+
+State 3: <ViewFails(1) line 206, col 5 to line 214, col 65 of module AwareSchedule>
+/\ dec = <<{}>>
+/\ run = <<2, -1>>
+/\ gen = (3 :> 1 @@ 4 :> 1 @@ 5 :> 1 @@ 6 :> 1 @@ 7 :> 1)
+/\ sched = ( 3 :> {1, 2, 6, 7} @@
+  4 :> {1, 2, 6, 7} @@
+  5 :> {1, 2, 6, 7} @@
+  6 :> {1, 2, 6, 7} @@
+  7 :> {1, 2, 6, 7} )
+/\ agg = (3 :> <<{}>> @@ 4 :> <<{}>> @@ 5 :> <<{}>> @@ 6 :> <<{}>> @@ 7 :> <<{}>>)
+/\ gst = TRUE
+/\ ctr = <<5, 0>>
+/\ aggVal = <<{}>>
+/\ installed = <<FALSE, FALSE>>
+
+State 4: <ViewFails(1) line 206, col 5 to line 214, col 65 of module AwareSchedule>
+/\ dec = <<{}>>
+/\ run = <<3, -1>>
+/\ gen = (3 :> 1 @@ 4 :> 1 @@ 5 :> 1 @@ 6 :> 1 @@ 7 :> 1)
+/\ sched = ( 3 :> {1, 2, 6, 7} @@
+  4 :> {1, 2, 6, 7} @@
+  5 :> {1, 2, 6, 7} @@
+  6 :> {1, 2, 6, 7} @@
+  7 :> {1, 2, 6, 7} )
+/\ agg = (3 :> <<{}>> @@ 4 :> <<{}>> @@ 5 :> <<{}>> @@ 6 :> <<{}>> @@ 7 :> <<{}>>)
+/\ gst = TRUE
+/\ ctr = <<6, 0>>
+/\ aggVal = <<{}>>
+/\ installed = <<FALSE, FALSE>>
+
+State 5: <ViewFails(1) line 206, col 5 to line 214, col 65 of module AwareSchedule>
+/\ dec = <<{}>>
+/\ run = <<4, -1>>
+/\ gen = (3 :> 1 @@ 4 :> 1 @@ 5 :> 1 @@ 6 :> 1 @@ 7 :> 1)
+/\ sched = ( 3 :> {1, 2, 6, 7} @@
+  4 :> {1, 2, 6, 7} @@
+  5 :> {1, 2, 6, 7} @@
+  6 :> {1, 2, 6, 7} @@
+  7 :> {1, 2, 6, 7} )
+/\ agg = (3 :> <<{}>> @@ 4 :> <<{}>> @@ 5 :> <<{}>> @@ 6 :> <<{}>> @@ 7 :> <<{}>>)
+/\ gst = TRUE
+/\ ctr = <<7, 0>>
+/\ aggVal = <<{}>>
+/\ installed = <<FALSE, FALSE>>
+
+State 6: <ViewFails(1) line 206, col 5 to line 214, col 65 of module AwareSchedule>
+/\ dec = <<{}>>
+/\ run = <<5, -1>>
+/\ gen = (3 :> 1 @@ 4 :> 1 @@ 5 :> 1 @@ 6 :> 1 @@ 7 :> 1)
+/\ sched = ( 3 :> {1, 2, 6, 7} @@
+  4 :> {1, 2, 6, 7} @@
+  5 :> {1, 2, 6, 7} @@
+  6 :> {1, 2, 6, 7} @@
+  7 :> {1, 2, 6, 7} )
+/\ agg = (3 :> <<{}>> @@ 4 :> <<{}>> @@ 5 :> <<{}>> @@ 6 :> <<{}>> @@ 7 :> <<{}>>)
+/\ gst = TRUE
+/\ ctr = <<8, 0>>
+/\ aggVal = <<{}>>
+/\ installed = <<FALSE, FALSE>>
+
+1169212 states generated, 453882 distinct states found, 277141 states left on queue.
+The depth of the complete state graph search is 6.
+Finished in 10s at (2026-10-11 20:13:41)
+Trace exploration spec path: ./AwareSchedule_TTrace_1791749611.tla
