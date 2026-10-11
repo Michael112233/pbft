@@ -76,6 +76,13 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 		n.log.Error("Failed to verify view change message from node %d for view (%d,%d)", viewChange.From, viewChange.ViewNumber.Generation, viewChange.ViewNumber.Counter)
 		return
 	}
+	// Below forView nothing reads it (pruneBelowForView), so storing it would only
+	// re-create a pruned entry. Still verified above, as it was when it was stored,
+	// so view-change CPU and timing stay comparable with runs made before pruning.
+	if viewChange.ViewNumber.LessThan(forView) {
+		n.log.Error("Received view change for view (%d,%d) which is lower than my for view (%d,%d), dropping", viewChange.ViewNumber.Generation, viewChange.ViewNumber.Counter, forView.Generation, forView.Counter)
+		return
+	}
 
 	if !n.appendViewChangeIfNew(&core.ViewChangeMsgSig{
 		ViewChangeMsg: viewChange,
@@ -116,9 +123,6 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 		} else if viewChange.ViewNumber.Generation > forView.Generation+1 {
 			n.log.Error("Received view change for view (%d,%d) which is more than one ahead in generation of my for view (%d,%d)", viewChange.ViewNumber.Generation, viewChange.ViewNumber.Counter, forView.Generation, forView.Counter)
 		}
-	} else {
-		n.log.Error("Received view change for view (%d,%d) which is lower than my for view (%d,%d), just adding to log", viewChange.ViewNumber.Generation, viewChange.ViewNumber.Counter, forView.Generation, forView.Counter)
-
 	}
 
 }

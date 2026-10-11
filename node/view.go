@@ -66,6 +66,27 @@ func (n *Node) pruneViewChangeState(installed core.ViewID) {
 	}
 }
 
+// pruneBelowForView drops per-view bookkeeping for every view below forView, the
+// view this node is now trying to reach. Nothing reads those entries again:
+// forViewID only moves forward (SetForViewID is its only setter), the 2f+1 quorum
+// and newview look up forView itself, f+1 amplification counts views above it,
+// HandleNewView rejects a NewView below forView before verifyNewView reads the
+// cache, and HandleViewChangeRoundRobin no longer stores a ViewChange below it.
+//
+// pruneViewChangeState only runs when a view is installed, so without this a
+// cascade that never installs one keeps every ViewChange of every view it passes
+// through: Election under NetworkDelay at n=7 grew ~33 GB/h per node and OOM-killed
+// a node in the PFE multi-scenario run. RoundRobin was only saved by the primary
+// installing locally in newview every nodeNum views.
+func (n *Node) pruneBelowForView(forView core.ViewID) {
+	for view := range n.viewChangeMsgsLog {
+		if view.LessThan(forView) {
+			delete(n.viewChangeMsgsLog, view)
+		}
+	}
+	n.electionManager.pruneBelow(forView)
+}
+
 func (n *Node) enterViewChange(forView core.ViewID) {
 	n.stopViewTimers()
 	n.stopPerfTimer()

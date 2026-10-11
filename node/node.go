@@ -1008,9 +1008,11 @@ func (n *Node) SetViewID(view core.ViewID) {
 }
 
 // SetForViewID is the only place the generation moves (all three generation
-// switch paths end here), so it also drives the scenario switch.
+// switch paths end here), so it also drives the scenario switch. It is also the
+// only place forViewID moves, so it prunes the per-view state below it.
 func (n *Node) SetForViewID(view core.ViewID) {
 	n.forViewID = view
+	n.pruneBelowForView(view)
 	n.maybeSwitchScenario(view.Generation)
 }
 func (n *Node) SetCurrAction(action core.Action) {

@@ -41,6 +41,28 @@ func NewElectionManager() *ElectionManager {
 	}
 }
 
+// pruneBelow drops election state for views below forView. ElectionLogic,
+// handleElectionVDFResult and HandleGrantVoteMsg only act on forView, and
+// HandleRequestVoteMsg rejects a view below it, so none of it is read again.
+// Nothing else prunes these maps, not even a view install.
+func (em *ElectionManager) pruneBelow(forView core.ViewID) {
+	for view := range em.votedFor {
+		if view.LessThan(forView) {
+			delete(em.votedFor, view)
+		}
+	}
+	for view := range em.collectVotes {
+		if view.LessThan(forView) {
+			delete(em.collectVotes, view)
+		}
+	}
+	for view := range em.reqVoteBuffer {
+		if view.LessThan(forView) {
+			delete(em.reqVoteBuffer, view)
+		}
+	}
+}
+
 func (n *Node) ElectionLogic(forView, view core.ViewID, currAction core.Action, path string) {
 	n.log.Info("In select round robin from path %s for view (%d,%d)", path, forView.Generation, forView.Counter)
 	if _, alreadyVoted := n.electionManager.votedFor[forView]; alreadyVoted {
