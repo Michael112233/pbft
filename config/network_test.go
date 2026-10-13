@@ -31,3 +31,17 @@ func TestGenerateRemoteNetworkDisablesLearningAgents(t *testing.T) {
 		t.Fatalf("LearningAgentAddr = %#v, want nil in remote mode", LearningAgentAddr)
 	}
 }
+
+func TestClientAddrFor(t *testing.T) {
+	GenerateLoopbackIPNetwork(7)
+
+	if got := ClientAddrFor(1, 1); got != "127.0.0.1:20000" {
+		t.Fatalf("single client addr = %q, want the legacy 127.0.0.1:20000", got)
+	}
+	if got := ClientAddrFor(1, 7); got != "127.0.1.2:20000" {
+		t.Fatalf("client 1 of 7 = %q, want 127.0.1.2:20000", got)
+	}
+	if got := ClientAddrFor(7, 7); got != "127.0.1.8:20000" {
+		t.Fatalf("client 7 of 7 = %q, want 127.0.1.8:20000", got)
+	}
+}

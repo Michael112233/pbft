@@ -2,6 +2,9 @@ package client
 
 import (
 	"crypto/ed25519"
+	"fmt"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,9 +27,12 @@ type LeaderUpdate struct {
 }
 
 type Client struct {
-	addr            string
-	name            string
-	config          *config.Config
+	addr   string
+	name   string
+	id     int // 1..client_num; client i is colocated with node i
+	config *config.Config
+	// injectSpeed is this client's share of inject_speed per 24 ms tick
+	// (config.ClientInjectShare); the shares of all clients sum to inject_speed.
 	injectSpeed     int64
 	txs             []*core.Transaction
 	currentView     core.ViewID
@@ -71,16 +77,24 @@ type Client struct {
 	leaderTimelineStopOnce sync.Once
 }
 
-func NewClient(addr string, name string, config *config.Config, leaderAddr string) *Client {
+// NewClient builds client id (1..client_num). Every client signs with the shared
+// client key; nodes tell clients apart by name.
+func NewClient(addr string, name string, id int, config *config.Config, leaderAddr string) *Client {
 	privKey, err := crypto.ReadEd25519PrivateKey("keys/client_priv.pem")
 	if err != nil {
 		panic("Error reading client private key: " + err.Error())
 	}
 	// leaderid := config.NodeAddr[1]
-	log := logger.NewLogger(0, "client")
+	logID := 0 // the single client keeps logs/client.log
+	if config.ClientCount() > 1 {
+		logID = id
+	}
+	log := logger.NewLogger(logID, "client")
 	c := &Client{
 		addr:            addr,
 		name:            name,
+		id:              id,
+		injectSpeed:     config.ClientInjectShare(id),
 		currentView:     core.ViewID{Generation: 1, Counter: 1},
 		config:          config,
 		newLeaderQuorum: make(map[LeaderUpdate]int),
@@ -112,7 +126,9 @@ func NewClient(addr string, name string, config *config.Config, leaderAddr strin
 	c.EventManager = NewEventManager(c, log, defaultEventLowerBound, defaultEventUpperBound)
 	// Static throttle runs (throttle.enabled, no scenario mode), or scenario runs
 	// with a Throttle scenario, where the manager is active only in its generations.
-	if config.Throttle.Enabled || config.ThrottleScenarioMode() {
+	// Only client 1 runs it: a node's gate is one setting, so several managers
+	// would overwrite each other's commands.
+	if id == 1 && (config.Throttle.Enabled || config.ThrottleScenarioMode()) {
 		c.throttle = newThrottleManager(c)
 	}
 	return c
@@ -120,8 +136,9 @@ func NewClient(addr string, name string, config *config.Config, leaderAddr strin
 
 func (c *Client) Start() {
 	c.messageHub.Start(c, &sync.WaitGroup{})
+	c.log.Info("client %s (id %d of %d) from %s, inject share %d per %v", c.name, c.id, c.config.ClientCount(), c.addr, c.injectSpeed, clientSendInterval)
 	if c.config.Logging && c.memoryLoggerStarted.CompareAndSwap(false, true) {
-		go utils.StartMemoryLogger("logs/client_mem.log", "client", 30*time.Second, c.memoryLoggerStop, c.memoryLoggerDone)
+		go utils.StartMemoryLogger(c.outPath("client_mem.log"), c.name, 30*time.Second, c.memoryLoggerStop, c.memoryLoggerDone)
 	}
 	if c.config.Logging && c.requestSendRateStarted.CompareAndSwap(false, true) {
 		go c.requestSendRateLogger()
@@ -137,7 +154,6 @@ func (c *Client) Start() {
 		c.TransactionManager.StartRetryTimer(true)
 	}
 
-	c.injectSpeed = c.config.InjectSpeed
 	time.Sleep(100 * time.Millisecond) // msg hub to start
 	// c.EventManager.Start()
 	c.InjectTxs()
@@ -177,7 +193,7 @@ func (c *Client) Stop() {
 // the throttle analysis. Runs whether or not the controller is enabled.
 func (c *Client) leaderTimelineLogger() {
 	defer close(c.leaderTimelineDone)
-	w := newJSONLWriter("logs/leader_timeline.jsonl", c.log)
+	w := newJSONLWriter(c.outPath("leader_timeline.jsonl"), c.log)
 	defer w.close()
 	for {
 		select {
@@ -224,14 +240,25 @@ func (c *Client) currentLeaderAddr() string {
 	return c.leaderAddr
 }
 
+// outPath returns where this client writes the file the single client writes to
+// logs/<legacy>. With several clients each gets its own copy,
+// logs/client<i>_<legacy> with a leading "client_" dropped (client_mem.log ->
+// client3_mem.log), which scripts/merge_client_reports.py combines.
+func (c *Client) outPath(legacy string) string {
+	if c.config == nil || c.config.ClientCount() <= 1 {
+		return filepath.Join("logs", legacy)
+	}
+	return filepath.Join("logs", fmt.Sprintf("client%d_%s", c.id, strings.TrimPrefix(legacy, "client_")))
+}
+
 func (c *Client) ExportTPSSeries(path string) error {
-	pathToLogs := "logs/" + path
+	pathToLogs := c.outPath(path)
 	err := c.TransactionManager.ExportTPSSeries(pathToLogs)
 	if err != nil {
 
 		return err
 	}
-	latencyPath := "logs/latency" + path
+	latencyPath := c.outPath("latency" + path)
 	err = c.TransactionManager.LatencySummary(latencyPath)
 	if err != nil {
 		return err

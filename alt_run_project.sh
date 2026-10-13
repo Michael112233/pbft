@@ -51,6 +51,14 @@ if ! [[ "$NODE_COUNT" =~ ^[1-9][0-9]*$ ]]; then
     exit 1
 fi
 
+# "client_num" (default 1): client i is colocated with node i and runs in window client<i>,
+# sending from 127.0.1.<i+1> (config/network.go). One client keeps the window name "client".
+CLIENT_COUNT=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("client_num", 1) or 1)' "$CONFIG_PATH")
+if ! [[ "$CLIENT_COUNT" =~ ^[1-9][0-9]*$ ]] || (( CLIENT_COUNT > NODE_COUNT )); then
+    echo "Error: client_num in $CONFIG_PATH must be an integer in 1..node_num ($NODE_COUNT)." >&2
+    exit 1
+fi
+
 NETEM_INTERFACE="lo"
 NETEM_LIMIT=100000
 NETEM_DELAY_LOG="logs/netem_schedule.log"
@@ -239,6 +247,7 @@ rm -f logs/*.log
 rm -f logs/*.csv
 rm -f logs/*.txt
 rm -f logs/*.json
+rm -f logs/*.jsonl
 echo "Log files cleaned up."
 
 echo "Cleaning up keys directory..."
@@ -299,10 +308,17 @@ fi
 if [ "$FAR_NODE_NETEM" = "1" ]; then
     setup_netem_node1
 fi
-# Optional: start client in another window
-
-tmux new-window -t "$SESSION" -n "client" \
-    "cd \"$CURRENT_DIR\" && ${CLIENT_ENV_PREFIX}./pbft_main --config \"$CONFIG_PATH\" -r client -m loopbackip; status=\$?; echo; echo \"client exited with status \$status\"; exec bash"
+# Start the client(s), each in its own window.
+if [ "$CLIENT_COUNT" = "1" ]; then
+    tmux new-window -t "$SESSION" -n "client" \
+        "cd \"$CURRENT_DIR\" && ${CLIENT_ENV_PREFIX}./pbft_main --config \"$CONFIG_PATH\" -r client -m loopbackip; status=\$?; echo; echo \"client exited with status \$status\"; exec bash"
+else
+    echo "Starting $CLIENT_COUNT clients, each with 1/$CLIENT_COUNT of inject_speed..."
+    for i in $(seq 1 "$CLIENT_COUNT"); do
+        tmux new-window -t "$SESSION" -n "client$i" \
+            "cd \"$CURRENT_DIR\" && ${CLIENT_ENV_PREFIX}./pbft_main --config \"$CONFIG_PATH\" -r client -m loopbackip -n $i; status=\$?; echo; echo \"client$i exited with status \$status\"; exec bash"
+    done
+fi
 
 # sleep 2
 # start_repeating_netem_spikes
@@ -324,6 +340,8 @@ fi
 #
 #   config.json  optional, default: config/run2new.json
 #   "netem_delay": true in the config runs setup_netem + start_netem_schedule (default false)
+#   "client_num": N in the config starts N clients (windows client1..clientN) that split
+#                inject_speed; stop_experiment.sh merges their reports (default 1)
 #   NO_ATTACH=1  optional env var, skip the final "tmux attach" (default 0)
 #
 # Examples:

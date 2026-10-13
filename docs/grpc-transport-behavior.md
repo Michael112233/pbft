@@ -288,9 +288,14 @@ gRPC connection uses `insecure.NewCredentials()`. Their authenticity therefore
 depends on the trusted experiment environment rather than TLS or an
 application signature.
 
-The node stores only one client stream. If multiple independent clients connect
-to the same node, the newest stream replaces the previous one for all outgoing
-responses. The current system is consequently designed for one client process.
+The node keeps one client stream per client name. A client announces its name
+in the `pbft-client-name` stream metadata (`transportpb.ClientNameMetadataKey`);
+a stream without it belongs to the legacy single client, `"client"`. `CommitTps`
+goes only to the stream of the request's `ClientName`, because a client matches
+replies by request id alone and every client numbers its ids from 0. Leader
+updates go to every client stream, each sent on its own goroutine. A client that
+reconnects replaces only its own entry. With `client_num` > 1 the harness runs
+one client process per node (client i sends from 127.0.1.(i+1)).
 
 ## Node-to-node connection creation
 

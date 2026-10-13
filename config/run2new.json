@@ -3,6 +3,7 @@
   "inject_speed": 200,
   "max_block_size": 1,
   "client_msg_padding_bytes": 0,
+  "client_num": 1,
   "node_num": 4,
   "nodes_dead": {
     "1": false,

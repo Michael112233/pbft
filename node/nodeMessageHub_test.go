@@ -62,7 +62,7 @@ func TestClientStreamEventDispatch(t *testing.T) {
 		if err := hub.ClientNodeChannel(stream); err != nil {
 			t.Fatal(err)
 		}
-		if hub.clientStream != nil {
+		if len(hub.clientStreams) != 0 {
 			t.Fatal("client stream was not cleared after EOF")
 		}
 	}
@@ -685,9 +685,9 @@ func TestNodeMessagesReusePersistentPeerStream(t *testing.T) {
 	}
 
 	receiverHub.clientStreamMu.RLock()
-	clientStream := receiverHub.clientStream
+	clientStreamCount := len(receiverHub.clientStreams)
 	receiverHub.clientStreamMu.RUnlock()
-	if clientStream != nil {
+	if clientStreamCount != 0 {
 		t.Fatal("node stream replaced the dedicated client response stream")
 	}
 

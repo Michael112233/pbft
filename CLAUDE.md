@@ -82,10 +82,11 @@ go test ./node -count=1                # some learning-agent tests are currently
 - `setup_crypto/crypto_main.go` regenerates `keys/*.pem`; the run scripts do this
   every time, so keys always show as modified in git.
 - Network modes (`config/network.go`): `local` (127.0.0.1, ports 28000+100i),
-  `loopbackip` (127.0.0.<i+1>, what the scripts use, so netem can filter per node),
-  `remote`.
+  `loopbackip` (127.0.0.<i+1>, what the scripts use, so netem can filter per node;
+  client i of several at 127.0.1.<i+1>, see `client_num`), `remote`.
 - Logs go to `logs/node_<id>.log`, `logs/client.log`, plus `_test`, `_feature`,
-  `_mem` variants. Scripts wipe `logs/` on start.
+  `_mem` variants (`logs/client<i>.log` etc. with `client_num` > 1). Scripts wipe
+  `logs/` on start.
 
 ## ViewID: generation and counter
 
@@ -230,7 +231,11 @@ node after 15 h of the n=7 multi-scenario runs. With retry off nothing can arriv
 so nothing is recorded; with retry on the set is still unbounded (TODO in `intake.go`).
 
 Transport is gRPC bidirectional streams (`proto/pbft_transport.proto`,
-`transportpb/`), one peer stream per target, 8 MiB flow-control windows. ViewChange
+`transportpb/`), one peer stream per target, 8 MiB flow-control windows. A node keeps
+one reply stream **per client name** (`clientStreams`, `node/nodeMessageHub.go`), taken
+from the `pbft-client-name` stream metadata (none = `"client"`): CommitTps goes only to
+the request's `ClientName` (clients match replies by id alone and all number from 0),
+LeaderIdUpdate to every client. ViewChange
 and NewView messages are large (1 MiB and several MiB with a few hundred prepared
 certs) and dominate view-change latency; `node/newview_cost_test.go` is a standalone
 harness for measuring that cost.
@@ -352,6 +357,20 @@ key missing there is missing from every experiment built afterwards.
   reads its channel. A batch is proposed only once `pendingRequests` holds
   `max_batch_size` requests, so batching wait is the fill time `B/R` and is
   unbounded at low load.
+- **`client_num`** (default 1): N client processes, client i colocated with node i,
+  each sending its share of `inject_speed` per 24 ms (`config.ClientInjectShare`: 200
+  over 7 is 29,29,29,29,28,28,28, so the total is unchanged). `alt_run_project.sh`
+  starts windows `client1..clientN` (`-r client -n i`); client i is named `client<i>`
+  and sends from 127.0.1.<i+1> — a range apart from the node IPs, so the node-pair
+  netem filters (which also match a node with itself) never delay a client. All clients
+  share `keys/client_*.pem`. Only client 1 runs the throttle manager (a node's gate is
+  one setting). Client i writes `logs/client<i>_<file>` for every client file
+  (`Client.outPath`); `stop_experiment.sh` runs `scripts/merge_client_reports.py`,
+  which writes the single-client names (`report.json`, `latencyreport.json` with
+  percentiles from the merged `latency_hist_us` and a per-client `clients` list,
+  `client_request_send_rate.csv`, client 1's `leader_timeline.jsonl`), so analysis
+  scripts read either kind of run. With one client nothing changes: name `client`,
+  127.0.0.1, legacy file names.
 - The client paces request batches (`client/ratelimiter.go`, one batch of
   `inject_speed` per 24 ms) into **per-node send queues** (`client/sendqueue.go`, 8
   batches each); a sender goroutine per node does the blocking `stream.Send`. A full

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
 	"github.com/michael112233/pbft/crypto"
 	"github.com/michael112233/pbft/learningagentpb"
@@ -87,8 +88,10 @@ type NodeMessageHub struct {
 	dialContext  func(context.Context, string) (net.Conn, error)
 	closeOnce    sync.Once
 
+	// One reply stream per client, keyed by the name the client announces in
+	// transportpb.ClientNameMetadataKey (config.LegacyClientName if it does not).
 	clientStreamMu sync.RWMutex
-	clientStream   *clientStreamState
+	clientStreams  map[string]*clientStreamState
 }
 
 func NewNodeMessageHub() *NodeMessageHub {
@@ -157,7 +160,7 @@ func (hub *NodeMessageHub) Close() {
 		hub.mu.Unlock()
 
 		hub.clientStreamMu.Lock()
-		hub.clientStream = nil
+		hub.clientStreams = nil
 		hub.clientStreamMu.Unlock()
 
 		if grpcSrv != nil {
@@ -220,30 +223,73 @@ func (hub *NodeMessageHub) verifySignature(from int, signature []byte, payload p
 	return true
 }
 
-func (hub *NodeMessageHub) setClientStream(s *clientStreamState) {
+// setClientStream registers s as name's reply stream; a reconnecting client
+// replaces only its own entry.
+func (hub *NodeMessageHub) setClientStream(name string, s *clientStreamState) {
 	hub.clientStreamMu.Lock()
-	hub.clientStream = s
+	if hub.clientStreams == nil {
+		hub.clientStreams = make(map[string]*clientStreamState)
+	}
+	hub.clientStreams[name] = s
 	hub.clientStreamMu.Unlock()
 }
 
-func (hub *NodeMessageHub) clearClientStream(s *clientStreamState) {
+func (hub *NodeMessageHub) clearClientStream(name string, s *clientStreamState) {
 	hub.clientStreamMu.Lock()
-	if hub.clientStream == s {
-		hub.clientStream = nil
+	if hub.clientStreams[name] == s {
+		delete(hub.clientStreams, name)
 	}
 	hub.clientStreamMu.Unlock()
 }
 
-func (hub *NodeMessageHub) sendEnvelopeOverClientStream(env *transportpb.Envelope) error {
+func (s *clientStreamState) send(env *transportpb.Envelope) error {
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
+	return s.stream.Send(env)
+}
+
+// sendEnvelopeToClient sends env on the named client's stream. CommitTps must go
+// only to the client that sent the request: clients match replies by request id
+// alone, and every client numbers its ids from 0.
+func (hub *NodeMessageHub) sendEnvelopeToClient(name string, env *transportpb.Envelope) error {
 	hub.clientStreamMu.RLock()
-	streamState := hub.clientStream
+	streamState := hub.clientStreams[name]
 	hub.clientStreamMu.RUnlock()
 	if streamState == nil {
-		return errors.New("client stream is not connected")
+		return fmt.Errorf("client stream %q is not connected", name)
 	}
-	streamState.sendMu.Lock()
-	defer streamState.sendMu.Unlock()
-	return streamState.stream.Send(env)
+	return streamState.send(env)
+}
+
+// broadcastEnvelopeToClients sends env on every client stream, each on its own
+// goroutine so a client whose stream is backed up (a far one) does not delay the
+// others. Every client needs leader updates to count its own 2f quorum.
+func (hub *NodeMessageHub) broadcastEnvelopeToClients(env *transportpb.Envelope) error {
+	hub.clientStreamMu.RLock()
+	names := make([]string, 0, len(hub.clientStreams))
+	streams := make([]*clientStreamState, 0, len(hub.clientStreams))
+	for name, s := range hub.clientStreams {
+		names = append(names, name)
+		streams = append(streams, s)
+	}
+	hub.clientStreamMu.RUnlock()
+	if len(streams) == 0 {
+		return errors.New("no client stream is connected")
+	}
+
+	errs := make([]error, len(streams))
+	var wg sync.WaitGroup
+	for i, s := range streams {
+		wg.Add(1)
+		go func(i int, s *clientStreamState) {
+			defer wg.Done()
+			if err := s.send(env); err != nil {
+				errs[i] = fmt.Errorf("client %q: %w", names[i], err)
+			}
+		}(i, s)
+	}
+	wg.Wait()
+	return errors.Join(errs...)
 }
 
 func (hub *NodeMessageHub) injectArtificialLatency(msgType, targetAddr string) {
@@ -264,9 +310,11 @@ func (hub *NodeMessageHub) ClientNodeChannel(stream transportpb.PBFTTransport_Cl
 		return hub.receiveNodeStream(stream)
 	}
 
+	clientName := clientNameFromContext(stream.Context())
 	streamState := &clientStreamState{stream: stream}
-	hub.setClientStream(streamState)
-	defer hub.clearClientStream(streamState)
+	hub.setClientStream(clientName, streamState)
+	defer hub.clearClientStream(clientName, streamState)
+	hub.log.Info("client stream registered: client=%s", clientName)
 
 	for {
 		env, err := stream.Recv()
@@ -315,6 +363,20 @@ func (hub *NodeMessageHub) ClientNodeChannel(stream transportpb.PBFTTransport_Cl
 			hub.log.Error("Unknown stream message type received: msgType=%s", env.MsgType)
 		}
 	}
+}
+
+// clientNameFromContext returns the name a client stream announced, or the legacy
+// single client's name.
+func clientNameFromContext(ctx context.Context) string {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return config.LegacyClientName
+	}
+	values := md.Get(transportpb.ClientNameMetadataKey)
+	if len(values) == 0 || values[0] == "" {
+		return config.LegacyClientName
+	}
+	return values[0]
 }
 
 func channelKindFromContext(ctx context.Context) string {
@@ -921,7 +983,15 @@ func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, sign
 			return
 		}
 		// hub.injectArtificialLatency(msgType, ip)
-		if err := hub.sendEnvelopeOverClientStream(env); err != nil {
+		switch m := msg.(type) {
+		case core.CommitTps:
+			err = hub.sendEnvelopeToClient(m.ClientMsg.ClientName, env)
+		case core.ReplyMessage:
+			err = hub.sendEnvelopeToClient(m.ClientMsg.ClientName, env)
+		default: // LeaderIdUpdate, VCRunningStatus
+			err = hub.broadcastEnvelopeToClients(env)
+		}
+		if err != nil {
 			hub.log.Error("stream deliver failed. msgType=%s target=%s err=%v", msgType, ip, err)
 			return
 		}

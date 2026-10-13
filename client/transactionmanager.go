@@ -484,6 +484,10 @@ type LatencySummaryResult struct {
 	P99Ms               float64   `json:"p99_ms"`
 	P999Ms              float64   `json:"p99_9_ms"`
 	LatencySamplesMs    []float64 `json:"latency_samples_ms"`
+	// LatencyHistUs is every sample in a sparse histogram, sorted triples
+	// [lower_us, width_us, count] (latencyHistBucket). Unlike the percentiles it
+	// can be merged across clients (scripts/merge_client_reports.py).
+	LatencyHistUs [][3]int64 `json:"latency_hist_us"`
 	// Retry: whether retried commits are in the samples above, how many of the
 	// samples were retried and their latency, and total retry transmissions.
 	RetryEnabled bool    `json:"retry_enabled"`
@@ -596,6 +600,7 @@ func (tm *TransactionManager) LatencySummary(path string) error {
 	result.P95Ms = nanosToMs(percentileLatency(sortedSamples, 0.95))
 	result.P99Ms = nanosToMs(percentileLatency(sortedSamples, 0.99))
 	result.P999Ms = nanosToMs(percentileLatency(sortedSamples, 0.999))
+	result.LatencyHistUs = latencyHistogram(sortedSamples)
 
 	data, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
@@ -635,6 +640,38 @@ func percentileLatency(sorted []int64, p float64) int64 {
 		idx = len(sorted) - 1
 	}
 	return sorted[idx]
+}
+
+// latencyHistBucket returns the bucket a latency falls in, in microseconds: 0.1 ms
+// wide below 100 ms, 1 ms below 1 s, 10 ms below 10 s, 100 ms above, so an
+// overloaded run's growing backlog adds few buckets.
+func latencyHistBucket(ns int64) (lowerUs, widthUs int64) {
+	us := ns / 1000
+	switch {
+	case us < 100_000:
+		widthUs = 100
+	case us < 1_000_000:
+		widthUs = 1_000
+	case us < 10_000_000:
+		widthUs = 10_000
+	default:
+		widthUs = 100_000
+	}
+	return us / widthUs * widthUs, widthUs
+}
+
+// latencyHistogram buckets sorted samples into [lower_us, width_us, count] triples.
+func latencyHistogram(sorted []int64) [][3]int64 {
+	var hist [][3]int64
+	for _, ns := range sorted {
+		lower, width := latencyHistBucket(ns)
+		if n := len(hist); n > 0 && hist[n-1][0] == lower {
+			hist[n-1][2]++
+			continue
+		}
+		hist = append(hist, [3]int64{lower, width, 1})
+	}
+	return hist
 }
 
 func nanosToMs(ns int64) float64 {

@@ -74,7 +74,10 @@ func runNode(nodeID int64, cfg *config.Config) {
 	}
 }
 
-func runClient(cfg *config.Config) {
+// runClient runs client clientID (1..client_num, from -n; 0 means 1). Client i is
+// colocated with node i: it sends from config.ClientAddrFor(i) and signs its
+// share of inject_speed under cfg.ClientName(i).
+func runClient(clientID int, cfg *config.Config) {
 	// defer func() {
 	// 	if err := result.ExportToCSV("tps_results.csv"); err != nil {
 	// 		log.Error("Failed to export CSV: %v", err)
@@ -82,8 +85,15 @@ func runClient(cfg *config.Config) {
 	// }()
 
 	// core.NewBlockchain(cfg)
+	if clientID == 0 {
+		clientID = 1
+	}
+	if clientID < 1 || clientID > cfg.ClientCount() {
+		fmt.Printf("Invalid client id %d: client_num is %d, want -n 1..%d\n", clientID, cfg.ClientCount(), cfg.ClientCount())
+		os.Exit(1)
+	}
 	leaderAddr := config.NodeAddr[1]
-	client := client.NewClient(config.ClientAddr, "client", cfg, leaderAddr)
+	client := client.NewClient(config.ClientAddrFor(clientID, cfg.ClientCount()), cfg.ClientName(clientID), clientID, cfg, leaderAddr)
 	// txs := data.ReadData(cfg.MaxTxNum)
 	// client.AddTxs(txs)
 	client.Start()
@@ -134,6 +144,6 @@ func Main(nodeID int64, role, mode, cfgPath string) {
 	case "node":
 		runNode(nodeID, cfg)
 	case "client":
-		runClient(cfg)
+		runClient(int(nodeID), cfg)
 	}
 }

@@ -169,9 +169,13 @@ func (hub *ClientMessageHub) openNodeStream(addr string) (*nodeStreamState, erro
 	client := transportpb.NewPBFTTransportClient(conn)
 	// Use hub.ctx for stream lifetime. A short timeout context here would
 	// cancel the stream immediately after openNodeStream returns.
+	// The name lets the node send this client the CommitTps for its own requests.
 	streamCtx := metadata.NewOutgoingContext(
 		hub.ctx,
-		metadata.Pairs(transportpb.ChannelKindMetadataKey, transportpb.ChannelKindClient),
+		metadata.Pairs(
+			transportpb.ChannelKindMetadataKey, transportpb.ChannelKindClient,
+			transportpb.ClientNameMetadataKey, hub.client_ref.name,
+		),
 	)
 	stream, err := client.ClientNodeChannel(streamCtx)
 	if err != nil {

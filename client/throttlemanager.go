@@ -167,7 +167,7 @@ func newThrottleManager(c *Client) *throttleManager {
 		noticeCh:     make(chan leaderNotice, throttleNoticeBuffer),
 		stop:         make(chan struct{}),
 		done:         make(chan struct{}),
-		out:          newJSONLWriter("logs/throttle_manager.jsonl", c.log),
+		out:          newJSONLWriter(c.outPath("throttle_manager.jsonl"), c.log),
 	}
 	for i := 0; i < k; i++ {
 		m.slotCmdCh[i] = make(chan gateCmd, 4)

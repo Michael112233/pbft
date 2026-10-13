@@ -22,6 +22,9 @@ type Config struct {
 	MaxBlockSize          int64 `json:"max_block_size"`
 	PendingQueueCapacity  int   `json:"pending_queue_capacity"`
 	ClientMsgPaddingBytes int   `json:"client_msg_padding_bytes"`
+	// ClientNum is how many client processes split inject_speed; client i is
+	// colocated with node i (config/clients.go). 0 or 1 is the legacy single client.
+	ClientNum int `json:"client_num"`
 
 	NodeNum         int64        `json:"node_num"`
 	NodesDead       map[int]bool `json:"nodes_dead"`
@@ -169,6 +172,11 @@ func ReadCfg(filename string) *Config {
 
 	if err := config.ParseScenarios(); err != nil {
 		fmt.Printf("Invalid scenario config: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := config.ValidateClients(); err != nil {
+		fmt.Printf("Invalid client config: %v\n", err)
 		os.Exit(1)
 	}
 

@@ -3,7 +3,6 @@ package client
 import (
 	"encoding/csv"
 	"os"
-	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -66,7 +65,7 @@ func (c *Client) openRequestSendRateCSV() (*os.File, *csv.Writer) {
 		return nil, nil
 	}
 
-	path := filepath.Join("logs", "client_request_send_rate.csv")
+	path := c.outPath("client_request_send_rate.csv")
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
 	if err != nil {
 		if c.log != nil {

@@ -14,6 +14,8 @@ fi
 MARKER="$(mktemp)"
 trap 'rm -f "$MARKER"' EXIT
 NODE_IDS="$(tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | sed -n 's/^node\([0-9][0-9]*\)$/\1/p')"
+# client_num > 1 runs windows client1..clientN (alt_run_project.sh); empty for the single client.
+CLIENT_IDS="$(tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | sed -n 's/^client\([0-9][0-9]*\)$/\1/p')"
 
 # Export failures must not stop the session from being killed.
 "$DIR/print_all_latency_summaries.sh" "$SESSION" || echo "Warning: node latency export failed." >&2
@@ -26,7 +28,13 @@ NODE_IDS="$(tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | se
 # The client writes the TPS series before the latency summary, so the latter appearing
 # means both are complete.
 EXPORT_WAIT_SECONDS="${EXPORT_WAIT_SECONDS:-600}"
-expected_files=("$DIR/logs/latency$REPORT")
+expected_files=()
+if [ -z "$CLIENT_IDS" ]; then
+    expected_files+=("$DIR/logs/latency$REPORT")
+fi
+for id in $CLIENT_IDS; do
+    expected_files+=("$DIR/logs/client${id}_latency$REPORT")
+done
 for id in $NODE_IDS; do
     expected_files+=("$DIR/logs/node_${id}_latencylog.json")
 done
@@ -44,6 +52,13 @@ while :; do
     sleep 1
 done
 sleep 1 # let the last write finish before the processes are killed
+
+# Several clients: combine their files into the single client's names, so the analysis
+# scripts read a multi-client run like any other (per-client files stay next to them).
+if [ -n "$CLIENT_IDS" ]; then
+    python3 "$DIR/scripts/merge_client_reports.py" "$DIR/logs" --report "$REPORT" --clients $CLIENT_IDS \
+        || echo "Warning: merging the client reports failed." >&2
+fi
 
 if tmux has-session -t "$SESSION" 2>/dev/null; then
     echo "Killing tmux session '$SESSION'..."

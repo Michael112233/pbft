@@ -38,9 +38,15 @@ func NewLogger(nodeID int, role string) *Logger {
 		testLogFile = fmt.Sprintf("logs/node_%d_test.log", nodeID)
 		featureLogFile = fmt.Sprintf("logs/node_%d_feature.log", nodeID)
 	case "client":
-		logFile = "logs/client.log"
-		testLogFile = "logs/client_test.log"
-		featureLogFile = "logs/client_feature.log"
+		// nodeID is the client id when there are several clients (logs/client3.log),
+		// 0 for the single client
+		prefix := "logs/client"
+		if nodeID > 0 {
+			prefix = fmt.Sprintf("logs/client%d", nodeID)
+		}
+		logFile = prefix + ".log"
+		testLogFile = prefix + "_test.log"
+		featureLogFile = prefix + "_feature.log"
 	case "blockchain":
 		logFile = "logs/blockchain.log"
 	case "result":

@@ -123,9 +123,17 @@ func collectSignedBatch(signedTxs <-chan core.ClientMsgSignature, batchSize int)
 	return batch, true
 }
 
+// TotalTxnsToInject is this client's share of period × number_of_periods, in
+// proportion to its share of inject_speed.
 func (c *Client) TotalTxnsToInject() int64 {
-	return c.config.Period * int64(c.config.NumberOfPeriods)
+	total := c.config.Period * int64(c.config.NumberOfPeriods)
+	if c.config.ClientCount() <= 1 || c.config.InjectSpeed <= 0 {
+		return total
+	}
+	return total / c.config.InjectSpeed * c.injectSpeed
 }
+// some have inject speed 28 some 29
+// its 200 / by clients, then total count is shared based on inject speed
 
 func (c *Client) InjectTxs() {
 	c.WaitGroup.Add(1)
@@ -137,8 +145,8 @@ func (c *Client) InjectTxs() {
 			c.log.Info("No transactions to inject")
 			return
 		}
-		if c.config.InjectSpeed <= 0 {
-			c.log.Error("invalid inject_speed %d; must be > 0", c.config.InjectSpeed)
+		if c.injectSpeed <= 0 {
+			c.log.Error("invalid inject share %d (inject_speed %d over %d clients); must be > 0", c.injectSpeed, c.config.InjectSpeed, c.config.ClientCount())
 			return
 		}
 
@@ -147,11 +155,11 @@ func (c *Client) InjectTxs() {
 			paddingBytes = 0
 		}
 		padding := strings.Repeat("x", paddingBytes)
-		batchSize := int(c.config.InjectSpeed)
+		batchSize := int(c.injectSpeed)
 		signedTxs := c.startSignedTxPipeline(
 			totaltxns,
 			padding,
-			signedTxQueueCapacity(c.config.InjectSpeed),
+			signedTxQueueCapacity(c.injectSpeed),
 			signerWorkerCount(),
 		)
 
@@ -221,14 +229,14 @@ func (c *Client) pacedSendRequestTransactions(txs []core.ClientMsgSignature, req
 		return
 	}
 	// never happen
-	if c.config == nil || c.config.InjectSpeed <= 0 {
+	if c.config == nil || c.injectSpeed <= 0 {
 		if c.log != nil {
-			c.log.Error("invalid inject_speed; must be > 0")
+			c.log.Error("invalid inject share; must be > 0")
 		}
 		return
 	}
 
-	batchSize := int(c.config.InjectSpeed)
+	batchSize := int(c.injectSpeed)
 	// creates batches of batch size if txns len greater which usually happen when coming from retry path
 	forEachTransactionBatch(txs, batchSize, func(batch []core.ClientMsgSignature) {
 		c.requestPacer.pace(len(batch), batchSize, clientSendInterval, c.log, func() {
