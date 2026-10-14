@@ -1015,26 +1015,22 @@ func NewViewToPB(msg core.NewViewMsg) *NewViewMsg {
 		}
 	}
 
-	var viewChangeLog []*ViewChangeMsgSig
-	if msg.ViewChangeLog != nil {
-		viewChangeLog = make([]*ViewChangeMsgSig, 0, len(msg.ViewChangeLog))
-		for _, viewChange := range msg.ViewChangeLog {
-			if viewChange == nil {
-				viewChangeLog = append(viewChangeLog, nil)
-				continue
-			}
-			viewChangeLog = append(viewChangeLog, ViewChangeMsgSigToPB(*viewChange))
+	var viewChangeRefs []*ViewChangeRef
+	if msg.ViewChangeRefs != nil {
+		viewChangeRefs = make([]*ViewChangeRef, 0, len(msg.ViewChangeRefs))
+		for _, ref := range msg.ViewChangeRefs {
+			viewChangeRefs = append(viewChangeRefs, &ViewChangeRef{From: int32(ref.From), Digest: digestToPB(ref.Digest)})
 		}
 	}
 
 	return &NewViewMsg{
-		PreprepareLog: preprepareLog,
-		ViewChangeLog: viewChangeLog,
-		NewViewNumber: ViewIDToPB(msg.NewViewNumber),
-		Action:        ActionToPB(msg.Action),
-		From:          int32(msg.From),
-		Throughput:    msg.Throughput,
-		AwareRows:     AwareRowsToPB(msg.AwareRows),
+		PreprepareLog:  preprepareLog,
+		ViewChangeRefs: viewChangeRefs,
+		NewViewNumber:  ViewIDToPB(msg.NewViewNumber),
+		Action:         ActionToPB(msg.Action),
+		From:           int32(msg.From),
+		Throughput:     msg.Throughput,
+		AwareRows:      AwareRowsToPB(msg.AwareRows),
 	}
 }
 
@@ -1063,31 +1059,29 @@ func NewViewFromPB(msg *NewViewMsg) (core.NewViewMsg, error) {
 		}
 	}
 
-	var viewChangeLog []*core.ViewChangeMsgSig
-	if msg.ViewChangeLog != nil {
-		viewChangeLog = make([]*core.ViewChangeMsgSig, 0, len(msg.ViewChangeLog))
-		for i, viewChange := range msg.ViewChangeLog {
-			if viewChange == nil {
-				viewChangeLog = append(viewChangeLog, nil)
-				continue
+	var viewChangeRefs []core.ViewChangeRef
+	if msg.ViewChangeRefs != nil {
+		viewChangeRefs = make([]core.ViewChangeRef, 0, len(msg.ViewChangeRefs))
+		for i, ref := range msg.ViewChangeRefs {
+			if ref == nil {
+				return core.NewViewMsg{}, fmt.Errorf("view-change ref at index %d is nil", i)
 			}
-			converted, err := ViewChangeMsgSigFromPB(viewChange)
+			digest, err := digestFromPB(ref.Digest)
 			if err != nil {
-				return core.NewViewMsg{}, fmt.Errorf("view-change log at index %d: %w", i, err)
+				return core.NewViewMsg{}, fmt.Errorf("view-change ref at index %d: %w", i, err)
 			}
-			convertedCopy := converted
-			viewChangeLog = append(viewChangeLog, &convertedCopy)
+			viewChangeRefs = append(viewChangeRefs, core.ViewChangeRef{From: int(ref.From), Digest: digest})
 		}
 	}
 
 	return core.NewViewMsg{
-		PreprepareLog: preprepareLog,
-		ViewChangeLog: viewChangeLog,
-		NewViewNumber: view,
-		Action:        action,
-		Throughput:    msg.Throughput,
-		From:          int(msg.From),
-		AwareRows:     AwareRowsFromPB(msg.AwareRows),
+		PreprepareLog:  preprepareLog,
+		ViewChangeRefs: viewChangeRefs,
+		NewViewNumber:  view,
+		Action:         action,
+		Throughput:     msg.Throughput,
+		From:           int(msg.From),
+		AwareRows:      AwareRowsFromPB(msg.AwareRows),
 	}, nil
 }
 
@@ -1210,4 +1204,31 @@ func GrantVoteMsgSigFromPB(msg *GrantVoteMsgSig) (core.GrantVoteMsgSig, error) {
 		GrantVoteMsg: grantVoteMsg,
 		Signature:    append([]byte(nil), msg.Signature...),
 	}, nil
+}
+
+func ViewChangeFetchToPB(msg core.ViewChangeFetchMsg) *ViewChangeFetchMsg {
+	wanted := make([]int32, 0, len(msg.Wanted))
+	for _, from := range msg.Wanted {
+		wanted = append(wanted, int32(from))
+	}
+	return &ViewChangeFetchMsg{
+		ViewNumber: ViewIDToPB(msg.ViewNumber),
+		From:       int32(msg.From),
+		Wanted:     wanted,
+	}
+}
+
+func ViewChangeFetchFromPB(msg *ViewChangeFetchMsg) (core.ViewChangeFetchMsg, error) {
+	if msg == nil {
+		return core.ViewChangeFetchMsg{}, fmt.Errorf("missing view-change fetch")
+	}
+	view, err := ViewIDFromPB(msg.ViewNumber)
+	if err != nil {
+		return core.ViewChangeFetchMsg{}, err
+	}
+	wanted := make([]int, 0, len(msg.Wanted))
+	for _, from := range msg.Wanted {
+		wanted = append(wanted, int(from))
+	}
+	return core.ViewChangeFetchMsg{ViewNumber: view, From: int(msg.From), Wanted: wanted}, nil
 }

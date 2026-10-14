@@ -47,6 +47,7 @@ type ViewChangeMsg struct {
 	MsgType   string
 	Msg       interface{}
 	Signature []byte
+	Digest    [32]byte // sha256 of the signed ViewChange bytes (ViewChange only)
 }
 
 type CheckpointMsg struct {
@@ -206,21 +207,28 @@ func epochAggregateSignPayload(msg *transportpb.EpochAggregateMsg) *transportpb.
 }
 
 func (hub *NodeMessageHub) verifySignature(from int, signature []byte, payload proto.Message) bool {
+	_, ok := hub.verifySignatureBytes(from, signature, payload)
+	return ok
+}
+
+// verifySignatureBytes is verifySignature that also returns the signed bytes, so a
+// caller can digest them without marshaling the payload a second time.
+func (hub *NodeMessageHub) verifySignatureBytes(from int, signature []byte, payload proto.Message) ([]byte, bool) {
 	senderPubKey, exists := hub.node_ref.encryptionKeyStore.GetPublicKey(from)
 	if !exists {
 		hub.log.Error("Public key not found for sender node ID: %d", from)
-		return false
+		return nil, false
 	}
 	payloadBytes, err := marshalDeterministic(payload)
 	if err != nil {
 		hub.log.Error("payload marshal failed: err=%v", err)
-		return false
+		return nil, false
 	}
 	if !crypto.VerifySignatureEd25519(payloadBytes, signature, senderPubKey) {
 		hub.log.Error("Signature verification failed for message from node ID: %d", from)
-		return false
+		return nil, false
 	}
-	return true
+	return payloadBytes, true
 }
 
 // setClientStream registers s as name's reply stream; a reconnecting client
@@ -534,14 +542,17 @@ func (hub *NodeMessageHub) Deliver(ctx context.Context, env *transportpb.Envelop
 		if int(env.From) != int(viewChange.From) {
 			return &transportpb.Ack{Ok: false, Error: "view-change sender mismatch"}, nil
 		}
-		if !hub.verifySignature(int(env.From), env.Signature, viewChange) {
+		// env.From is the original sender also when the new primary forwards it
+		// (ForwardViewChange), so this authenticates forwarded ViewChanges too.
+		signedBytes, ok := hub.verifySignatureBytes(int(env.From), env.Signature, viewChange)
+		if !ok {
 			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
 		}
 		data, err := transportpb.ViewChangeFromPB(viewChange)
 		if err != nil {
 			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
 		}
-		sizeBytes := proto.Size(env)
+		sizeBytes := len(signedBytes) // the signed payload; proto.Size(env) would walk it again
 		hub.node_ref.log.Info(
 			"HUB: Received ViewChange message from node %d for view %d. size_bytes=%d size_mib=%.3f",
 			env.From,
@@ -551,6 +562,29 @@ func (hub *NodeMessageHub) Deliver(ctx context.Context, env *transportpb.Envelop
 		)
 		hub.node_ref.viewChangeMsgChan <- ViewChangeMsg{
 			MsgType:   core.MsgViewChangeMessage,
+			Msg:       data,
+			Signature: env.Signature,
+			Digest:    viewChangeDigest(signedBytes),
+		}
+		return &transportpb.Ack{Ok: true}, nil
+
+	case core.MsgViewChangeFetchMessage:
+		fetch := env.GetViewChangeFetch()
+		if fetch == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing view-change-fetch body"}, nil
+		}
+		if int(env.From) != int(fetch.From) {
+			return &transportpb.Ack{Ok: false, Error: "view-change-fetch sender mismatch"}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, fetch) {
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.ViewChangeFetchFromPB(fetch)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		hub.node_ref.viewChangeMsgChan <- ViewChangeMsg{
+			MsgType:   core.MsgViewChangeFetchMessage,
 			Msg:       data,
 			Signature: env.Signature,
 		}
@@ -586,9 +620,9 @@ func (hub *NodeMessageHub) Deliver(ctx context.Context, env *transportpb.Envelop
 		if int(env.From) != int(newView.From) {
 			return &transportpb.Ack{Ok: false, Error: "new-view sender mismatch"}, nil
 		}
-		// if !hub.verifySignature(int(env.From), env.Signature, newView) {
-		// 	return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
-		// }
+		if !hub.verifySignature(int(env.From), env.Signature, newView) {
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
 		data, err := transportpb.NewViewFromPB(newView)
 		if err != nil {
 			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
@@ -904,6 +938,14 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}, signat
 		env.Body = &transportpb.Envelope_NewView{NewView: transportpb.NewViewToPB(newView)}
 		env.From = int32(hub.node_ref.GetNodeID())
 
+	case core.MsgViewChangeFetchMessage:
+		fetch, ok := msg.(core.ViewChangeFetchMsg)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_ViewChangeFetch{ViewChangeFetch: transportpb.ViewChangeFetchToPB(fetch)}
+		env.From = int32(hub.node_ref.GetNodeID())
+
 	case core.MsgRequestVoteMessage:
 		requestVote, ok := msg.(core.RequestVoteMsg)
 		if !ok {
@@ -1037,4 +1079,23 @@ func (hub *NodeMessageHub) Send(msgType string, ip string, msg interface{}, sign
 		)
 	}
 
+}
+
+// ForwardViewChange re-sends another node's signed ViewChange to addr, as the new
+// primary answering a ViewChangeFetchMsg. The envelope carries the original sender
+// and signature, so the receiver's usual ViewChange checks authenticate it.
+func (hub *NodeMessageHub) ForwardViewChange(addr string, vc *core.ViewChangeMsgSig) {
+	if hub.node_ref.dead.Load() {
+		return
+	}
+	env := &transportpb.Envelope{
+		MsgType:   core.MsgViewChangeMessage,
+		From:      int32(vc.ViewChangeMsg.From),
+		Signature: vc.Signature,
+		Body:      &transportpb.Envelope_ViewChange{ViewChange: transportpb.ViewChangeToPB(vc.ViewChangeMsg)},
+	}
+	hub.injectArtificialLatency(core.MsgViewChangeMessage, addr)
+	if err := hub.sendEnvelopeOverPeerStream(addr, env); err != nil {
+		hub.log.Error("forwarding view change from node %d to %s failed: %v", vc.ViewChangeMsg.From, addr, err)
+	}
 }

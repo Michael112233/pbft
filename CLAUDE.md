@@ -189,6 +189,35 @@ ViewChanges for a view are in.
   RequestVote; others verify the VRF/VDF and grant. The VDF is the leader-election
   lottery: a shorter delay means an earlier candidacy.
 
+## ViewChange and NewView messages
+
+- **ViewChange** carries the node's P-set: a prepared cert per prepared seq above
+  its last stable checkpoint. That is up to about 290 certs in steady state and 500
+  at the watermark (`docs/prepared-cert-bound.md`).
+  - Cert prepares go on the wire as (from, signature) only. View, seq and digest are
+    rebuilt from the cert's pre-prepare (`PreparedCertToPB`/`FromPB`).
+  - `buildPreparedCert` keeps at most 2f matching prepares.
+  - Only the first ViewChange per sender per view counts (`appendViewChangeIfNew`).
+  - Every ViewChange gets a local `Digest`: sha256 of its signed bytes, computed in
+    `Deliver` and in `VC()` for the node's own.
+- **NewView names its 2f+1 ViewChanges by `(sender, digest)`** (`ViewChangeRefs`)
+  instead of embedding them, as in OSDI 2000 PBFT. The primary signs it. Each
+  replica resolves the refs against ViewChanges it verified itself
+  (`resolveViewChangeRefs`, `node/newviewrefs.go`), so a primary can't alter one.
+  - If a ref doesn't resolve, the NewView is parked as `pendingNewView` and retried
+    when a ViewChange of that view arrives.
+  - If the ViewChange is still missing after `view_change_fetch_delay_ms`, the
+    replica sends a `ViewChangeFetchMsg` to the primary, retrying once at twice the
+    delay. The primary forwards that sender's original signed ViewChange
+    (`ForwardViewChange`).
+  - A different ViewChange from a sender already counted (equivocation, or the
+    forwarded copy) is kept in `viewChangeAlt` only if a pending NewView names it,
+    and is never counted.
+- Log lines: `NEWVIEW PENDING`, `NEWVIEW RESOLVED`, `NEWVIEW REJECTED`, `VC FETCH
+  sent`/`served`, `VC EQUIVOCATION`.
+- Not checked: that the NewView's sender is the view's primary. There's a
+  `TODO(safety)` in `HandleNewView`.
+
 ## Node architecture
 
 `node/node.go` builds the `Node`; `node/eventloop.go` runs it.
@@ -201,8 +230,9 @@ none of them lock. Keep it that way when adding state.
 
 Channels feeding the loop: `receiveVerifiedClientRequestCh`, `consensusMsgChan`,
 `viewChangeMsgChan`, `newViewMsgChan`, `checkpointMsgChan`, `electionMsgChan`,
-`epochMsgChan`, `learningAgentDecisionCh`, `electionVDFResultCh`, plus the four timer
-channels (progress, new-view, perf, epoch).
+`epochMsgChan`, `learningAgentDecisionCh`, `electionVDFResultCh`, plus the timer
+channels (progress, new-view, perf, epoch, and `vcFetchTimerCh` for a pending
+NewView). `viewChangeMsgChan` also carries `ViewChangeFetchMsg`, routed by `MsgType`.
 
 Sub-managers, each with a narrow interface onto `Node`:
 
@@ -235,10 +265,12 @@ Transport is gRPC bidirectional streams (`proto/pbft_transport.proto`,
 one reply stream **per client name** (`clientStreams`, `node/nodeMessageHub.go`), taken
 from the `pbft-client-name` stream metadata (none = `"client"`): CommitTps goes only to
 the request's `ClientName` (clients match replies by id alone and all number from 0),
-LeaderIdUpdate to every client. ViewChange
-and NewView messages are large (1 MiB and several MiB with a few hundred prepared
-certs) and dominate view-change latency; `node/newview_cost_test.go` is a standalone
-harness for measuring that cost.
+LeaderIdUpdate to every client. ViewChanges are large: about 600 KiB at 290 certs and
+batch 50, n=7. Most of that is the per-txn digest lists. ViewChanges dominate
+view-change latency. A NewView is about 514 KiB, mostly the O-set's per-txn lists,
+because it names ViewChanges by digest instead of carrying them.
+`node/viewchange_size_test.go` reports both sizes. `node/newview_cost_test.go` is
+the older standalone cost harness.
 
 ## Epoch → learning agent → generation switch
 
@@ -348,6 +380,8 @@ key missing there is missing from every experiment built afterwards.
   every PrePrepare received. `some req for batch not found` in a node log should
   never appear then; if it does, a node is missing a request body for a seq it has
   to execute.
+- `view_change_fetch_delay_ms` (default 20). This is how long a replica holding a
+  NewView waits for a referenced ViewChange before fetching it from the primary.
 - Others: `node_num`, `max_batch_size`, `inject_speed`, `parallel_workers`,
   `nodes_dead`, `gc`, `min_vdf_delay` / `max_vdf_delay` (election VDF range).
 - `nodes_in_dark` is present in the JSON but has no field in `config.go`, so it is
@@ -445,7 +479,9 @@ key missing there is missing from every experiment built afterwards.
 - A lot of superseded logic is commented out rather than deleted. Check whether a
   path is actually reachable before reasoning about it.
 - Envelope signature verification is live on every receive path in
-  `nodeMessageHub.go` **except NewView**, where it is commented out (line ~520).
+  `nodeMessageHub.go`, including NewView. Prepare and Commit are also rejected when
+  the payload's `From` differs from `env.From`. PrePrepare has no `From`, and its
+  leader identity isn't checked (`verifyPreprepare` is a stub).
 - Several `node` tests construct `&Node{}` directly and panic on a nil logger or nil
   trigger manager; they are stale, not regressions.
 - Timestamps in node logs are the only cross-node clock, and all nodes run on one

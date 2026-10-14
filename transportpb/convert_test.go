@@ -632,20 +632,9 @@ func TestNewViewMsgSigRoundTrip(t *testing.T) {
 					},
 				},
 			},
-			ViewChangeLog: []*core.ViewChangeMsgSig{
-				{
-					ViewChangeMsg: core.ViewChangeMsg{
-						ViewNumber:          core.ViewID{Generation: 2, Counter: 8},
-						CheckpointSeqNumber: 250,
-						CheckpointDigest:    [32]byte{13, 14, 15},
-						CheckpointProof:     []core.CheckpointMsgSig{},
-						CheckpointBalances:  map[string]*big.Int{},
-						From:                2,
-						PreparedCerts:       map[int64]*core.PreparedCert{},
-						Action:              core.PerformanceRoundRobin,
-					},
-					Signature: []byte{16, 17, 18},
-				},
+			ViewChangeRefs: []core.ViewChangeRef{
+				{From: 2, Digest: [32]byte{13, 14, 15}},
+				{From: 3, Digest: [32]byte{16, 17}},
 			},
 			NewViewNumber: core.ViewID{Generation: 2, Counter: 8},
 			Action:        core.PerformanceElection,
@@ -794,5 +783,87 @@ func TestPreparedCertFromPBRejectsDuplicatePrepareSender(t *testing.T) {
 	pb.Prepares = append(pb.Prepares, &CertPrepare{From: 3, Signature: []byte{9}})
 	if _, err := PreparedCertFromPB(pb); err == nil {
 		t.Fatal("cert with two prepares from the same sender was accepted")
+	}
+}
+
+func TestNewViewFromPBRejectsShortRefDigest(t *testing.T) {
+	pb := NewViewToPB(core.NewViewMsg{
+		NewViewNumber:  core.ViewID{Generation: 1, Counter: 2},
+		Action:         core.FixedRoundRobin,
+		ViewChangeRefs: []core.ViewChangeRef{{From: 1, Digest: [32]byte{1}}},
+	})
+	pb.ViewChangeRefs[0].Digest = pb.ViewChangeRefs[0].Digest[:31]
+	if _, err := NewViewFromPB(pb); err == nil {
+		t.Fatal("view-change ref with a 31-byte digest was accepted")
+	}
+}
+
+func TestViewChangeFetchRoundTrip(t *testing.T) {
+	in := core.ViewChangeFetchMsg{ViewNumber: core.ViewID{Generation: 2, Counter: 5}, From: 6, Wanted: []int{1, 4}}
+	wire, err := proto.Marshal(&Envelope{MsgType: core.MsgViewChangeFetchMessage, Body: &Envelope_ViewChangeFetch{ViewChangeFetch: ViewChangeFetchToPB(in)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env Envelope
+	if err := proto.Unmarshal(wire, &env); err != nil {
+		t.Fatal(err)
+	}
+	out, err := ViewChangeFetchFromPB(env.GetViewChangeFetch())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(out, in) {
+		t.Fatalf("round trip mismatch: got %+v want %+v", out, in)
+	}
+}
+
+// A primary forwards a ViewChange it decoded, re-encoding it from core types. The
+// replica's digest of the forwarded copy must equal the one the NewView names,
+// which was computed over the sender's original bytes, so decode-then-encode must
+// reproduce those bytes exactly, for every field.
+func TestViewChangeReencodeIsByteStable(t *testing.T) {
+	view := core.ViewID{Generation: 4, Counter: 9}
+	cert := compactCertFixture()
+	cert.PreprepareMsg.PreprepareMsgMini.DigestIndividualClientMsgs = [][32]byte{{1}, {2}}
+	cert.PreprepareMsg.ActualMsg = []core.ClientMsgSignature{{
+		Data: core.ClientMsg{
+			Id: 7, Timestamp: testTimestamp, ClientName: "client-a", Padding: "pad",
+			Txn: core.Transaction{Sender: "alice", Receiver: "bob", Amount: big.NewInt(12)},
+		},
+		Signature: []byte{3, 4},
+	}}
+	vc := core.ViewChangeMsg{
+		ViewNumber:          view,
+		CheckpointSeqNumber: 500,
+		CheckpointDigest:    [32]byte{9, 9},
+		CheckpointProof: []core.CheckpointMsgSig{
+			{CheckpointMsg: core.CheckpointMsg{SeqNum: 500, Digest: [32]byte{9, 9}, From: 1}, Signature: []byte{5}},
+			{CheckpointMsg: core.CheckpointMsg{SeqNum: 500, Digest: [32]byte{9, 9}, From: 3}, Signature: []byte{6}},
+		},
+		CheckpointBalances: map[string]*big.Int{"alice": big.NewInt(90), "bob": big.NewInt(110)},
+		From:               2,
+		PreparedCerts:      map[int64]*core.PreparedCert{42: cert},
+		Action:             core.FixedAware,
+		AwareRows:          []core.AwareRow{{Node: 1, Gen: 3, RTTms: []float64{0, 1.5, 2}}},
+	}
+	opts := proto.MarshalOptions{Deterministic: true}
+	original, err := opts.Marshal(ViewChangeToPB(vc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var received ViewChangeMsg
+	if err := proto.Unmarshal(original, &received); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := ViewChangeFromPB(&received)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forwarded, err := opts.Marshal(ViewChangeToPB(decoded))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(forwarded) != string(original) {
+		t.Fatalf("re-encoded view change differs: %d bytes vs %d", len(forwarded), len(original))
 	}
 }

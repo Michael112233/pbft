@@ -41,6 +41,7 @@ func (n *Node) run() {
 	defer close(n.eventLoopDoneCh)
 	defer n.StopBatchTimer()
 	defer n.stopViewTimers()
+	defer n.stopViewChangeFetchTimer()
 	defer n.stopPerfTimer()
 	defer n.stopEpochTimer()
 	defer n.stopAggregateGraceTimer()
@@ -114,7 +115,12 @@ func (n *Node) run() {
 				n.log.Error("Unknown consensus message type: %v", consensusMsg.MsgType)
 			}
 		case viewChangeMsg := <-n.viewChangeMsgChan:
-			n.HandleViewChangeRoundRobin(viewChangeMsg.Msg.(core.ViewChangeMsg), viewChangeMsg.Signature)
+			switch viewChangeMsg.MsgType {
+			case core.MsgViewChangeFetchMessage:
+				n.handleViewChangeFetch(viewChangeMsg.Msg.(core.ViewChangeFetchMsg))
+			default:
+				n.HandleViewChangeRoundRobin(viewChangeMsg.Msg.(core.ViewChangeMsg), viewChangeMsg.Signature, viewChangeMsg.Digest)
+			}
 		case checkpointMsg := <-n.checkpointMsgChan:
 			n.HandleCheckpoint(checkpointMsg.Msg.(core.CheckpointMsg), checkpointMsg.Signature)
 		case newViewMsg := <-n.newViewMsgChan:
@@ -125,6 +131,8 @@ func (n *Node) run() {
 			n.handleLeaderProgressTimeout()
 		case <-n.newViewTimerCh:
 			n.handleNewViewTimeout()
+		case <-n.vcFetchTimerCh:
+			n.handleViewChangeFetchTimeout()
 		case <-n.perfTimerCh:
 			n.handlePerfTimerTimeout()
 		case <-n.epochTimerCh:

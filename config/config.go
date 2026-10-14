@@ -89,7 +89,11 @@ type Config struct {
 	// stand in for the learning agent's decision time; 0 means 100. Measure the
 	// agent on the experiment host with learningagent/bench_learner.py.
 	OracleDecisionDelayMs int `json:"oracle_decision_delay_ms"`
-	OracleActionsEnum     []core.Action
+	// ViewChangeFetchDelayMs is how long a replica holding a NewView waits for a
+	// referenced ViewChange to arrive on its own before asking the new primary to
+	// forward it (node/newviewrefs.go); 0 means 20.
+	ViewChangeFetchDelayMs int `json:"view_change_fetch_delay_ms"`
+	OracleActionsEnum      []core.Action
 
 	EpochMode bool `json:"epoch_mode"`
 

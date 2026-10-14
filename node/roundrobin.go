@@ -51,6 +51,7 @@ func (n *Node) VC(forView, view core.ViewID, currAction core.Action) {
 	vcMsg := &core.ViewChangeMsgSig{
 		ViewChangeMsg: vcPayload,
 		Signature:     signature,
+		Digest:        viewChangeDigest(payloadBytes),
 	}
 	n.asyncBroadCast(core.MsgViewChangeMessage, vcPayload, signature)
 	n.appendViewChangeIfNew(vcMsg)
@@ -63,10 +64,33 @@ func (n *Node) VC(forView, view core.ViewID, currAction core.Action) {
 	n.maybeHandleViewChangeQuorum(forView, view, currAction, "enter-VC-PATH")
 }
 
-func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signature []byte) {
+// digest is sha256 of the signed bytes, computed in Deliver.
+func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signature []byte, digest [32]byte) {
 	view := n.GetViewID()
 	forView := n.GetForViewID()
 	if viewChange.ViewNumber.LessThanOrEqual(view) {
+		return
+	}
+	// One ViewChange per sender per view counts. Checked before verifyVC so a repeat
+	// costs no signature checks.
+	if existing := n.viewChangeFrom(viewChange.ViewNumber, viewChange.From); existing != nil {
+		if existing.Digest == digest {
+			n.log.Debug("Ignoring duplicate view change from node %d for view (%d,%d)", viewChange.From, viewChange.ViewNumber.Generation, viewChange.ViewNumber.Counter)
+			return
+		}
+		// A second, different ViewChange from the same sender: it equivocated, or
+		// this is the copy the primary forwarded for our pending NewView. Keep it
+		// only in that case, and never count it.
+		if !n.pendingNewViewWants(viewChange.ViewNumber, viewChange.From, digest) {
+			n.log.Warn("VC EQUIVOCATION: node %d sent a second, different view change for view (%d,%d); dropping", viewChange.From, viewChange.ViewNumber.Generation, viewChange.ViewNumber.Counter)
+			return
+		}
+		if !n.verifyVC(viewChange) {
+			n.log.Error("Failed to verify forwarded view change from node %d for view (%d,%d)", viewChange.From, viewChange.ViewNumber.Generation, viewChange.ViewNumber.Counter)
+			return
+		}
+		n.storeAltViewChange(&core.ViewChangeMsgSig{ViewChangeMsg: viewChange, Signature: signature, Digest: digest})
+		n.retryPendingNewView(viewChange.ViewNumber)
 		return
 	}
 	// path := n.PathString()
@@ -87,10 +111,14 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 	if !n.appendViewChangeIfNew(&core.ViewChangeMsgSig{
 		ViewChangeMsg: viewChange,
 		Signature:     signature,
+		Digest:        digest,
 	}) {
 		n.log.Debug("Ignoring duplicate view change from node %d for view (%d,%d)", viewChange.From, viewChange.ViewNumber.Generation, viewChange.ViewNumber.Counter)
 		return
 	}
+	// This may be a ViewChange a pending NewView was waiting for; retry it once the
+	// quorum and f+1 handling below has run.
+	defer n.retryPendingNewView(viewChange.ViewNumber)
 
 	viewChangeCount := n.uniqueViewChangeCount(viewChange.ViewNumber)
 
@@ -129,16 +157,13 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 
 func (n *Node) appendViewChangeIfNew(viewChange *core.ViewChangeMsgSig) bool {
 	view := viewChange.ViewChangeMsg.ViewNumber
-	// from := viewChange.ViewChangeMsg.From
 	// One ViewChange per sender per view: createO / createOReplica pick the
 	// highest-view prepared cert per seq across these messages and count them toward
 	// the 2f+1 quorum, so a duplicate sender would double-count and could skew the
-	// O-set.
-	// for _, existing := range n.viewChangeMsgsLog[view] {
-	// 	if existing != nil && existing.ViewChangeMsg.From == from {
-	// 		return false
-	// 	}
-	// }
+	// O-set, and one node could make up a quorum on its own.
+	if n.viewChangeFrom(view, viewChange.ViewChangeMsg.From) != nil {
+		return false
+	}
 
 	n.viewChangeMsgsLog[view] = append(n.viewChangeMsgsLog[view], viewChange)
 	return true

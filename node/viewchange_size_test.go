@@ -133,11 +133,12 @@ func TestViewChangeWireSize(t *testing.T) {
 	}
 }
 
-// Refs (from, 32-byte digest) do not exist on the wire yet; until they do they are
-// stood in by CheckpointMsg{From, Digest}, which has the same wire shape.
+// The NewView names its 2f+1 ViewChanges by (sender, digest) instead of carrying
+// them. Before that, with the full ViewChanges inside, it was 3494 KiB at n=7 and
+// 2183 KiB at n=4 for this shape (compact cert prepares, O with per-txn lists).
 func TestNewViewWireSize(t *testing.T) {
 	if testing.Short() {
-		t.Skip("builds multi-MiB messages")
+		t.Skip("signs and marshals NewViews of up to ~0.5 MiB")
 	}
 	for _, nodes := range []int{4, 7} {
 		f := (nodes - 1) / 3
@@ -149,12 +150,9 @@ func TestNewViewWireSize(t *testing.T) {
 		view := core.ViewID{Generation: 1, Counter: 5}
 		newView := core.ViewID{Generation: 1, Counter: 6}
 		certs := buildSizeTestCerts(t, rng, priv, view, f, false)
-		vc := core.ViewChangeMsg{ViewNumber: newView, CheckpointSeqNumber: sizeTestFirstSeq - 1, From: 1, PreparedCerts: certs}
-		vcLog := make([]*core.ViewChangeMsgSig, 0, 2*f+1)
+		refs := make([]core.ViewChangeRef, 0, 2*f+1)
 		for i := 0; i < 2*f+1; i++ {
-			c := vc
-			c.From = i + 1
-			vcLog = append(vcLog, &core.ViewChangeMsgSig{ViewChangeMsg: c, Signature: fakeSig(rng)})
+			refs = append(refs, core.ViewChangeRef{From: i + 1, Digest: fakeDigest(rng)})
 		}
 		buildO := func(withLists bool) []core.PreprepareMsgSig {
 			O := make([]core.PreprepareMsgSig, 0, sizeTestCerts)
@@ -168,24 +166,16 @@ func TestNewViewWireSize(t *testing.T) {
 			}
 			return O
 		}
-		refBytes := 0
-		for i := 0; i < 2*f+1; i++ {
-			d := fakeDigest(rng)
-			refBytes += proto.Size(&transportpb.CheckpointMsg{From: int32(i + 1), Digest: d[:]}) + 2 // + tag and length
-		}
 
 		cases := []struct {
-			name  string
-			O     []core.PreprepareMsgSig
-			vcLog []*core.ViewChangeMsgSig
-			refs  int
+			name string
+			O    []core.PreprepareMsgSig
 		}{
-			{"current: O with lists + full 2f+1 VCs", buildO(true), vcLog, 0},
-			{"VC refs (stand-in), O with lists", buildO(true), nil, refBytes},
-			{"VC refs (stand-in), O without lists", buildO(false), nil, refBytes},
+			{"current: O with per-txn lists", buildO(true)},
+			{"O without per-txn lists (rest of Phase 1)", buildO(false)},
 		}
 		for _, c := range cases {
-			nv := core.NewViewMsg{PreprepareLog: c.O, ViewChangeLog: c.vcLog, NewViewNumber: newView, From: 2}
+			nv := core.NewViewMsg{PreprepareLog: c.O, ViewChangeRefs: refs, NewViewNumber: newView, From: 2}
 			const iters = 10
 			var send, recv time.Duration
 			var wireLen int
@@ -204,7 +194,7 @@ func TestNewViewWireSize(t *testing.T) {
 					t.Fatal(err)
 				}
 				send += time.Since(start)
-				wireLen = len(wire) + c.refs
+				wireLen = len(wire)
 
 				start = time.Now()
 				var got transportpb.Envelope
@@ -223,7 +213,7 @@ func TestNewViewWireSize(t *testing.T) {
 				}
 				recv += time.Since(start)
 			}
-			t.Logf("n=%d NewView %-40s wire=%8.1f KiB sender(toPB+marshal+sign+marshal)=%v receiver(decode+verify+fromPB)=%v",
+			t.Logf("n=%d NewView %-42s wire=%8.1f KiB sender(toPB+marshal+sign+marshal)=%v receiver(decode+verify+fromPB)=%v",
 				nodes, c.name, float64(wireLen)/1024, send/iters, recv/iters)
 		}
 	}

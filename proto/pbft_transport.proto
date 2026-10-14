@@ -208,14 +208,31 @@ message ViewChangeMsgSig {
   bytes signature = 2;
 }
 
+// Names one ViewChange of a NewView's 2f+1 set. Replicas resolve it against the
+// ViewChanges they verified on receipt and fetch the ones they lack from the new
+// primary (ViewChangeFetchMsg).
+message ViewChangeRef {
+  int32 from = 1;
+  bytes digest = 2; // sha256 of the ViewChange's signed bytes
+}
+
 message NewViewMsg {
   repeated PreprepareMsgSig preprepare_log = 1;
-  repeated ViewChangeMsgSig view_change_log = 2;
+  reserved 2; // was repeated ViewChangeMsgSig view_change_log
   ViewID new_view_number = 3;
   int32 from = 4;
   double throughput = 5;
   Action action = 6;
   repeated AwareRow aware_rows = 7;
+  repeated ViewChangeRef view_change_refs = 8;
+}
+
+// Asks the primary of view_number to forward the ViewChanges from the wanted
+// senders that its NewView referenced.
+message ViewChangeFetchMsg {
+  ViewID view_number = 1;
+  int32 from = 2;
+  repeated int32 wanted = 3;
 }
 
 message NewViewMsgSig {
@@ -304,6 +321,7 @@ message Envelope {
     EventMsg event = 25;
     EpochDataMsg epoch_data = 26;
     EpochAggregateMsg epoch_aggregate = 27;
+    ViewChangeFetchMsg view_change_fetch = 28;
   }
 }
 

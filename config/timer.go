@@ -77,6 +77,16 @@ func (c *Config) FixedFloorForScenario(scenario core.Scenario) time.Duration {
 	return c.RelaxedFixedTriggerTimeout()
 }
 
+const defaultViewChangeFetchDelay = 20 * time.Millisecond
+
+// ViewChangeFetchDelay is how long a replica waits for a ViewChange its pending
+// NewView references before fetching it from the new primary. The common miss is
+// a ViewChange still in transit or queued behind another one, so a short wait
+// avoids the primary re-sending large messages for nothing.
+func (c *Config) ViewChangeFetchDelay() time.Duration {
+	return msOrDefault(c.ViewChangeFetchDelayMs, defaultViewChangeFetchDelay)
+}
+
 func msOrDefault(ms int, def time.Duration) time.Duration {
 	if ms > 0 {
 		return time.Duration(ms) * time.Millisecond
@@ -91,6 +101,9 @@ func (c *Config) ValidateTimer() error {
 	}
 	if c.OracleDecisionDelayMs < 0 {
 		return fmt.Errorf("oracle_decision_delay_ms must be >= 0 (0 means 100), got %d", c.OracleDecisionDelayMs)
+	}
+	if c.ViewChangeFetchDelayMs < 0 {
+		return fmt.Errorf("view_change_fetch_delay_ms must be >= 0 (0 means 20), got %d", c.ViewChangeFetchDelayMs)
 	}
 	return nil
 }

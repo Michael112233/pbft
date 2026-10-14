@@ -57,6 +57,7 @@ func (n *Node) pruneViewChangeState(installed core.ViewID) {
 			delete(n.viewChangeMsgsLog, view)
 		}
 	}
+	n.pruneNewViewRefState(func(view core.ViewID) bool { return view.LessThanOrEqual(installed) })
 	// only written, never read (leaderForView is hardcoded); kept as a record of the
 	// current view's leader only
 	for view := range n.leaderIdForView {
@@ -84,6 +85,7 @@ func (n *Node) pruneBelowForView(forView core.ViewID) {
 			delete(n.viewChangeMsgsLog, view)
 		}
 	}
+	n.pruneNewViewRefState(func(view core.ViewID) bool { return view.LessThan(forView) })
 	n.electionManager.pruneBelow(forView)
 }
 
@@ -336,77 +338,20 @@ func (n *Node) verifyPreprepare(preprepareMsg core.PreprepareMsgSig) (bool, core
 	// return true, view, seq, digest
 }
 
-func (n *Node) verifyNewView(newViewMsg core.NewViewMsg) bool {
-	seenFrom := make(map[int]struct{}, len(newViewMsg.ViewChangeLog))
-	viewChangeMsgsCached := n.viewChangeMsgsLog[newViewMsg.NewViewNumber]
-	for _, vcMsgSig := range newViewMsg.ViewChangeLog {
-		if vcMsgSig == nil {
-			n.log.Error("nil view change message in new view message log for view (%d,%d)", newViewMsg.NewViewNumber.Generation, newViewMsg.NewViewNumber.Counter)
-			return false
-		}
-		if _, exists := seenFrom[vcMsgSig.ViewChangeMsg.From]; exists {
-			continue
-		}
-
-		foundInCache := false
-		for _, cachedMsg := range viewChangeMsgsCached {
-			if cachedMsg == nil {
-				continue
-			}
-			if cachedMsg.ViewChangeMsg.From == vcMsgSig.ViewChangeMsg.From {
-				// cachedPayloadBytes, err := marshalDeterministic(transportpb.ViewChangeToPB(cachedMsg.ViewChangeMsg))
-				// if err != nil {
-				// 	n.log.Error("failed to marshal cached view change message for view %d from node %d: %v", newViewMsg.NewViewNumber, cachedMsg.ViewChangeMsg.From, err)
-				// 	continue
-				// }
-				// incomingPayloadBytes, err := marshalDeterministic(transportpb.ViewChangeToPB(vcMsgSig.ViewChangeMsg))
-				// if err != nil {
-				// 	n.log.Error("failed to marshal incoming view change message for view %d from node %d: %v", newViewMsg.NewViewNumber, vcMsgSig.ViewChangeMsg.From, err)
-				// 	continue
-				// }
-				// if !bytes.Equal(cachedPayloadBytes, incomingPayloadBytes) {
-				// 	n.log.Error("cached view change payload mismatch for view %d from node %d", newViewMsg.NewViewNumber, vcMsgSig.ViewChangeMsg.From)
-				// 	continue
-				// }
-				foundInCache = true
-				break
-			}
-		}
-		if !foundInCache {
-			payloadBytes, err := marshalDeterministic(transportpb.ViewChangeToPB(vcMsgSig.ViewChangeMsg))
-			if err != nil {
-				n.log.Error("failed to marshal view change message for view (%d,%d) from node %d: %v", newViewMsg.NewViewNumber.Generation, newViewMsg.NewViewNumber.Counter, vcMsgSig.ViewChangeMsg.From, err)
-				continue
-			}
-			senderPubKey, exists := n.encryptionKeyStore.GetPublicKey(vcMsgSig.ViewChangeMsg.From)
-			if !exists {
-				n.log.Error("public key not found for view change sender node ID: %d", vcMsgSig.ViewChangeMsg.From)
-				continue
-			}
-			if !crypto.VerifySignatureEd25519(payloadBytes, vcMsgSig.Signature, senderPubKey) {
-				n.log.Error("signature verification failed for view change message for view (%d,%d) from node %d", newViewMsg.NewViewNumber.Generation, newViewMsg.NewViewNumber.Counter, vcMsgSig.ViewChangeMsg.From)
-				continue
-			}
-			n.log.Info("verifying VC in new newview")
-			verifiedVC := n.verifyVC(vcMsgSig.ViewChangeMsg)
-			if verifiedVC {
-				seenFrom[vcMsgSig.ViewChangeMsg.From] = struct{}{}
-			}
-		} else {
-			seenFrom[vcMsgSig.ViewChangeMsg.From] = struct{}{}
-		}
-	}
-
-	if len(seenFrom) >= 2*n.fNodes+1 {
-		return true
-	} else {
-		n.log.Error("not enough unique view change messages in new view message log for view (%d,%d): unique=%d required=%d", newViewMsg.NewViewNumber.Generation, newViewMsg.NewViewNumber.Counter, len(seenFrom), 2*n.fNodes+1)
+// verifyOSet checks the primary's O-set against the one recomputed from the same
+// ViewChanges: every entry must match, and none may be missing or repeated. A
+// primary that left a prepared seq out would leave that slot with no pre-prepare in
+// the new view, so it could never commit.
+func verifyOSet(Ocreated map[int64]core.PreprepareMsgSig, Oreceived []core.PreprepareMsgSig) bool {
+	if len(Oreceived) != len(Ocreated) {
 		return false
 	}
-}
-
-func verifyOSet(Ocreated map[int64]core.PreprepareMsgSig, Oreceived []core.PreprepareMsgSig) bool {
+	seen := make(map[int64]struct{}, len(Oreceived))
 	for _, preprepareMsgSig := range Oreceived {
+		if _, dup := seen[preprepareMsgSig.PreprepareMsgMini.SeqNum]; dup {
+			return false
+		}
+		seen[preprepareMsgSig.PreprepareMsgMini.SeqNum] = struct{}{}
 		if o, exists := Ocreated[preprepareMsgSig.PreprepareMsgMini.SeqNum]; !exists {
 			return false
 		} else {
@@ -492,18 +437,17 @@ func (n *Node) newview() {
 		Action:        n.GetCurrAction(),
 		From:          n.GetNodeID(),
 		PreprepareLog: O,
-		ViewChangeLog: n.viewChangeMsgsLog[view], // even if delete in prune this ref isnot lost till we done with it
-		Throughput:    maxRecentThroughput,
-		AwareRows:     n.awareRowsForMessage(n.GetCurrAction()),
+		// the same ViewChanges createO used, named by digest; kept for fetches
+		ViewChangeRefs: n.recordNewViewSent(view, n.viewChangeMsgsLog[view]),
+		Throughput:     maxRecentThroughput,
+		AwareRows:      n.awareRowsForMessage(n.GetCurrAction()),
 	}
-	// pbMsg := transportpb.NewViewToPB(newViewMsg)
-	// payloadBytes, err := marshalDeterministic(pbMsg)
-	// if err != nil {
-	// 	n.log.Error("Failed to marshal NewView message for signing: %v", err)
-	// 	return
-	// }
-	// signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
-	n.asyncBroadCast(core.MsgNewViewMessage, newViewMsg, nil)
+	payloadBytes, err := marshalDeterministic(transportpb.NewViewToPB(newViewMsg))
+	if err != nil {
+		n.log.Error("Failed to marshal NewView message for signing: %v", err)
+	}
+	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+	n.asyncBroadCast(core.MsgNewViewMessage, newViewMsg, signature)
 	n.pruneViewChangeState(view)
 	duration := time.Since(timeStart)
 	n.log.Info("Time taken to process new view is %d ms", duration.Milliseconds())
@@ -595,18 +539,34 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 		n.log.Error("Received new view message for view (%d,%d) which is less than my for view (%d,%d), ignoring", newViewMsg.NewViewNumber.Generation, newViewMsg.NewViewNumber.Counter, forView.Generation, forView.Counter)
 		return
 	}
-	verifiedNewView := n.verifyNewView(newViewMsg)
-	if !verifiedNewView {
-		n.log.Error("Failed to verify new view message for view (%d,%d), ignoring at replica", newViewMsg.NewViewNumber.Generation, newViewMsg.NewViewNumber.Counter)
+	// The NewView's signature was checked in Deliver. Its ViewChanges are named by
+	// digest and resolved against the ones this node verified itself, so a primary
+	// cannot alter or invent one (node/newviewrefs.go).
+	resolved, missing, err := n.resolveViewChangeRefs(newViewMsg)
+	if err != nil {
+		n.log.Error("NEWVIEW REJECTED reason=refs view=(%d,%d) from=%d: %v", newViewMsg.NewViewNumber.Generation, newViewMsg.NewViewNumber.Counter, newViewMsg.From, err)
 		return
 	}
+	if len(missing) > 0 {
+		n.setPendingNewView(newViewMsg, missing)
+		return
+	}
+	n.notePendingNewViewResolved(newViewMsg.NewViewNumber)
 
-	Oset, maxSeq, latestStableCheckpoint, checkpointProof, checkpointBalances := n.createOReplica(newViewMsg.ViewChangeLog, newViewMsg.NewViewNumber)
+	// TODO(safety): nothing checks that newViewMsg.From is this view's primary; the
+	// signature only proves who sent it, so a Byzantine non-primary could install
+	// itself as leader. RoundRobin could check primaryForView, Election
+	// electionCandidateForView with electionExcludedForGeneration; Aware cannot yet
+	// (its leader depends on matrix state replicas may not share during catch-up).
+	// On a generation jump newViewMsg.Action would need f+1 resolved ViewChanges
+	// carrying it, or a non-primary could claim a policy that skips the check.
+	// Cannot fire in the testbed without a Byzantine node.
+
+	Oset, maxSeq, latestStableCheckpoint, checkpointProof, checkpointBalances := n.createOReplica(resolved, newViewMsg.NewViewNumber)
 
 	verifiedOsets := verifyOSet(Oset, newViewMsg.PreprepareLog)
 	if !verifiedOsets {
-		n.log.Error("O set verification failed for new view message for view %d at replica", newViewMsg.NewViewNumber)
-
+		n.log.Error("NEWVIEW REJECTED reason=oset view=(%d,%d) from=%d: O-set does not match the one recomputed from its ViewChanges", newViewMsg.NewViewNumber.Generation, newViewMsg.NewViewNumber.Counter, newViewMsg.From)
 		return
 	}
 	n.log.Info("Received and accepted new view message for view %d and from node %d at replica", newViewMsg.NewViewNumber, newViewMsg.From)

@@ -75,6 +75,8 @@ type Node struct {
 	leaderProgressTimerCh <-chan time.Time
 	newViewTimer          *time.Timer
 	newViewTimerCh        <-chan time.Time
+	vcFetchTimer          *time.Timer // pending NewView: fetch its missing ViewChanges
+	vcFetchTimerCh        <-chan time.Time
 	perfTimer             *time.Timer
 	perfTimerCh           <-chan time.Time
 	epochTimer            *time.Timer
@@ -111,9 +113,15 @@ type Node struct {
 	currAction        core.Action
 	votedFor          int
 	viewChangeRunning bool
-	viewChangeMsgsLog map[core.ViewID][]*core.ViewChangeMsgSig
-	sequenceNumber    int64
-	lastExecuted      int64
+	viewChangeMsgsLog map[core.ViewID][]*core.ViewChangeMsgSig // first ViewChange per sender
+	// viewChangeAlt holds a verified ViewChange whose sender already has a different
+	// one in viewChangeMsgsLog, kept only because a pending NewView references it.
+	// Never counted toward a quorum. See node/newviewrefs.go.
+	viewChangeAlt  map[core.ViewID]map[[32]byte]*core.ViewChangeMsgSig
+	pendingNewView *pendingNewView   // NewView waiting for ViewChanges it references
+	newViewSent    *newViewSentState // this node's latest NewView, to answer fetches
+	sequenceNumber int64
+	lastExecuted   int64
 
 	fNodes int
 
@@ -243,6 +251,7 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		forViewID:       core.ViewID{Generation: 1, Counter: 1},
 
 		viewChangeMsgsLog: make(map[core.ViewID][]*core.ViewChangeMsgSig),
+		viewChangeAlt:     make(map[core.ViewID]map[[32]byte]*core.ViewChangeMsgSig),
 		viewChangeRunning: false,
 		currAction:        cfg.InitialAction(),
 

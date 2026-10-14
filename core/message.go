@@ -216,16 +216,36 @@ type ViewChangeMsg struct {
 type ViewChangeMsgSig struct {
 	ViewChangeMsg ViewChangeMsg
 	Signature     []byte
+	// Digest is sha256 of the signed ViewChange bytes. Local only, never sent: each
+	// node computes it from the bytes it signs or verifies, so a NewView can name a
+	// ViewChange by (From, Digest) instead of carrying it.
+	Digest [32]byte
+}
+
+// ViewChangeRef names one ViewChange of a NewView's 2f+1 set. Replicas resolve it
+// against the ViewChanges they verified on receipt and fetch the ones they lack
+// from the new primary (ViewChangeFetchMsg).
+type ViewChangeRef struct {
+	From   int
+	Digest [32]byte
+}
+
+// ViewChangeFetchMsg asks the primary of ViewNumber to forward the ViewChanges from
+// the Wanted senders that its NewView referenced.
+type ViewChangeFetchMsg struct {
+	ViewNumber ViewID
+	From       int
+	Wanted     []int
 }
 
 type NewViewMsg struct {
-	PreprepareLog []PreprepareMsgSig
-	ViewChangeLog []*ViewChangeMsgSig
-	NewViewNumber ViewID
-	Action        Action
-	Throughput    float64
-	From          int
-	AwareRows     []AwareRow
+	PreprepareLog  []PreprepareMsgSig
+	ViewChangeRefs []ViewChangeRef
+	NewViewNumber  ViewID
+	Action         Action
+	Throughput     float64
+	From           int
+	AwareRows      []AwareRow
 }
 
 type NewViewMsgSig struct {

@@ -11,6 +11,7 @@ const (
 	MsgVCRunningStatusMessage string = "MsgVCRunningStatusMessage"
 	MsgCloseMessage           string = "MsgCloseMessage"
 	MsgViewChangeMessage      string = "MsgViewChangeMessage"
+	MsgViewChangeFetchMessage string = "MsgViewChangeFetchMessage"
 	MsgCheckpointMessage      string = "MsgCheckpointMessage"
 	MsgRequestStateTransfer   string = "MsgRequestStateTransfer"
 	MsgStateTransfer          string = "MsgStateTransfer"

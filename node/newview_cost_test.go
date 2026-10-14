@@ -80,8 +80,9 @@ type dummyParams struct {
 	// cert (2f+1 = 3 for n=4).
 	prepareVotesPerCert int
 
-	// numViewChangeMsgs is how many ViewChange messages the NewView bundles
-	// (2f+1 = 3 for n=4).
+	// numViewChangeMsgs is how many ViewChanges the NewView names (2f+1 = 3 for
+	// n=4). Since the NewView carries (sender, digest) refs instead of the
+	// ViewChanges themselves, it barely affects the size.
 	numViewChangeMsgs int
 
 	// checkpointAccounts is how many account balances each ViewChange carries
@@ -294,7 +295,7 @@ func buildDummyViewChange(rng *mrand.Rand, from int, view core.ViewID, checkpoin
 }
 
 // buildDummyNewView mirrors the message assembled in newview(): an O-set of
-// re-proposed preprepares plus the full 2f+1 ViewChangeLog.
+// re-proposed preprepares plus a (sender, digest) ref per ViewChange.
 func buildDummyNewView(rng *mrand.Rand, from int, view core.ViewID, checkpointSeq int64, p dummyParams) core.NewViewMsg {
 	oSet := make([]core.PreprepareMsgSig, 0, p.numPreparedCerts)
 	for i := 0; i < p.numPreparedCerts; i++ {
@@ -302,21 +303,17 @@ func buildDummyNewView(rng *mrand.Rand, from int, view core.ViewID, checkpointSe
 		oSet = append(oSet, buildDummyPreprepareSig(rng, view, seq, p, p.includeActualMsgOSet))
 	}
 
-	vcLog := make([]*core.ViewChangeMsgSig, 0, p.numViewChangeMsgs)
+	refs := make([]core.ViewChangeRef, 0, p.numViewChangeMsgs)
 	for i := 0; i < p.numViewChangeMsgs; i++ {
-		vc := buildDummyViewChange(rng, i+1, view, checkpointSeq, p)
-		vcLog = append(vcLog, &core.ViewChangeMsgSig{
-			ViewChangeMsg: vc,
-			Signature:     fakeSig(rng),
-		})
+		refs = append(refs, core.ViewChangeRef{From: i + 1, Digest: fakeDigest(rng)})
 	}
 
 	return core.NewViewMsg{
-		NewViewNumber: view,
-		From:          from,
-		PreprepareLog: oSet,
-		ViewChangeLog: vcLog,
-		Throughput:    270.99,
+		NewViewNumber:  view,
+		From:           from,
+		PreprepareLog:  oSet,
+		ViewChangeRefs: refs,
+		Throughput:     270.99,
 	}
 }
 
@@ -387,9 +384,10 @@ func newViewCostCases() []struct {
 	bareCerts := noActual
 	bareCerts.dropIndividualDigests = true
 
-	// same, but with only one ViewChange in the log instead of 2f+1. Not
-	// protocol-legal (PBFT needs 2f+1), included only to show how much of the
-	// no-actual message is the 3x-replicated ViewChangeLog vs the O-set.
+	// same, but with only one ViewChange ref instead of 2f+1. Not protocol-legal
+	// (PBFT needs 2f+1). Before the NewView named ViewChanges by digest this showed
+	// how much of the message was the 3x-replicated ViewChangeLog; now the two
+	// differ by two refs.
 	bareCertsOneVC := bareCerts
 	bareCertsOneVC.numViewChangeMsgs = 1
 
