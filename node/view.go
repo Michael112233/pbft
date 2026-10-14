@@ -514,6 +514,9 @@ func (n *Node) newview() {
 		n.log.Error("Failed to marshal NewView message for signing: %v", err)
 	}
 	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+	// size from the bytes just signed; proto.Size would walk the message again
+	n.log.Info("NEWVIEW sent view=(%d,%d) refs=%d o_set=%d size_bytes=%d size_mib=%.3f",
+		view.Generation, view.Counter, len(newViewMsg.ViewChangeRefs), len(O), len(payloadBytes), float64(len(payloadBytes))/(1024*1024))
 	n.asyncBroadCast(core.MsgNewViewMessage, newViewMsg, signature)
 	n.pruneViewChangeState(view)
 	duration := time.Since(timeStart)

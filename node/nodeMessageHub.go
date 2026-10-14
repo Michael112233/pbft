@@ -620,18 +620,23 @@ func (hub *NodeMessageHub) Deliver(ctx context.Context, env *transportpb.Envelop
 		if int(env.From) != int(newView.From) {
 			return &transportpb.Ack{Ok: false, Error: "new-view sender mismatch"}, nil
 		}
-		if !hub.verifySignature(int(env.From), env.Signature, newView) {
+		signedBytes, ok := hub.verifySignatureBytes(int(env.From), env.Signature, newView)
+		if !ok {
 			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
 		}
 		data, err := transportpb.NewViewFromPB(newView)
 		if err != nil {
 			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
 		}
-		// sizeBytes := proto.Size(env)
+		sizeBytes := len(signedBytes) // the signed payload; proto.Size(env) would walk it again
 		hub.node_ref.log.Info(
-			"HUB: Received NewView message from node %d for view %d",
+			"HUB: Received NewView message from node %d for view %d. refs=%d o_set=%d size_bytes=%d size_mib=%.3f",
 			env.From,
 			data.NewViewNumber,
+			len(data.ViewChangeRefs),
+			len(data.PreprepareLog),
+			sizeBytes,
+			float64(sizeBytes)/(1024*1024),
 		)
 		hub.node_ref.newViewMsgChan <- NewViewMsg{
 			MsgType:   core.MsgNewViewMessage,

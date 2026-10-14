@@ -45,6 +45,9 @@ func (n *Node) VC(forView, view core.ViewID, currAction core.Action) {
 		// return
 	}
 	signature := crypto.SignMessageEd25519(payloadBytes, n.encryptionKeyStore.GetPrivateKey())
+	// size from the bytes just signed; proto.Size would walk the message again
+	n.log.Info("VC sent view=(%d,%d) certs=%d size_bytes=%d size_mib=%.3f",
+		forView.Generation, forView.Counter, len(preparedCerts), len(payloadBytes), float64(len(payloadBytes))/(1024*1024))
 	// n.log.FeatureInfo("Time taken to marshal and sign round robin vc message is %d ms", time.Since(timeStart).Milliseconds())
 	// n.viewMu.Lock()
 
