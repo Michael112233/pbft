@@ -200,6 +200,12 @@ ViewChanges for a view are in.
   - Only the first ViewChange per sender per view counts (`appendViewChangeIfNew`).
   - Every ViewChange gets a local `Digest`: sha256 of its signed bytes, computed in
     `Deliver` and in `VC()` for the node's own.
+  - `verifyVC` skips every cert prepare this node already holds byte for byte as a
+    verified one, in the slot's current-view `prepares` or its `preparedProof`
+    (`certsLeftToVerify` / `prepareAlreadyVerified`, `node/view.go`). Only the rest
+    are signature-checked. This is safe because everything held there is this node's
+    own or passed `Deliver`'s signature and sender checks. The log line
+    `VC CERTS ... cached=… to_verify=…` gives the hit rate.
 - **NewView names its 2f+1 ViewChanges by `(sender, digest)`** (`ViewChangeRefs`)
   instead of embedding them, as in OSDI 2000 PBFT. The primary signs it. Each
   replica resolves the refs against ViewChanges it verified itself
@@ -214,7 +220,7 @@ ViewChanges for a view are in.
     forwarded copy) is kept in `viewChangeAlt` only if a pending NewView names it,
     and is never counted.
 - Log lines: `NEWVIEW PENDING`, `NEWVIEW RESOLVED`, `NEWVIEW REJECTED`, `VC FETCH
-  sent`/`served`, `VC EQUIVOCATION`.
+  sent`/`served`, `VC EQUIVOCATION`, `VC CERTS`.
 - Not checked: that the NewView's sender is the view's primary. There's a
   `TODO(safety)` in `HandleNewView`.
 
@@ -271,6 +277,14 @@ view-change latency. A NewView is about 514 KiB, mostly the O-set's per-txn list
 because it names ViewChanges by digest instead of carrying them.
 `node/viewchange_size_test.go` reports both sizes. `node/newview_cost_test.go` is
 the older standalone cost harness.
+
+`TestNewViewTimingBudget` (`node/newview_timing_test.go`) times each view-change
+stage on real nodes, across n, P-set size and batch. Results and the new-view timer
+sizing are in `docs/newview-timer-budget.md`. The short version: before the
+already-verified skip, the timer at n ≥ 7 was dominated by every node re-checking
+every ViewChange's cert signatures. With the skip, when a node holds the prepares,
+the timer need is the NewView path: about 23 / 34 / 45 ms at n = 4 / 7 / 10 on 16
+CPUs. Pass `NVTIMING_COLD=1` to measure the miss case.
 
 ## Epoch → learning agent → generation switch
 

@@ -71,6 +71,12 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 	if viewChange.ViewNumber.LessThanOrEqual(view) {
 		return
 	}
+	// Below forView nothing reads it (pruneBelowForView), so drop it before verifyVC:
+	// checking certs of a ViewChange that is thrown away is wasted CPU.
+	if viewChange.ViewNumber.LessThan(forView) {
+		n.log.Error("Received view change for view (%d,%d) which is lower than my for view (%d,%d), dropping", viewChange.ViewNumber.Generation, viewChange.ViewNumber.Counter, forView.Generation, forView.Counter)
+		return
+	}
 	// One ViewChange per sender per view counts. Checked before verifyVC so a repeat
 	// costs no signature checks.
 	if existing := n.viewChangeFrom(viewChange.ViewNumber, viewChange.From); existing != nil {
@@ -98,13 +104,6 @@ func (n *Node) HandleViewChangeRoundRobin(viewChange core.ViewChangeMsg, signatu
 	verifiedVC := n.verifyVC(viewChange)
 	if !verifiedVC {
 		n.log.Error("Failed to verify view change message from node %d for view (%d,%d)", viewChange.From, viewChange.ViewNumber.Generation, viewChange.ViewNumber.Counter)
-		return
-	}
-	// Below forView nothing reads it (pruneBelowForView), so storing it would only
-	// re-create a pruned entry. Still verified above, as it was when it was stored,
-	// so view-change CPU and timing stay comparable with runs made before pruning.
-	if viewChange.ViewNumber.LessThan(forView) {
-		n.log.Error("Received view change for view (%d,%d) which is lower than my for view (%d,%d), dropping", viewChange.ViewNumber.Generation, viewChange.ViewNumber.Counter, forView.Generation, forView.Counter)
 		return
 	}
 

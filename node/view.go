@@ -1,7 +1,7 @@
 package node
 
 import (
-	// "bytes"
+	"bytes"
 	"math/big"
 	"runtime"
 	"sync"
@@ -145,24 +145,128 @@ func (n *Node) warnRetainedDurableSlots(retained, committedAbove []int64, maxSeq
 	}
 }
 
+// verifyVC checks a ViewChange's prepared certs. Most prepares in a peer's cert are
+// ones this node already verified when they arrived, so certsLeftToVerify first
+// drops every byte-identical copy of one (on the event loop: it reads
+// consensusLog), and only the rest are signature-checked.
 func (n *Node) verifyVC(vc core.ViewChangeMsg) bool {
-	verifiedPreparedCerts := false
-	if n.cfg.ParallelWorkers {
-		verifiedPreparedCerts = n.verifyPreparedCertsParallel(vc.PreparedCerts)
-	} else {
-		verifiedPreparedCerts = n.verifyPreparedCerts(vc.PreparedCerts)
+	start := time.Now()
+	checks, cached, ok := n.certsLeftToVerify(vc.PreparedCerts)
+	if !ok {
+		return false
 	}
-	// verifiedPreparedCerts := n.verifyPreparedCerts(vc.PreparedCerts)
-	// Additional checks can be added here, such as verifying the signature of the ViewChangeMsg itself.
-	return verifiedPreparedCerts
+	var verified bool
+	if n.cfg.ParallelWorkers {
+		verified = n.verifyCertChecksParallel(checks)
+	} else {
+		verified = n.verifyCertChecks(checks)
+	}
+	toVerify := 0
+	for _, c := range checks {
+		toVerify += len(c.prepares)
+	}
+	n.log.Info("VC CERTS from=%d view=(%d,%d) certs=%d prepares cached=%d to_verify=%d ok=%v took=%v",
+		vc.From, vc.ViewNumber.Generation, vc.ViewNumber.Counter, len(vc.PreparedCerts), cached, toVerify, verified, time.Since(start))
+	return verified
+}
+
+// certCheck is what is left to verify of one prepared cert after the cache pass.
+type certCheck struct {
+	seq      int64
+	view     core.ViewID
+	digest   [32]byte
+	need     int                        // valid prepares still needed for 2f
+	prepares map[int]core.PrepareMsgSig // the cert's prepares this node has not verified before
+}
+
+// certsLeftToVerify does the per-cert checks that need no signature (cert present,
+// map key matches its pre-prepare's seq, enough prepares) and counts every prepare
+// this node already verified toward the cert's 2f. It returns the certs that still
+// need signature checks, how many prepares were skipped, and false if a cert is
+// malformed.
+func (n *Node) certsLeftToVerify(certs map[int64]*core.PreparedCert) ([]certCheck, int, bool) {
+	required := n.QuorumSize() - 1
+	var checks []certCheck
+	cached := 0
+	for certSeq, cert := range certs {
+		if cert == nil {
+			return nil, cached, false
+		}
+		ok, view, seq, digest := n.verifyPreprepare(cert.PreprepareMsg)
+		if !ok {
+			return nil, cached, false
+		}
+		if seq != certSeq {
+			n.log.Error("prepared cert seq mismatch: map key=%d preprepare seq=%d", certSeq, seq)
+			return nil, cached, false
+		}
+		if required <= 0 {
+			continue
+		}
+		if len(cert.PrepareLog) < required {
+			n.log.Error("prepared cert seq %d has %d prepares, need %d", seq, len(cert.PrepareLog), required)
+			return nil, cached, false
+		}
+		known := 0
+		var rest map[int]core.PrepareMsgSig
+		for from, p := range cert.PrepareLog {
+			m := p.PrepareMsg
+			if m.From == from && m.View.Equal(view) && m.SeqNum == seq && m.Digest == digest && n.prepareAlreadyVerified(p) {
+				known++
+				continue
+			}
+			if rest == nil {
+				rest = make(map[int]core.PrepareMsgSig, len(cert.PrepareLog))
+			}
+			rest[from] = p
+		}
+		cached += known
+		if known >= required {
+			continue
+		}
+		checks = append(checks, certCheck{seq: seq, view: view, digest: digest, need: required - known, prepares: rest})
+	}
+	return checks, cached, true
+}
+
+// prepareAlreadyVerified reports whether this node holds exactly this prepare (same
+// message, same signature bytes) as one it already verified. Every prepare in
+// slot.prepares is this node's own or came through Deliver, which checked its
+// signature against its sender and that the sender is PrepareMsg.From; preparedProof
+// is built from slot.prepares. Ed25519 verification depends only on key, message and
+// signature, so a byte-identical copy would verify again. The current-view prepares
+// cover certs from the view that just failed; preparedProof survives a new-view
+// install, for certs from the view this node last prepared the seq in.
+func (n *Node) prepareAlreadyVerified(p core.PrepareMsgSig) bool {
+	slot, ok := n.consensusLog.GetLogEntry(p.PrepareMsg.SeqNum)
+	if !ok {
+		return false
+	}
+	if slot.view.Equal(p.PrepareMsg.View) {
+		if held, ok := slot.prepares[p.PrepareMsg.From]; ok && held.PrepareMsg == p.PrepareMsg && bytes.Equal(held.Signature, p.Signature) {
+			return true
+		}
+	}
+	if cert := slot.preparedProof; cert != nil && slot.preparedView.Equal(p.PrepareMsg.View) {
+		if held, ok := cert.PrepareLog[p.PrepareMsg.From]; ok && held.PrepareMsg == p.PrepareMsg && bytes.Equal(held.Signature, p.Signature) {
+			return true
+		}
+	}
+	return false
 }
 
 func (n *Node) verifyPrepareLog(prepareLog map[int]core.PrepareMsgSig, view core.ViewID, seq int64, digest [32]byte) bool {
-	required := n.QuorumSize() - 1
-	if required <= 0 {
+	return n.verifyPrepareLogNeed(prepareLog, view, seq, digest, n.QuorumSize()-1)
+}
+
+// verifyPrepareLogNeed checks signatures in prepareLog until need of them are valid
+// prepares for (view, seq, digest) from the node their map key names.
+func (n *Node) verifyPrepareLogNeed(prepareLog map[int]core.PrepareMsgSig, view core.ViewID, seq int64, digest [32]byte, need int) bool {
+	if need <= 0 {
 		return true
 	}
-	if len(prepareLog) < required {
+	if len(prepareLog) < need {
+		n.log.Error("not enough prepare messages to verify: have=%d need=%d view=(%d,%d) seq=%d", len(prepareLog), need, view.Generation, view.Counter, seq)
 		return false
 	}
 
@@ -198,63 +302,40 @@ func (n *Node) verifyPrepareLog(prepareLog map[int]core.PrepareMsgSig, view core
 		}
 
 		validCount++
-		if validCount >= required {
+		if validCount >= need {
 			return true
 		}
 	}
 
-	n.log.Error("not enough valid prepare messages: valid=%d required=%d view=%d seq=%d", validCount, required, view, seq)
+	n.log.Error("not enough valid prepare messages: valid=%d need=%d view=(%d,%d) seq=%d", validCount, need, view.Generation, view.Counter, seq)
 	return false
 }
 
-func (n *Node) verifyPreparedCerts(preparedCerts map[int64]*core.PreparedCert) bool {
-	for certSeq, cert := range preparedCerts {
-		if cert == nil {
-			return false
-		}
-		ok, view, seq, digest := n.verifyPreprepare(cert.PreprepareMsg)
-		if !ok {
-			return false
-		}
-		if seq != certSeq {
-			n.log.Error("prepared cert seq mismatch: map key=%d preprepare seq=%d", certSeq, seq)
-			return false
-		}
-		if !n.verifyPrepareLog(cert.PrepareLog, view, seq, digest) {
+func (n *Node) verifyCertChecks(checks []certCheck) bool {
+	for _, c := range checks {
+		if !n.verifyPrepareLogNeed(c.prepares, c.view, c.seq, c.digest, c.need) {
 			return false
 		}
 	}
 	return true
 }
 
-// verifyPreparedCertsParallel is the parallel counterpart to verifyPreparedCerts.
-// Each cert's verification (verifyPreprepare + verifyPrepareLog) only reads
-// immutable/read-only node state (encryption keys, leader-for-view lookups) plus
-// pure crypto verification and logging, both safe for concurrent use, so it is
-// safe to fan the map out across a worker pool. Not wired to any call site yet.
-func (n *Node) verifyPreparedCertsParallel(preparedCerts map[int64]*core.PreparedCert) bool {
-	if len(preparedCerts) == 0 {
+// verifyCertChecksParallel is the parallel counterpart to verifyCertChecks. Each
+// check only reads its own prepares, the read-only public keys and the logger, so
+// the checks can be fanned out across a worker pool.
+func (n *Node) verifyCertChecksParallel(checks []certCheck) bool {
+	if len(checks) == 0 {
 		return true
 	}
 
-	type certEntry struct {
-		seq  int64
-		cert *core.PreparedCert
-	}
-	// cant index map like slices with [start:end] and keep these sliding windows sorted so thats why convert to slice
-	entries := make([]certEntry, 0, len(preparedCerts))
-	for certSeq, cert := range preparedCerts {
-		entries = append(entries, certEntry{seq: certSeq, cert: cert})
-	}
-
 	workers := runtime.NumCPU()
-	if workers > len(entries) {
-		workers = len(entries)
+	if workers > len(checks) {
+		workers = len(checks)
 	}
 	if workers < 1 {
 		workers = 1
 	}
-	chunkSize := (len(entries) + workers - 1) / workers
+	chunkSize := (len(checks) + workers - 1) / workers
 	// ceil(a/b) = (a + b - 1) / b
 	// 10/3 gives 3 but we want 4
 	// if a evenly divides by b then adding b-1 doesnt change quotient
@@ -262,38 +343,24 @@ func (n *Node) verifyPreparedCertsParallel(preparedCerts map[int64]*core.Prepare
 	var wg sync.WaitGroup
 	var failed atomic.Bool
 
-	for start := 0; start < len(entries); start += chunkSize {
+	for start := 0; start < len(checks); start += chunkSize {
 		end := start + chunkSize
-		if end > len(entries) {
-			end = len(entries)
+		if end > len(checks) {
+			end = len(checks)
 		}
 		wg.Add(1)
-		go func(chunk []certEntry) {
+		go func(chunk []certCheck) {
 			defer wg.Done()
-			for _, e := range chunk {
+			for _, c := range chunk {
 				if failed.Load() {
 					return
 				}
-				if e.cert == nil {
-					failed.Store(true)
-					return
-				}
-				ok, view, seq, digest := n.verifyPreprepare(e.cert.PreprepareMsg)
-				if !ok {
-					failed.Store(true)
-					return
-				}
-				if seq != e.seq {
-					n.log.Error("prepared cert seq mismatch: map key=%d preprepare seq=%d", e.seq, seq)
-					failed.Store(true)
-					return
-				}
-				if !n.verifyPrepareLog(e.cert.PrepareLog, view, seq, digest) {
+				if !n.verifyPrepareLogNeed(c.prepares, c.view, c.seq, c.digest, c.need) {
 					failed.Store(true)
 					return
 				}
 			}
-		}(entries[start:end])
+		}(checks[start:end])
 	}
 	wg.Wait()
 

@@ -68,7 +68,7 @@ for r in results/vcrefs_*n7_*; do
   echo "== $r"
   for p in "NEWVIEW REJECTED" "NEWVIEW PENDING" "NEWVIEW RESOLVED" "VC FETCH sent" "VC FETCH served" \
            "VC EQUIVOCATION" "Failed to verify view change" "signature verification failed" \
-           "New view timer expired" "some req for batch not found" "Assertion failed"; do
+           "New view timer expired" "some req for batch not found" "Assertion failed" "VC CERTS"; do
     printf "  %-32s %s\n" "$p" "$(cat $r/node_?.log | grep -c "$p")"
   done
   printf "  %-32s %s\n" "views installed per node" "$(for f in $r/node_?.log; do grep -c 'processing completed' $f; done | paste -sd' ')"
@@ -80,6 +80,17 @@ done
 ```
 
 Compare each `vcrefs_*` run with its `vcrefs_base_*` twin.
+
+**Hit rate of the already-verified skip (Phase 3, `vcrefs_*` only):**
+
+```bash
+grep -h "VC CERTS" results/vcrefs_n7_prr/node_?.log \
+  | sed -E 's/.*cached=([0-9]+) to_verify=([0-9]+).*took=(.*)$/\1 \2 \3/' \
+  | awk '{c+=$1; v+=$2} END{printf "cached=%d to_verify=%d hit=%.1f%%\n", c, v, 100*c/(c+v)}'
+```
+
+The benchmark's warm case is 100%. Misses are prepares a node never received, and
+certs from older views.
 
 **On `vcrefs_*`, these should be 0:**
 - `NEWVIEW REJECTED`, `Failed to verify view change`, `signature verification failed`, `some req for batch not found`.
@@ -100,7 +111,8 @@ In `*_crash2`, the twin's numbers are the bar. Dead primaries cause new-view tim
 
 - **Expected:** views install as on `viewid` or better, with no rejections.
 - **Possibly better on `vcrefs`:** fewer `New view timer expired` at n=7, because the 150 ms timers no longer race a 3.5 MiB NewView.
-- **Branch confounder:** the `vc-compact-certs` branch also carries Phase 1a: compact cert prepares, certs capped at 2f, and a vote-sender check. Those changes are part of what this compares.
+- **Branch confounder:** the `vc-compact-certs` branch also carries Phase 1a (compact cert prepares, certs capped at 2f, a vote-sender check) and Phase 3 (the already-verified skip in `verifyVC`). Those changes are part of what this compares.
+- **Phase 3 effect:** fewer `New view timer expired` and faster view changes at n=7 are expected mostly from Phase 3, not from the NewView size. On 16 CPUs, timer need fell from about 290 ms to about 34 ms (`docs/newview-timer-budget.md`).
 - **Run length:** 300 s gives about 100 Perf view changes. That's enough for counts, but only a rough latency distribution.
 - **Not covered: Byzantine behaviour.** That includes an equivocating ViewChange and a forged ref. Unit tests cover it: `node/newviewrefs_test.go`.
 
