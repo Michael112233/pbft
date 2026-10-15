@@ -123,6 +123,15 @@ type Node struct {
 	sequenceNumber int64
 	lastExecuted   int64
 
+	// Checkpoint state transfer (node/checkpointfetch.go): the stall window's timer,
+	// the lastExecuted and view it started at, and fetches sent for the current
+	// stall (rotates the voter asked).
+	ckptFetchTimer         *time.Timer
+	ckptFetchTimerCh       <-chan time.Time
+	ckptFetchArmedExecuted int64
+	ckptFetchArmedView     core.ViewID
+	ckptFetchAttempts      int
+
 	fNodes int
 
 	executionMachine execution.StateMachine

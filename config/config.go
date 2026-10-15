@@ -93,7 +93,10 @@ type Config struct {
 	// referenced ViewChange to arrive on its own before asking the new primary to
 	// forward it (node/newviewrefs.go); 0 means 20.
 	ViewChangeFetchDelayMs int `json:"view_change_fetch_delay_ms"`
-	OracleActionsEnum      []core.Action
+	// Checkpoint state transfer for a node stranded below a stable checkpoint
+	// (config/checkpointfetch.go, node/checkpointfetch.go).
+	CheckpointFetch   CheckpointFetchConfig `json:"checkpoint_fetch"`
+	OracleActionsEnum []core.Action
 
 	EpochMode bool `json:"epoch_mode"`
 
@@ -206,6 +209,11 @@ func ReadCfg(filename string) *Config {
 
 	if err := config.ValidateAware(); err != nil {
 		fmt.Printf("Invalid aware config: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := config.ValidateCheckpointFetch(); err != nil {
+		fmt.Printf("Invalid checkpoint_fetch config: %v\n", err)
 		os.Exit(1)
 	}
 

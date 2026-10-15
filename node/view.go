@@ -150,6 +150,15 @@ func (n *Node) warnRetainedDurableSlots(retained, committedAbove []int64, maxSeq
 // ones this node already verified when they arrived, so certsLeftToVerify first
 // drops every byte-identical copy of one (on the event loop: it reads
 // consensusLog), and only the rest are signature-checked.
+//
+// TODO(safety): the ViewChange's checkpoint is not verified. Nothing checks that
+// CheckpointProof holds 2f+1 valid, distinct signatures over (CheckpointSeqNumber,
+// CheckpointDigest), or that CheckpointBalances hash to CheckpointDigest
+// (digestBalances), yet fastPathStablizeCheckpointviaVC installs that state when a
+// NewView's checkpoint is ahead of the node's. A Byzantine sender could hand a
+// lagging replica a fake state. The checkpoint fetch path (node/checkpointfetch.go)
+// does not depend on this: it installs state only for a checkpoint it holds a local
+// certificate for, after checking the hash.
 func (n *Node) verifyVC(vc core.ViewChangeMsg) bool {
 	start := time.Now()
 	checks, cached, ok := n.certsLeftToVerify(vc.PreparedCerts)

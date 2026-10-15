@@ -238,6 +238,23 @@ type ViewChangeFetchMsg struct {
 	Wanted     []int
 }
 
+// CheckpointFetchMsg asks a node that voted for checkpoint (SeqNum, Digest) for its
+// state (node/checkpointfetch.go).
+type CheckpointFetchMsg struct {
+	SeqNum int64
+	Digest [32]byte
+	From   int
+}
+
+// CheckpointStateMsg answers a CheckpointFetchMsg with a checkpoint's state: the
+// one asked for, or the sender's newer stable checkpoint.
+type CheckpointStateMsg struct {
+	SeqNum   int64
+	Digest   [32]byte
+	From     int
+	Balances map[string]*big.Int
+}
+
 type NewViewMsg struct {
 	PreprepareLog  []PreprepareMsgSig
 	ViewChangeRefs []ViewChangeRef

@@ -319,3 +319,26 @@ func TestAwareCandidatesDefaultAndValidation(t *testing.T) {
 		t.Fatal(`aware_candidates "padded" accepted`)
 	}
 }
+
+func TestCheckpointFetchConfig(t *testing.T) {
+	if got := (&Config{}).CheckpointFetchDelay(); got != 200*time.Millisecond {
+		t.Fatalf("default delay = %v, want 200ms", got)
+	}
+	c := &Config{CheckpointFetch: CheckpointFetchConfig{Enabled: true, DelayMs: 350}}
+	if err := c.ValidateCheckpointFetch(); err != nil || c.CheckpointFetchDelay() != 350*time.Millisecond {
+		t.Fatalf("delay_ms 350: err=%v delay=%v", err, c.CheckpointFetchDelay())
+	}
+	if got := (&Config{}).CheckpointFetchRetry(); got != time.Second {
+		t.Fatalf("default retry = %v, want 1s (5 x the 200ms delay)", got)
+	}
+	if got := c.CheckpointFetchRetry(); got != 1750*time.Millisecond {
+		t.Fatalf("retry with delay_ms 350 = %v, want 1750ms", got)
+	}
+	if err := (&Config{CheckpointFetch: CheckpointFetchConfig{DelayMs: -1}}).ValidateCheckpointFetch(); err == nil {
+		t.Fatal("negative delay_ms accepted")
+	}
+	base := ReadCfg("run2new.json")
+	if !base.CheckpointFetch.Enabled || base.CheckpointFetch.DelayMs != 200 {
+		t.Fatalf("run2new.json checkpoint_fetch = %+v, want enabled, delay_ms 200", base.CheckpointFetch)
+	}
+}

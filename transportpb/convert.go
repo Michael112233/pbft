@@ -1232,3 +1232,46 @@ func ViewChangeFetchFromPB(msg *ViewChangeFetchMsg) (core.ViewChangeFetchMsg, er
 	}
 	return core.ViewChangeFetchMsg{ViewNumber: view, From: int(msg.From), Wanted: wanted}, nil
 }
+
+func CheckpointFetchToPB(msg core.CheckpointFetchMsg) *CheckpointFetchMsg {
+	return &CheckpointFetchMsg{
+		SeqNum: msg.SeqNum,
+		Digest: digestToPB(msg.Digest),
+		From:   int32(msg.From),
+	}
+}
+
+func CheckpointFetchFromPB(msg *CheckpointFetchMsg) (core.CheckpointFetchMsg, error) {
+	if msg == nil {
+		return core.CheckpointFetchMsg{}, fmt.Errorf("missing checkpoint fetch")
+	}
+	digest, err := digestFromPB(msg.Digest)
+	if err != nil {
+		return core.CheckpointFetchMsg{}, err
+	}
+	return core.CheckpointFetchMsg{SeqNum: msg.SeqNum, Digest: digest, From: int(msg.From)}, nil
+}
+
+func CheckpointStateToPB(msg core.CheckpointStateMsg) *CheckpointStateMsg {
+	return &CheckpointStateMsg{
+		SeqNum:   msg.SeqNum,
+		Digest:   digestToPB(msg.Digest),
+		From:     int32(msg.From),
+		Balances: balancesToPB(msg.Balances),
+	}
+}
+
+func CheckpointStateFromPB(msg *CheckpointStateMsg) (core.CheckpointStateMsg, error) {
+	if msg == nil {
+		return core.CheckpointStateMsg{}, fmt.Errorf("missing checkpoint state")
+	}
+	digest, err := digestFromPB(msg.Digest)
+	if err != nil {
+		return core.CheckpointStateMsg{}, err
+	}
+	balances, err := balancesFromPB(msg.Balances)
+	if err != nil {
+		return core.CheckpointStateMsg{}, err
+	}
+	return core.CheckpointStateMsg{SeqNum: msg.SeqNum, Digest: digest, From: int(msg.From), Balances: balances}, nil
+}

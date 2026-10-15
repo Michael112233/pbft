@@ -406,6 +406,33 @@ key missing there is missing from every experiment built afterwards.
   to execute.
 - `view_change_fetch_delay_ms` (default 20). This is how long a replica holding a
   NewView waits for a referenced ViewChange before fetching it from the primary.
+- **`checkpoint_fetch`** — `{enabled, delay_ms}` (`config/checkpointfetch.go`;
+  `run2new.json` has it on, delay 200). Checkpoint state transfer
+  (`node/checkpointfetch.go`) for a node stranded below a stable checkpoint: it left a
+  view before executing up to checkpoint k, the others stabilized k after sending their
+  ViewChanges, so the NewView's O-set starts below k and every other replica skips those
+  slots (below its low watermark) — nobody re-votes them and nothing retransmits. Seen
+  at node 4 (aggregator, decides first) in ~10% of NetworkDelay generations under the
+  Periodic actions, as 500-cert ViewChanges. Trigger: a certificate (2f+1 matching
+  CHECKPOINT votes) above `lastExecuted` **and** no execution for a full `delay_ms`
+  window inside one installed view (not across a view change). The node asks a voter
+  for that checkpoint's state and installs it only for a (seq, digest) it holds a local
+  certificate for and only if the state hashes to the digest, then runs `exeLoop`.
+  With no install it asks the next voter after `CheckpointFetchRetry` (5 × `delay_ms`,
+  sized by the round trip, not by the stall; reasons on `checkpointFetchRetryFactor`).
+  Validated in `results/ckpt_fetch_n7` (README in `config/ckpt_fetch_n7/`): all 17
+  NetworkDelay strandings repaired 0.55–0.74 s after the NewView, zero fetches in
+  Healthy/NetworkDelay/NetworkDelayFCrash/Throttle. A stranded **primary** (Election can
+  elect node 4 right after it left early) stalls the whole system for its tenure — seen
+  once with the feature off. The ProposalDelay slow leader fetches although it would
+  catch up (8 in 39 generations); accepted as cheap, see the comment in
+  `node/checkpointfetch.go`.
+  Disabled, it neither fetches nor serves. Why 200 ms is in the comment on
+  `defaultCheckpointFetchDelay`. Log: `CKPT FETCH sent / served / installed / stale /
+  rejected / ignored`; `scripts/ckpt_fetch_summary.py` counts them per run. Like
+  `fastPathStablizeCheckpointviaVC`, an install skips requests without a record in the
+  intake filter. The ViewChange path's own checkpoint proof and state are still
+  unverified (`TODO(safety)` on `verifyVC`).
 - Others: `node_num`, `max_batch_size`, `inject_speed`, `parallel_workers`,
   `nodes_dead`, `gc`, `min_vdf_delay` / `max_vdf_delay` (election VDF range).
 - `nodes_in_dark` is present in the JSON but has no field in `config.go`, so it is

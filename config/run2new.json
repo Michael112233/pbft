@@ -94,6 +94,10 @@
   "oracle_seed": 42,
   "oracle_decision_delay_ms": 100,
   "view_change_fetch_delay_ms": 20,
+  "checkpoint_fetch": {
+    "enabled": true,
+    "delay_ms": 200
+  },
   "epoch_mode": false,
   "default_action": "FixedRoundRobin",
   "netem_delay": false,

@@ -590,6 +590,50 @@ func (hub *NodeMessageHub) Deliver(ctx context.Context, env *transportpb.Envelop
 		}
 		return &transportpb.Ack{Ok: true}, nil
 
+	case core.MsgCheckpointFetchMessage:
+		fetch := env.GetCheckpointFetch()
+		if fetch == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing checkpoint-fetch body"}, nil
+		}
+		if int(env.From) != int(fetch.From) {
+			return &transportpb.Ack{Ok: false, Error: "checkpoint-fetch sender mismatch"}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, fetch) {
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.CheckpointFetchFromPB(fetch)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		hub.node_ref.checkpointMsgChan <- CheckpointMsg{
+			MsgType:   core.MsgCheckpointFetchMessage,
+			Msg:       data,
+			Signature: env.Signature,
+		}
+		return &transportpb.Ack{Ok: true}, nil
+
+	case core.MsgCheckpointStateMessage:
+		state := env.GetCheckpointState()
+		if state == nil {
+			return &transportpb.Ack{Ok: false, Error: "missing checkpoint-state body"}, nil
+		}
+		if int(env.From) != int(state.From) {
+			return &transportpb.Ack{Ok: false, Error: "checkpoint-state sender mismatch"}, nil
+		}
+		if !hub.verifySignature(int(env.From), env.Signature, state) {
+			return &transportpb.Ack{Ok: false, Error: "signature verification failed"}, nil
+		}
+		data, err := transportpb.CheckpointStateFromPB(state)
+		if err != nil {
+			return &transportpb.Ack{Ok: false, Error: err.Error()}, nil
+		}
+		hub.node_ref.checkpointMsgChan <- CheckpointMsg{
+			MsgType:   core.MsgCheckpointStateMessage,
+			Msg:       data,
+			Signature: env.Signature,
+		}
+		return &transportpb.Ack{Ok: true}, nil
+
 	case core.MsgCheckpointMessage:
 		checkpoint := env.GetCheckpoint()
 		if checkpoint == nil {
@@ -949,6 +993,22 @@ func (hub *NodeMessageHub) buildEnvelope(msgType string, msg interface{}, signat
 			return nil, errInvalidPayloadType(msgType, msg)
 		}
 		env.Body = &transportpb.Envelope_ViewChangeFetch{ViewChangeFetch: transportpb.ViewChangeFetchToPB(fetch)}
+		env.From = int32(hub.node_ref.GetNodeID())
+
+	case core.MsgCheckpointFetchMessage:
+		fetch, ok := msg.(core.CheckpointFetchMsg)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_CheckpointFetch{CheckpointFetch: transportpb.CheckpointFetchToPB(fetch)}
+		env.From = int32(hub.node_ref.GetNodeID())
+
+	case core.MsgCheckpointStateMessage:
+		state, ok := msg.(core.CheckpointStateMsg)
+		if !ok {
+			return nil, errInvalidPayloadType(msgType, msg)
+		}
+		env.Body = &transportpb.Envelope_CheckpointState{CheckpointState: transportpb.CheckpointStateToPB(state)}
 		env.From = int32(hub.node_ref.GetNodeID())
 
 	case core.MsgRequestVoteMessage:

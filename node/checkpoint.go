@@ -218,6 +218,8 @@ func (n *Node) GetLastStableCheckpointwithProofandBalances() (checkpoint, []core
 
 func (n *Node) HandleCheckpoint(checkpointMsg core.CheckpointMsg, signature []byte) {
 	n.checkpointManager.HandleCheckpoint(checkpointMsg, signature)
+	// A certificate above lastExecuted may have just formed (node/checkpointfetch.go).
+	n.maybeArmCheckpointFetch()
 }
 
 // in previous impl only copy of balance was on execution path now digest and signature too

@@ -235,6 +235,24 @@ message ViewChangeFetchMsg {
   repeated int32 wanted = 3;
 }
 
+// Asks a node that voted for checkpoint (seq_num, digest) for that checkpoint's
+// state. Sent by a node holding a certificate for it that has stopped executing.
+message CheckpointFetchMsg {
+  int64 seq_num = 1;
+  bytes digest = 2;
+  int32 from = 3;
+}
+
+// A checkpoint's state, in answer to a CheckpointFetchMsg: the requested
+// checkpoint, or the sender's newer stable one. The requester installs it only for
+// a (seq_num, digest) it holds 2f+1 votes for, and only if balances hash to digest.
+message CheckpointStateMsg {
+  int64 seq_num = 1;
+  bytes digest = 2;
+  int32 from = 3;
+  map<string, string> balances = 4;
+}
+
 message NewViewMsgSig {
   NewViewMsg new_view_msg = 1;
   bytes signature = 2;
@@ -322,6 +340,8 @@ message Envelope {
     EpochDataMsg epoch_data = 26;
     EpochAggregateMsg epoch_aggregate = 27;
     ViewChangeFetchMsg view_change_fetch = 28;
+    CheckpointFetchMsg checkpoint_fetch = 29;
+    CheckpointStateMsg checkpoint_state = 30;
   }
 }
 

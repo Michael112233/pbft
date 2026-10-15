@@ -42,6 +42,7 @@ func (n *Node) run() {
 	defer n.StopBatchTimer()
 	defer n.stopViewTimers()
 	defer n.stopViewChangeFetchTimer()
+	defer n.stopCheckpointFetchTimer()
 	defer n.stopPerfTimer()
 	defer n.stopEpochTimer()
 	defer n.stopAggregateGraceTimer()
@@ -122,7 +123,14 @@ func (n *Node) run() {
 				n.HandleViewChangeRoundRobin(viewChangeMsg.Msg.(core.ViewChangeMsg), viewChangeMsg.Signature, viewChangeMsg.Digest)
 			}
 		case checkpointMsg := <-n.checkpointMsgChan:
-			n.HandleCheckpoint(checkpointMsg.Msg.(core.CheckpointMsg), checkpointMsg.Signature)
+			switch checkpointMsg.MsgType {
+			case core.MsgCheckpointFetchMessage:
+				n.handleCheckpointFetch(checkpointMsg.Msg.(core.CheckpointFetchMsg))
+			case core.MsgCheckpointStateMessage:
+				n.handleCheckpointState(checkpointMsg.Msg.(core.CheckpointStateMsg))
+			default:
+				n.HandleCheckpoint(checkpointMsg.Msg.(core.CheckpointMsg), checkpointMsg.Signature)
+			}
 		case newViewMsg := <-n.newViewMsgChan:
 			n.HandleNewView(newViewMsg.Msg.(core.NewViewMsg), newViewMsg.Signature)
 		case result := <-n.electionVDFResultCh:
@@ -133,6 +141,8 @@ func (n *Node) run() {
 			n.handleNewViewTimeout()
 		case <-n.vcFetchTimerCh:
 			n.handleViewChangeFetchTimeout()
+		case <-n.ckptFetchTimerCh:
+			n.handleCheckpointFetchTimeout()
 		case <-n.perfTimerCh:
 			n.handlePerfTimerTimeout()
 		case <-n.epochTimerCh:
