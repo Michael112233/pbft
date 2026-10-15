@@ -541,18 +541,20 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 	if !n.cfg.CarryState && preprepareMsg.SeqNum >= n.consensusLog.low {
 		n.pool.AddBatchIfNewer(preprepareMsg.ClientMsg, preprepareMsg.DigestIndividualClientMsgs, preprepareMsg.SeqNum, preprepareMsg.View)
 	}
+	// a future view's message waits for its NewView, in a view change or not (bufferFutureViewMessage)
+	if preprepareMsg.View.GreaterThan(view) {
+		if n.bufferFutureViewMessage(bufferedConsensusMessage{
+			kind:       bufferedPrePrepare,
+			view:       preprepareMsg.View,
+			preprepare: preprepareMsg,
+			signature:  append([]byte(nil), signature...),
+		}) {
+			n.log.Info("Buffered PrePrepare for future view (%d,%d) seq %d while current view is (%d,%d), for view (%d,%d), in view change %t", preprepareMsg.View.Generation, preprepareMsg.View.Counter, preprepareMsg.SeqNum, view.Generation, view.Counter, forView.Generation, forView.Counter, n.viewChangeRunning)
+		}
+		return
+	}
 	if n.viewChangeRunning {
-		if preprepareMsg.View.GreaterThan(view) {
-			// buffer
-			n.bufferConsensusMessage(bufferedConsensusMessage{
-				kind:       bufferedPrePrepare,
-				view:       preprepareMsg.View,
-				preprepare: preprepareMsg,
-				signature:  append([]byte(nil), signature...),
-			})
-			n.log.Info("Buffered PrePrepare for future view (%d,%d) seq %d while current view is (%d,%d)", preprepareMsg.View.Generation, preprepareMsg.View.Counter, preprepareMsg.SeqNum, view.Generation, view.Counter)
-			return
-		} else if preprepareMsg.View.LessThan(view) {
+		if preprepareMsg.View.LessThan(view) {
 			n.log.Info("Received PrePrepare for past view (%d,%d) seq %d while current view is (%d,%d), ignoring and for view is (%d,%d)", preprepareMsg.View.Generation, preprepareMsg.View.Counter, preprepareMsg.SeqNum, view.Generation, view.Counter, forView.Generation, forView.Counter)
 		} else if preprepareMsg.SeqNum%10 == 0 {
 			n.log.Info("Received PrePrepare for current view (%d,%d) seq %d but currently in view change, ignoring and for view is (%d,%d)", preprepareMsg.View.Generation, preprepareMsg.View.Counter, preprepareMsg.SeqNum, forView.Generation, forView.Counter)
@@ -560,11 +562,6 @@ func (n *Node) HandlePrePrepare(preprepareMsg core.PreprepareMsg, signature []by
 
 		return
 
-	}
-
-	if !n.viewChangeRunning && preprepareMsg.View.GreaterThan(view) {
-		n.log.Warn("Interesting case: Received PrePrepare for future view (%d,%d) seq %d while current view is (%d,%d), ignoring and for view is (%d,%d)", preprepareMsg.View.Generation, preprepareMsg.View.Counter, preprepareMsg.SeqNum, view.Generation, view.Counter, forView.Generation, forView.Counter)
-		return
 	}
 
 	if preprepareMsg.View.NotEqual(view) {
@@ -716,28 +713,25 @@ func (n *Node) verifyPreprepareClientMessages(clientMsgs []core.ClientMsgSignatu
 func (n *Node) HandlePrepare(prepareMsg core.PrepareMsg, signature []byte) {
 	view := n.GetViewID()
 	forView := n.GetForViewID()
+	// a future view's message waits for its NewView, in a view change or not (bufferFutureViewMessage)
+	if prepareMsg.View.GreaterThan(view) {
+		n.bufferFutureViewMessage(bufferedConsensusMessage{
+			kind:      bufferedPrepare,
+			view:      prepareMsg.View,
+			prepare:   prepareMsg,
+			signature: append([]byte(nil), signature...),
+		})
+		// n.log.Info("Buffered Prepare for future view %d seq %d while current view is %d", prepareMsg.View, prepareMsg.SeqNum, view)
+		return
+	}
 	if n.viewChangeRunning {
-		if prepareMsg.View.GreaterThan(view) {
-			n.bufferConsensusMessage(bufferedConsensusMessage{
-				kind:      bufferedPrepare,
-				view:      prepareMsg.View,
-				prepare:   prepareMsg,
-				signature: append([]byte(nil), signature...),
-			})
-			// n.log.Info("Buffered Prepare for future view %d seq %d while current view is %d", prepareMsg.View, prepareMsg.SeqNum, view)
-			return
-		} else if prepareMsg.View.LessThan(view) {
+		if prepareMsg.View.LessThan(view) {
 			n.log.Info("Received Prepare for past view (%d,%d) seq %d while current view is (%d,%d), ignoring and for view is (%d,%d)", prepareMsg.View.Generation, prepareMsg.View.Counter, prepareMsg.SeqNum, view.Generation, view.Counter, forView.Generation, forView.Counter)
 		} else if prepareMsg.SeqNum%10 == 0 {
 			n.log.Info("Received Prepare for current view (%d,%d) seq %d but currently in view change, ignoring and for view is (%d,%d)", prepareMsg.View.Generation, prepareMsg.View.Counter, prepareMsg.SeqNum, forView.Generation, forView.Counter)
 		}
 		// n.viewMu.RUnlock()
 
-		return
-	}
-	// this is possible lets say only leader stall and in meanwhile other do vc and send prepare from bigger view
-	if !n.viewChangeRunning && prepareMsg.View.GreaterThan(view) {
-		// n.log.Warn("Interesting case: Received Prepare for future view (%d,%d) seq %d while current view is (%d,%d), ignoring and for view is (%d,%d)", prepareMsg.View.Generation, prepareMsg.View.Counter, prepareMsg.SeqNum, view.Generation, view.Counter, forView.Generation, forView.Counter)
 		return
 	}
 
@@ -871,27 +865,24 @@ func (n *Node) buildPreparedCert(slot *LogEntry) *core.PreparedCert {
 func (n *Node) HandleCommit(commitMsg core.CommitMsg) {
 	view := n.GetViewID()
 	forView := n.GetForViewID()
+	// a future view's message waits for its NewView, in a view change or not (bufferFutureViewMessage)
+	if commitMsg.View.GreaterThan(view) {
+		n.bufferFutureViewMessage(bufferedConsensusMessage{
+			kind:   bufferedCommit,
+			view:   commitMsg.View,
+			commit: commitMsg,
+		})
+		// n.log.Info("Buffered Commit for future view %d seq %d while current view is %d", commitMsg.View, commitMsg.SeqNum, view)
+		return
+	}
 	if n.viewChangeRunning {
-		if commitMsg.View.GreaterThan(view) {
-			n.bufferConsensusMessage(bufferedConsensusMessage{
-				kind:   bufferedCommit,
-				view:   commitMsg.View,
-				commit: commitMsg,
-			})
-			// n.log.Info("Buffered Commit for future view %d seq %d while current view is %d", commitMsg.View, commitMsg.SeqNum, view)
-			return
-		} else if commitMsg.View.LessThan(view) {
+		if commitMsg.View.LessThan(view) {
 			n.log.Info("Received Commit for past view (%d,%d) seq %d while current view is (%d,%d), ignoring", commitMsg.View.Generation, commitMsg.View.Counter, commitMsg.SeqNum, view.Generation, view.Counter)
 		} else if commitMsg.SeqNum%10 == 0 {
 			n.log.Info("Received Commit for current view (%d,%d) (equal views) seq %d but currently in view change, ignoring and for view is (%d,%d)", commitMsg.View.Generation, commitMsg.View.Counter, commitMsg.SeqNum, forView.Generation, forView.Counter)
 		}
 		// n.viewMu.RUnlock()
 
-		return
-	}
-
-	if !n.viewChangeRunning && commitMsg.View.GreaterThan(view) {
-		n.log.Warn("Interesting case: Received Commit for future view (%d,%d) seq %d while current view is (%d,%d), ignoring and for view is (%d,%d)", commitMsg.View.Generation, commitMsg.View.Counter, commitMsg.SeqNum, view.Generation, view.Counter, forView.Generation, forView.Counter)
 		return
 	}
 

@@ -221,6 +221,16 @@ ViewChanges for a view are in.
     and is never counted.
 - Log lines: `NEWVIEW PENDING`, `NEWVIEW RESOLVED`, `NEWVIEW REJECTED`, `VC FETCH
   sent`/`served`, `VC EQUIVOCATION`, `VC CERTS`.
+- **A PrePrepare, Prepare or Commit for a view above the installed one is buffered**
+  (`bufferFutureViewMessage`, `node/buffer.go`), whether or not the node is in a view
+  change, and replayed through its handler when that view installs. Order is not
+  kept on either side: `asyncBroadCast` is one goroutine per send, and the event loop
+  reads NewViews, ViewChanges and consensus messages from separate channels, so a
+  new-view message can be handled before the NewView or the ViewChanges that move
+  the node. One below `forView` is dropped (that view can't install here), and
+  `pruneBelowForView` clears the buffer below it. The buffer is unbounded
+  (`TODO(byzantine)`). Log: `Replaying N buffered consensus messages ..., M of them
+  buffered outside a view change`.
 - Not checked: that the NewView's sender is the view's primary. There's a
   `TODO(safety)` in `HandleNewView`.
 

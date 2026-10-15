@@ -87,6 +87,7 @@ func (n *Node) pruneBelowForView(forView core.ViewID) {
 	}
 	n.pruneNewViewRefState(func(view core.ViewID) bool { return view.LessThan(forView) })
 	n.electionManager.pruneBelow(forView)
+	n.pruneBufferedBelow(forView)
 }
 
 func (n *Node) enterViewChange(forView core.ViewID) {
