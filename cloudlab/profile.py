@@ -3,9 +3,9 @@ machine, all on one LAN with fixed addresses (node i is 10.10.1.i, the client is
 10.10.1.(n+1)), matching scripts/cluster/hosts.cloudlab.json for n = 7.
 
 Instructions:
-Log in to `client` with `ssh -A` (it needs your key to reach the nodes), clone the
-pbft repo there, and follow docs/multi-host.md: scripts/cluster/setup.sh once, then
-scripts/cluster/start.sh / stop.sh per run.
+Log in to `client` with `ssh -A` once to give it its own key on the nodes
+(docs/multi-host.md, Bring-up step 2), clone the pbft repo there, then
+scripts/cluster/setup.sh once and scripts/cluster/start.sh / stop.sh per run.
 """
 
 import geni.portal as portal

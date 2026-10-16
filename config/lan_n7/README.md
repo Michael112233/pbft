@@ -48,8 +48,9 @@ Held fixed, from the twins: n=7, oracle pinned to one action, 75 s generations, 
 
 ## How to run
 
-On the client machine of the CloudLab experiment (`cloudlab/profile.py`, logged in with
-`ssh -A`), from the repo, once per new cluster:
+On the client machine of the CloudLab experiment (`cloudlab/profile.py`), after giving it
+its own ssh key on every node (`docs/multi-host.md`, Bring-up step 2, so a batch survives
+your logout), from the repo, once per new cluster:
 
 ```bash
 scripts/cluster/setup.sh scripts/cluster/hosts.cloudlab.json --tune-tcp-lan

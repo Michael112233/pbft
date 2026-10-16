@@ -1,0 +1,1205 @@
+===== Experiment 'ndelay_pe_ckptrepro_off' (config/ckpt_fetch_n7/ndelay_pe_ckptrepro_off.json) for 1800s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %2).
+Triggered latency-summary export on node2 (pane %3).
+Triggered latency-summary export on node3 (pane %4).
+Triggered latency-summary export on node4 (pane %5).
+Triggered latency-summary export on node5 (pane %6).
+Triggered latency-summary export on node6 (pane %7).
+Triggered latency-summary export on node7 (pane %8).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %9).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Removing netem qdisc on lo...
+Saved results to results/ndelay_pe_ckptrepro_off
+===== Experiment 'ndelay_pe_ckptrepro_on' (config/ckpt_fetch_n7/ndelay_pe_ckptrepro_on.json) for 1800s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %11).
+Triggered latency-summary export on node2 (pane %12).
+Triggered latency-summary export on node3 (pane %13).
+Triggered latency-summary export on node4 (pane %14).
+Triggered latency-summary export on node5 (pane %15).
+Triggered latency-summary export on node6 (pane %16).
+Triggered latency-summary export on node7 (pane %17).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %18).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Removing netem qdisc on lo...
+Saved results to results/ndelay_pe_ckptrepro_on
+===== Experiment 'ndelay_prr_ckptrepro_off' (config/ckpt_fetch_n7/ndelay_prr_ckptrepro_off.json) for 1800s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %20).
+Triggered latency-summary export on node2 (pane %21).
+Triggered latency-summary export on node3 (pane %22).
+Triggered latency-summary export on node4 (pane %23).
+Triggered latency-summary export on node5 (pane %24).
+Triggered latency-summary export on node6 (pane %25).
+Triggered latency-summary export on node7 (pane %26).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %27).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Removing netem qdisc on lo...
+Saved results to results/ndelay_prr_ckptrepro_off
+===== Experiment 'ndelay_prr_ckptrepro_on' (config/ckpt_fetch_n7/ndelay_prr_ckptrepro_on.json) for 1800s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %29).
+Triggered latency-summary export on node2 (pane %30).
+Triggered latency-summary export on node3 (pane %31).
+Triggered latency-summary export on node4 (pane %32).
+Triggered latency-summary export on node5 (pane %33).
+Triggered latency-summary export on node6 (pane %34).
+Triggered latency-summary export on node7 (pane %35).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %36).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Removing netem qdisc on lo...
+Saved results to results/ndelay_prr_ckptrepro_on
+All experiments finished.
+===== Experiment 'healthy_frr_ckpton' (config/ckpt_fetch_n7/healthy_frr_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %38).
+Triggered latency-summary export on node2 (pane %39).
+Triggered latency-summary export on node3 (pane %40).
+Triggered latency-summary export on node4 (pane %41).
+Triggered latency-summary export on node5 (pane %42).
+Triggered latency-summary export on node6 (pane %43).
+Triggered latency-summary export on node7 (pane %44).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %45).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Saved results to results/healthy_frr_ckpton
+===== Experiment 'healthy_pe_ckpton' (config/ckpt_fetch_n7/healthy_pe_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %47).
+Triggered latency-summary export on node2 (pane %48).
+Triggered latency-summary export on node3 (pane %49).
+Triggered latency-summary export on node4 (pane %50).
+Triggered latency-summary export on node5 (pane %51).
+Triggered latency-summary export on node6 (pane %52).
+Triggered latency-summary export on node7 (pane %53).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %54).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Saved results to results/healthy_pe_ckpton
+===== Experiment 'healthy_pfe_ckpton' (config/ckpt_fetch_n7/healthy_pfe_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %56).
+Triggered latency-summary export on node2 (pane %57).
+Triggered latency-summary export on node3 (pane %58).
+Triggered latency-summary export on node4 (pane %59).
+Triggered latency-summary export on node5 (pane %60).
+Triggered latency-summary export on node6 (pane %61).
+Triggered latency-summary export on node7 (pane %62).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %63).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Saved results to results/healthy_pfe_ckpton
+===== Experiment 'healthy_pfrr_ckpton' (config/ckpt_fetch_n7/healthy_pfrr_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %65).
+Triggered latency-summary export on node2 (pane %66).
+Triggered latency-summary export on node3 (pane %67).
+Triggered latency-summary export on node4 (pane %68).
+Triggered latency-summary export on node5 (pane %69).
+Triggered latency-summary export on node6 (pane %70).
+Triggered latency-summary export on node7 (pane %71).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %72).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Saved results to results/healthy_pfrr_ckpton
+===== Experiment 'healthy_prr_ckpton' (config/ckpt_fetch_n7/healthy_prr_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %74).
+Triggered latency-summary export on node2 (pane %75).
+Triggered latency-summary export on node3 (pane %76).
+Triggered latency-summary export on node4 (pane %77).
+Triggered latency-summary export on node5 (pane %78).
+Triggered latency-summary export on node6 (pane %79).
+Triggered latency-summary export on node7 (pane %80).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %81).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Saved results to results/healthy_prr_ckpton
+===== Experiment 'ndelay_frr_ckpton' (config/ckpt_fetch_n7/ndelay_frr_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %83).
+Triggered latency-summary export on node2 (pane %84).
+Triggered latency-summary export on node3 (pane %85).
+Triggered latency-summary export on node4 (pane %86).
+Triggered latency-summary export on node5 (pane %87).
+Triggered latency-summary export on node6 (pane %88).
+Triggered latency-summary export on node7 (pane %89).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %90).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Removing netem qdisc on lo...
+Saved results to results/ndelay_frr_ckpton
+===== Experiment 'ndelay_pe_ckpton' (config/ckpt_fetch_n7/ndelay_pe_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %92).
+Triggered latency-summary export on node2 (pane %93).
+Triggered latency-summary export on node3 (pane %94).
+Triggered latency-summary export on node4 (pane %95).
+Triggered latency-summary export on node5 (pane %96).
+Triggered latency-summary export on node6 (pane %97).
+Triggered latency-summary export on node7 (pane %98).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %99).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Removing netem qdisc on lo...
+Saved results to results/ndelay_pe_ckpton
+===== Experiment 'ndelay_pfe_ckpton' (config/ckpt_fetch_n7/ndelay_pfe_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %101).
+Triggered latency-summary export on node2 (pane %102).
+Triggered latency-summary export on node3 (pane %103).
+Triggered latency-summary export on node4 (pane %104).
+Triggered latency-summary export on node5 (pane %105).
+Triggered latency-summary export on node6 (pane %106).
+Triggered latency-summary export on node7 (pane %107).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %108).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Removing netem qdisc on lo...
+Saved results to results/ndelay_pfe_ckpton
+===== Experiment 'ndelay_pfrr_ckpton' (config/ckpt_fetch_n7/ndelay_pfrr_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %110).
+Triggered latency-summary export on node2 (pane %111).
+Triggered latency-summary export on node3 (pane %112).
+Triggered latency-summary export on node4 (pane %113).
+Triggered latency-summary export on node5 (pane %114).
+Triggered latency-summary export on node6 (pane %115).
+Triggered latency-summary export on node7 (pane %116).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %117).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Removing netem qdisc on lo...
+Saved results to results/ndelay_pfrr_ckpton
+===== Experiment 'ndelay_prr_ckpton' (config/ckpt_fetch_n7/ndelay_prr_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %119).
+Triggered latency-summary export on node2 (pane %120).
+Triggered latency-summary export on node3 (pane %121).
+Triggered latency-summary export on node4 (pane %122).
+Triggered latency-summary export on node5 (pane %123).
+Triggered latency-summary export on node6 (pane %124).
+Triggered latency-summary export on node7 (pane %125).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %126).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Removing netem qdisc on lo...
+Saved results to results/ndelay_prr_ckpton
+===== Experiment 'ndfcrash_frr_ckpton' (config/ckpt_fetch_n7/ndfcrash_frr_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %128).
+Triggered latency-summary export on node2 (pane %129).
+Triggered latency-summary export on node3 (pane %130).
+Triggered latency-summary export on node4 (pane %131).
+Triggered latency-summary export on node5 (pane %132).
+Triggered latency-summary export on node6 (pane %133).
+Triggered latency-summary export on node7 (pane %134).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %135).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Removing netem qdisc on lo...
+Saved results to results/ndfcrash_frr_ckpton
+===== Experiment 'ndfcrash_pe_ckpton' (config/ckpt_fetch_n7/ndfcrash_pe_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %137).
+Triggered latency-summary export on node2 (pane %138).
+Triggered latency-summary export on node3 (pane %139).
+Triggered latency-summary export on node4 (pane %140).
+Triggered latency-summary export on node5 (pane %141).
+Triggered latency-summary export on node6 (pane %142).
+Triggered latency-summary export on node7 (pane %143).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %144).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Removing netem qdisc on lo...
+Saved results to results/ndfcrash_pe_ckpton
+===== Experiment 'ndfcrash_pfe_ckpton' (config/ckpt_fetch_n7/ndfcrash_pfe_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %146).
+Triggered latency-summary export on node2 (pane %147).
+Triggered latency-summary export on node3 (pane %148).
+Triggered latency-summary export on node4 (pane %149).
+Triggered latency-summary export on node5 (pane %150).
+Triggered latency-summary export on node6 (pane %151).
+Triggered latency-summary export on node7 (pane %152).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %153).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Removing netem qdisc on lo...
+Saved results to results/ndfcrash_pfe_ckpton
+===== Experiment 'ndfcrash_pfrr_ckpton' (config/ckpt_fetch_n7/ndfcrash_pfrr_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %155).
+Triggered latency-summary export on node2 (pane %156).
+Triggered latency-summary export on node3 (pane %157).
+Triggered latency-summary export on node4 (pane %158).
+Triggered latency-summary export on node5 (pane %159).
+Triggered latency-summary export on node6 (pane %160).
+Triggered latency-summary export on node7 (pane %161).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %162).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Removing netem qdisc on lo...
+Saved results to results/ndfcrash_pfrr_ckpton
+===== Experiment 'ndfcrash_prr_ckpton' (config/ckpt_fetch_n7/ndfcrash_prr_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %164).
+Triggered latency-summary export on node2 (pane %165).
+Triggered latency-summary export on node3 (pane %166).
+Triggered latency-summary export on node4 (pane %167).
+Triggered latency-summary export on node5 (pane %168).
+Triggered latency-summary export on node6 (pane %169).
+Triggered latency-summary export on node7 (pane %170).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %171).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Removing netem qdisc on lo...
+Saved results to results/ndfcrash_prr_ckpton
+===== Experiment 'pdelay_frr_ckpton' (config/ckpt_fetch_n7/pdelay_frr_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %173).
+Triggered latency-summary export on node2 (pane %174).
+Triggered latency-summary export on node3 (pane %175).
+Triggered latency-summary export on node4 (pane %176).
+Triggered latency-summary export on node5 (pane %177).
+Triggered latency-summary export on node6 (pane %178).
+Triggered latency-summary export on node7 (pane %179).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %180).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Saved results to results/pdelay_frr_ckpton
+===== Experiment 'pdelay_pe_ckpton' (config/ckpt_fetch_n7/pdelay_pe_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %182).
+Triggered latency-summary export on node2 (pane %183).
+Triggered latency-summary export on node3 (pane %184).
+Triggered latency-summary export on node4 (pane %185).
+Triggered latency-summary export on node5 (pane %186).
+Triggered latency-summary export on node6 (pane %187).
+Triggered latency-summary export on node7 (pane %188).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %189).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Saved results to results/pdelay_pe_ckpton
+===== Experiment 'pdelay_pfe_ckpton' (config/ckpt_fetch_n7/pdelay_pfe_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %191).
+Triggered latency-summary export on node2 (pane %192).
+Triggered latency-summary export on node3 (pane %193).
+Triggered latency-summary export on node4 (pane %194).
+Triggered latency-summary export on node5 (pane %195).
+Triggered latency-summary export on node6 (pane %196).
+Triggered latency-summary export on node7 (pane %197).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %198).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Saved results to results/pdelay_pfe_ckpton
+===== Experiment 'pdelay_pfrr_ckpton' (config/ckpt_fetch_n7/pdelay_pfrr_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %200).
+Triggered latency-summary export on node2 (pane %201).
+Triggered latency-summary export on node3 (pane %202).
+Triggered latency-summary export on node4 (pane %203).
+Triggered latency-summary export on node5 (pane %204).
+Triggered latency-summary export on node6 (pane %205).
+Triggered latency-summary export on node7 (pane %206).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %207).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Saved results to results/pdelay_pfrr_ckpton
+===== Experiment 'pdelay_prr_ckpton' (config/ckpt_fetch_n7/pdelay_prr_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %209).
+Triggered latency-summary export on node2 (pane %210).
+Triggered latency-summary export on node3 (pane %211).
+Triggered latency-summary export on node4 (pane %212).
+Triggered latency-summary export on node5 (pane %213).
+Triggered latency-summary export on node6 (pane %214).
+Triggered latency-summary export on node7 (pane %215).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %216).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Saved results to results/pdelay_prr_ckpton
+===== Experiment 'throttle_frr_ckpton' (config/ckpt_fetch_n7/throttle_frr_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %218).
+Triggered latency-summary export on node2 (pane %219).
+Triggered latency-summary export on node3 (pane %220).
+Triggered latency-summary export on node4 (pane %221).
+Triggered latency-summary export on node5 (pane %222).
+Triggered latency-summary export on node6 (pane %223).
+Triggered latency-summary export on node7 (pane %224).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %225).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Saved results to results/throttle_frr_ckpton
+===== Experiment 'throttle_pe_ckpton' (config/ckpt_fetch_n7/throttle_pe_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %227).
+Triggered latency-summary export on node2 (pane %228).
+Triggered latency-summary export on node3 (pane %229).
+Triggered latency-summary export on node4 (pane %230).
+Triggered latency-summary export on node5 (pane %231).
+Triggered latency-summary export on node6 (pane %232).
+Triggered latency-summary export on node7 (pane %233).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %234).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Saved results to results/throttle_pe_ckpton
+===== Experiment 'throttle_pfe_ckpton' (config/ckpt_fetch_n7/throttle_pfe_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %236).
+Triggered latency-summary export on node2 (pane %237).
+Triggered latency-summary export on node3 (pane %238).
+Triggered latency-summary export on node4 (pane %239).
+Triggered latency-summary export on node5 (pane %240).
+Triggered latency-summary export on node6 (pane %241).
+Triggered latency-summary export on node7 (pane %242).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %243).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Saved results to results/throttle_pfe_ckpton
+===== Experiment 'throttle_pfrr_ckpton' (config/ckpt_fetch_n7/throttle_pfrr_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %245).
+Triggered latency-summary export on node2 (pane %246).
+Triggered latency-summary export on node3 (pane %247).
+Triggered latency-summary export on node4 (pane %248).
+Triggered latency-summary export on node5 (pane %249).
+Triggered latency-summary export on node6 (pane %250).
+Triggered latency-summary export on node7 (pane %251).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %252).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Saved results to results/throttle_pfrr_ckpton
+===== Experiment 'throttle_prr_ckpton' (config/ckpt_fetch_n7/throttle_prr_ckpton.json) for 600s =====
+Cleaning up log files...
+Log files cleaned up.
+Cleaning up keys directory...
+Keys directory cleaned.
+Building setup...
+Generated and saved ed25519 keypair for node 1
+Generated and saved P-256 keypair for node 1
+Generated and saved ed25519 keypair for node 2
+Generated and saved P-256 keypair for node 2
+Generated and saved ed25519 keypair for node 3
+Generated and saved P-256 keypair for node 3
+Generated and saved ed25519 keypair for node 4
+Generated and saved P-256 keypair for node 4
+Generated and saved ed25519 keypair for node 5
+Generated and saved P-256 keypair for node 5
+Generated and saved ed25519 keypair for node 6
+Generated and saved P-256 keypair for node 6
+Generated and saved ed25519 keypair for node 7
+Generated and saved P-256 keypair for node 7
+Generated and saved keypair for client
+Building PBFT project...
+Starting 7 learning-agent servers and nodes in separate tmux windows...
+Learning-agent launcher log: /users/HamzaK/pbft/logs/learning-agent-launcher.log
+Learning-agent node logs: /users/HamzaK/pbft/logs/learning-agent-node-<id>.log
+Follow all learning-agent node logs with: tail -f logs/learning-agent-node-*.log
+All nodes started.
+Triggered latency-summary export on node1 (pane %254).
+Triggered latency-summary export on node2 (pane %255).
+Triggered latency-summary export on node3 (pane %256).
+Triggered latency-summary export on node4 (pane %257).
+Triggered latency-summary export on node5 (pane %258).
+Triggered latency-summary export on node6 (pane %259).
+Triggered latency-summary export on node7 (pane %260).
+Requested latency-summary exports from 7 node(s).
+Latency summary files are written to logs/node_<id>_latencylog.json.
+Triggered client export on client (pane %261).
+Client TPS series is written to logs/report.json
+Client latency summary is written to logs/latencyreport.json
+Killing tmux session 'pbft'...
+Saved results to results/throttle_prr_ckpton
+All experiments finished.

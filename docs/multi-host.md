@@ -69,8 +69,49 @@ nodes run.
    - 7 `nodeN` machines and one `client` machine on one LAN, with no shaping
    - node i is 10.10.1.i, the client 10.10.1.8
    - all on the same hardware type, default c6320
-2. **Log in to `client` with `ssh -A`**. The scripts reach the nodes with your forwarded
-   key.
+2. **Give `client` its own ssh key (once per cluster).** `start.sh` and `stop.sh` ssh
+   from `client` into every node and into `client` itself, at every run of a batch.
+   CloudLab installs only your laptop's public key, so out of the box `client` can reach
+   the nodes only through your forwarded agent. That agent goes away when the laptop
+   disconnects: the run in progress is then never collected (`stop.sh` fails), and the
+   next `start.sh` fails its governor check, which aborts the batch. Reconnecting doesn't
+   help, because the batch keeps the old agent socket. So use forwarding once, to install
+   a key that lives on `client`:
+   1. On the laptop, check that your CloudLab key is loaded in the agent, then log in
+      with forwarding:
+      ```bash
+      ssh-add -l                                  # must list the key
+      # if not: ssh-add --apple-use-keychain ~/.ssh/<key>   (macOS; plain ssh-add elsewhere)
+      ssh -A <client's CloudLab hostname>
+      ```
+   2. On `client`, check that the agent was forwarded:
+      ```bash
+      ssh-add -l    # must list the laptop's key, not "Could not open a connection"
+      ```
+   3. Create `client`'s own key and allow it on `client` itself:
+      ```bash
+      [ -f ~/.ssh/id_ed25519 ] || ssh-keygen -t ed25519 -N '' -f ~/.ssh/id_ed25519
+      cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
+      ```
+   4. Install it on every node (logs in with the forwarded key):
+      ```bash
+      for i in 1 2 3 4 5 6 7; do ssh-copy-id -i ~/.ssh/id_ed25519.pub node$i; done
+      ```
+   5. Test with forwarding off (`-a`). Expect 8 hostnames, no `Permission denied`:
+      ```bash
+      for h in node1 node2 node3 node4 node5 node6 node7 client; do
+          ssh -a -o BatchMode=yes -o StrictHostKeyChecking=accept-new $h hostname
+      done
+      ```
+   6. `exit`, then log in again without forwarding from now on. VS Code Remote-SSH
+      forwards by default whatever `~/.ssh/config` says: turn off **Remote.SSH: Enable
+      Agent Forwarding** in its settings. In a new terminal on `client`, `ssh-add -l`
+      should now say `Could not open a connection to your authentication agent`, and the
+      test in step 5 should still print 8 hostnames.
+
+   Forwarding never copies the laptop's private key to `client`: it only passes signing
+   requests back to the laptop's agent while the connection is open, and root on `client`
+   can make them too. `client`'s key is a new random key, not derived from the laptop's.
 3. **Set up the client machine:** clone the repo, then install Go and the Python
    packages as in `setup.txt`. Go is needed on the client machine only, because nodes
    get a built binary.
@@ -107,7 +148,8 @@ scripts/cluster/run_experiments.sh $H 600 config/lan_n7/*.json   # start, sleep,
   them on every host, kills everything, and pulls every host's `logs/` into
   `results/<name>/`. Files that every host writes are suffixed with the host's label.
 - **Long batches:** `run_experiments.sh` detaches itself (`setsid nohup`, like
-  `run_long_experiment.sh`), so it returns at once and survives your ssh session.
+  `run_long_experiment.sh`), so it returns at once and survives your ssh session, as
+  long as `client` has its own key on every host (Bring-up step 2).
   - Progress goes to `cluster_run.out`.
   - `kill <pid>` (printed at launch) stops and saves the current run and skips the rest.
   - Only one batch runs at a time.
