@@ -151,32 +151,55 @@ func TestParseScenariosChecksOnlyListedScenarios(t *testing.T) {
 
 func TestTimerDefaultsAndOverrides(t *testing.T) {
 	c := &Config{}
-	if c.PeriodicTriggerTimeout() != 10*time.Second || c.FixedTriggerTimeout() != 150*time.Millisecond ||
-		c.RelaxedFixedTriggerTimeout() != 350*time.Millisecond || c.EpochTimer() != 45*time.Second {
-		t.Fatalf("defaults: periodic %v fixed %v relaxed %v",
-			c.PeriodicTriggerTimeout(), c.FixedTriggerTimeout(), c.RelaxedFixedTriggerTimeout())
+	if c.PeriodicTriggerTimeout() != 10*time.Second || c.FixedProgressTimeout() != 150*time.Millisecond ||
+		c.FixedNewViewTimeout() != 150*time.Millisecond || c.EpochTimer() != 45*time.Second {
+		t.Fatalf("defaults: periodic %v progress %v new-view %v",
+			c.PeriodicTriggerTimeout(), c.FixedProgressTimeout(), c.FixedNewViewTimeout())
 	}
 	if err := c.ValidateTimer(); err != nil {
 		t.Fatalf("defaults invalid: %v", err)
 	}
 
-	if err := json.Unmarshal([]byte(`{"timer": {"periodic_trigger_timeout_ms": 5000, "fixed_trigger_timeout_ms": 200, "relaxed_fixed_trigger_timeout_ms": 400, "epoch_timer_ms": 75000}}`), c); err != nil {
+	// new-view left at 0 follows the progress timeout
+	if err := json.Unmarshal([]byte(`{"timer": {"periodic_trigger_timeout_ms": 5000, "fixed_trigger_timeout_ms": 200, "epoch_timer_ms": 75000}}`), c); err != nil {
 		t.Fatal(err)
 	}
-	if c.PeriodicTriggerTimeout() != 5*time.Second || c.FixedTriggerTimeout() != 200*time.Millisecond ||
-		c.RelaxedFixedTriggerTimeout() != 400*time.Millisecond || c.EpochTimer() != 75*time.Second {
-		t.Fatalf("overrides: periodic %v fixed %v relaxed %v",
-			c.PeriodicTriggerTimeout(), c.FixedTriggerTimeout(), c.RelaxedFixedTriggerTimeout())
+	if c.PeriodicTriggerTimeout() != 5*time.Second || c.FixedProgressTimeout() != 200*time.Millisecond ||
+		c.FixedNewViewTimeout() != 200*time.Millisecond || c.EpochTimer() != 75*time.Second {
+		t.Fatalf("overrides: periodic %v progress %v new-view %v",
+			c.PeriodicTriggerTimeout(), c.FixedProgressTimeout(), c.FixedNewViewTimeout())
 	}
 
 	for _, bad := range []TimerConfig{
 		{PeriodicTriggerTimeoutMs: -1},
 		{FixedTriggerTimeoutMs: -1},
-		{RelaxedFixedTriggerTimeoutMs: -1},
+		{FixedNewViewTimeoutMs: -1},
 		{EpochTimerMs: -1},
+		{RelaxedFixedTriggerTimeoutMs: 350}, // removed key: rejected, not ignored
 	} {
 		if err := (&Config{Timer: bad}).ValidateTimer(); err == nil {
 			t.Fatalf("%+v: want error", bad)
+		}
+	}
+}
+
+// Separate by default; fixed_timers_shared gives both timers the larger value,
+// whichever of the two it is.
+func TestFixedTimersSeparateAndShared(t *testing.T) {
+	for _, tt := range []struct {
+		progress, newView int
+		shared            bool
+		wantP, wantNV     time.Duration
+	}{
+		{200, 300, false, 200 * time.Millisecond, 300 * time.Millisecond},
+		{200, 300, true, 300 * time.Millisecond, 300 * time.Millisecond},
+		{400, 100, true, 400 * time.Millisecond, 400 * time.Millisecond},
+		{0, 0, true, 150 * time.Millisecond, 150 * time.Millisecond},
+	} {
+		c := &Config{Timer: TimerConfig{FixedTriggerTimeoutMs: tt.progress, FixedNewViewTimeoutMs: tt.newView, FixedTimersShared: tt.shared}}
+		if c.FixedProgressTimeout() != tt.wantP || c.FixedNewViewTimeout() != tt.wantNV {
+			t.Errorf("%+v: got progress %v new-view %v, want %v / %v", c.Timer,
+				c.FixedProgressTimeout(), c.FixedNewViewTimeout(), tt.wantP, tt.wantNV)
 		}
 	}
 }

@@ -180,6 +180,7 @@ func (n *Node) maybeHandleViewChangeQuorum(forView, view core.ViewID, currAction
 
 	if n.uniqueViewChangeCount(forView) == n.QuorumSize() {
 		n.log.Info("Received 2f+1 view-change messages for view (%d,%d); current view (%d,%d); path: %s and currAction: %s", forView.Generation, forView.Counter, view.Generation, view.Counter, path, core.ActiontoString(currAction))
+		n.progressQuorum(forView)
 		switch currAction.Policy {
 		case core.PolicyRoundRobin:
 			n.SelectRoundRobin(forView, view, currAction, path)

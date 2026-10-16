@@ -58,6 +58,7 @@ func (n *Node) startNewViewTimer() {
 	// 	return
 	// }
 	n.newViewTimerCh = resetOneShotTimer(&n.newViewTimer, n.GetNewViewTimeout())
+	n.progressNewViewTimerStarted()
 }
 
 func (n *Node) stopNewViewTimer() {

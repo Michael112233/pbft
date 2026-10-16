@@ -18,49 +18,49 @@ type TriggerManager struct {
 	log                  *logger.Logger
 	node                 NodeTrigger
 
-	// From the config's timer block (config/timer.go). periodicTimeout is fixed for
-	// the run; fixedTimeout is the Fixed/Perf floor of the current generation, set
-	// on every SwitchTriggerMode (config.FixedFloorForScenario).
-	periodicTimeout time.Duration
-	fixedTimeout    time.Duration
+	// From the config's timer block (config/timer.go), fixed for the run.
+	// Periodic uses periodicTimeout for both timers; Fixed and Perf use their own
+	// progress and new-view timeouts (Perf keeps the progress one as its floor).
+	periodicTimeout      time.Duration
+	fixedProgressTimeout time.Duration
+	fixedNewViewTimeout  time.Duration
 }
 
-// timeoutForMode gives Periodic its long timeout; Fixed and Perf share the short
-// one (Perf keeps it as the progress floor under its throughput threshold).
-func (tm *TriggerManager) timeoutForMode(mode core.TriggerMode) time.Duration {
+// setTimeoutsForMode gives Periodic its long timeout for both timers, and Fixed
+// and Perf the configured progress and new-view timeouts.
+func (tm *TriggerManager) setTimeoutsForMode(mode core.TriggerMode) {
 	if mode == core.PeriodicTrigger {
-		return tm.periodicTimeout
+		tm.progressTimeoutValue = tm.periodicTimeout
+		tm.newViewTimeoutValue = tm.periodicTimeout
+		return
 	}
-	return tm.fixedTimeout
+	tm.progressTimeoutValue = tm.fixedProgressTimeout
+	tm.newViewTimeoutValue = tm.fixedNewViewTimeout
 }
 
-func NewTriggerManager(log *logger.Logger, triggerMode core.TriggerMode, node NodeTrigger, periodicTimeout, fixedTimeout time.Duration) *TriggerManager {
+func NewTriggerManager(log *logger.Logger, triggerMode core.TriggerMode, node NodeTrigger, periodicTimeout, fixedProgressTimeout, fixedNewViewTimeout time.Duration) *TriggerManager {
 	tm := &TriggerManager{
-		triggerMode:     triggerMode,
-		log:             log,
-		node:            node,
-		periodicTimeout: periodicTimeout,
-		fixedTimeout:    fixedTimeout,
+		triggerMode:          triggerMode,
+		log:                  log,
+		node:                 node,
+		periodicTimeout:      periodicTimeout,
+		fixedProgressTimeout: fixedProgressTimeout,
+		fixedNewViewTimeout:  fixedNewViewTimeout,
 	}
-	timeout := tm.timeoutForMode(triggerMode)
-	tm.progressTimeoutValue = timeout
-	tm.newViewTimeoutValue = timeout
+	tm.setTimeoutsForMode(triggerMode)
 	return tm
 }
 
-// SwitchTriggerMode sets the mode and the Fixed/Perf floor for the generation
-// being entered; Periodic keeps its own timeout.
-func (tm *TriggerManager) SwitchTriggerMode(newMode core.TriggerMode, fixedTimeout time.Duration) {
+// SwitchTriggerMode sets the mode for the generation being entered, and with it
+// the timeouts.
+func (tm *TriggerManager) SwitchTriggerMode(newMode core.TriggerMode) {
 	// no need to stop perf already going to call view change when jump gen by amplification or model
 	// if tm.triggerMode == core.PerfTrigger && newMode != core.PerfTrigger {
 	// 	tm.node.stopPerfTimer()
 	// }
 	tm.triggerMode = newMode
-	tm.fixedTimeout = fixedTimeout
 	if newMode != core.NullTrigger {
-		timeout := tm.timeoutForMode(newMode)
-		tm.progressTimeoutValue = timeout
-		tm.newViewTimeoutValue = timeout
+		tm.setTimeoutsForMode(newMode)
 	}
 }
 
@@ -100,22 +100,11 @@ func (n *Node) GetNewViewTimeout() time.Duration {
 	return n.triggerManager.GetNewViewTimeout()
 }
 
-// SwitchTriggerMode switches to newMode for generation gen, with the Fixed/Perf
-// floor of gen's scenario.
+// SwitchTriggerMode switches to newMode for generation gen.
 func (n *Node) SwitchTriggerMode(newMode core.TriggerMode, gen uint64) {
-	floor := n.fixedFloorForGeneration(gen)
-	n.triggerManager.SwitchTriggerMode(newMode, floor)
-	n.log.Info("TIMER: gen %d scenario %s mode %d fixed floor %v (progress/new-view timeout %v)",
-		gen, n.scenarioNameForGeneration(gen), newMode, floor, n.triggerManager.GetProgressTimeout())
-}
-
-// fixedFloorForGeneration is the Fixed/Perf timeout for gen: the scenario is
-// derived from the generation, as for the election pool, so every node agrees.
-func (n *Node) fixedFloorForGeneration(gen uint64) time.Duration {
-	if !n.cfg.ScenarioMode {
-		return n.cfg.FixedTriggerTimeout()
-	}
-	return n.cfg.FixedFloorForScenario(scenarioForGeneration(gen, n.cfg.ScenariosEnum, n.cfg.ScenarioGenerations))
+	n.triggerManager.SwitchTriggerMode(newMode)
+	n.log.Info("TIMER: gen %d scenario %s mode %d progress timeout %v new-view timeout %v",
+		gen, n.scenarioNameForGeneration(gen), newMode, n.triggerManager.GetProgressTimeout(), n.triggerManager.GetNewViewTimeout())
 }
 
 func (n *Node) scenarioNameForGeneration(gen uint64) string {

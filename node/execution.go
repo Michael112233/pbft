@@ -73,7 +73,9 @@ func (n *Node) exeLoop() {
 			n.observeExecutedSlotForTimedThroughput(n.lastExecuted, now)
 			n.observeExecutedSlotForViewThroughput(n.lastExecuted, now)
 		}
-		n.pilotTraceExec(n.lastExecuted, time.Now())
+		execAt := time.Now()
+		n.pilotTraceExec(n.lastExecuted, execAt)
+		n.progressExec(execAt)
 		if n.lastExecuted%CHECKPOINT_INTERVAL == 0 {
 			if dropped, duplicates := n.intake.takeCounters(); dropped > 0 || duplicates > 0 {
 				n.log.Info("INTAKE: seq=%d retries dropped at intake=%d duplicate executions=%d since last checkpoint", n.lastExecuted, dropped, duplicates)

@@ -161,7 +161,8 @@ type Node struct {
 	throughputMeasurementsOnce    sync.Once
 
 	throughputPerf ThroughputPerf
-	pilotTrace     execTrace // pilot_exec_trace, node/pilottrace.go
+	pilotTrace     execTrace     // pilot_exec_trace, node/pilottrace.go
+	progress       progressStats // PROGRESS lines, node/progressstats.go
 	lm             *LatencyMonitor
 
 	// Aware policy: loop-owned matrix/candidates and local RTT vector, fed by the
@@ -296,8 +297,8 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 	n.ArmBatchTimer()
 	n.StopBatchTimer()
 	checkpointManager := NewCheckpointManager(log, n)
-	// genesis view is generation 1, so its scenario sets the first Fixed/Perf floor
-	triggerManager := NewTriggerManager(log, n.currAction.TriggerMode, n, cfg.PeriodicTriggerTimeout(), n.fixedFloorForGeneration(1))
+	triggerManager := NewTriggerManager(log, n.currAction.TriggerMode, n, cfg.PeriodicTriggerTimeout(),
+		cfg.FixedProgressTimeout(), cfg.FixedNewViewTimeout())
 	n.triggerManager = triggerManager
 	epochManager := NewEpochManager(log, n)
 	n.epochManager = epochManager
@@ -479,7 +480,7 @@ func (n *Node) tryPropose(fullBatch bool) {
 	// 	return
 	// }
 	if n.ProposalDelayEnabled() {
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(n.cfg.ProposalDelaySleep())
 	}
 	// Last gate before the destructive Dequeue: if the rate gate forbids this
 	// proposal it arms a retry timer and we leave the queue untouched.

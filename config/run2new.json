@@ -29,7 +29,8 @@
   "timer": {
     "periodic_trigger_timeout_ms": 10000,
     "fixed_trigger_timeout_ms": 150,
-    "relaxed_fixed_trigger_timeout_ms": 350,
+    "fixed_new_view_timeout_ms": 150,
+    "fixed_timers_shared": false,
     "epoch_timer_ms": 45000,
     "epoch_grid": false
   },
@@ -67,6 +68,7 @@
     "4": false
   },
   "proposal_delay_ms": 2000,
+  "proposal_delay_sleep_ms": 100,
   "gc": true,
   "logging": true,
   "carry_state": false,

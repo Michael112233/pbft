@@ -26,11 +26,14 @@ that run in this conversation.
    in `config/*.go`, which may not be what the earlier run did.
 3. **Check what each value actually does in the current code**, not what its name
    says. Grep for the reader before relying on a knob; several are dead
-   (`max_batch_delay`, `proposal_delay_ms`, `nodes_in_dark`). Known trap: in
-   scenario mode the Fixed/Perf timeout is `fixed_trigger_timeout_ms` only for
-   NetworkDelay and NetworkDelayFCrash; every other scenario uses
-   `relaxed_fixed_trigger_timeout_ms` (`config.FixedFloorForScenario`, since
-   2026-10-09). Runs from before that used `fixed_trigger_timeout_ms` everywhere.
+   (`max_batch_delay`, `proposal_delay_ms`, `nodes_in_dark`). Known trap: the
+   Fixed/Perf timeouts changed twice. Before 2026-10-09 `fixed_trigger_timeout_ms`
+   applied everywhere. From 2026-10-09 to the `timer-model` branch (2026-10-16), in
+   scenario mode it applied only to NetworkDelay and NetworkDelayFCrash, and every
+   other scenario used `relaxed_fixed_trigger_timeout_ms`. On `timer-model` that key
+   is rejected: `fixed_trigger_timeout_ms` is the progress timeout everywhere and
+   `fixed_new_view_timeout_ms` the new-view one (`fixed_timers_shared` uses the larger
+   of the two for both). The ProposalDelay sleep is `proposal_delay_sleep_ms`.
 4. **Write the configs** to `config/<folder>/<name>.json`. Give the files names that
    are unique across `results/`: `run_experiments.sh` saves to
    `results/<config basename>` and deletes an existing directory of that name first.

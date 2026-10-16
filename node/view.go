@@ -91,6 +91,7 @@ func (n *Node) pruneBelowForView(forView core.ViewID) {
 }
 
 func (n *Node) enterViewChange(forView core.ViewID) {
+	n.progressViewEnd("view_change", time.Now())
 	n.stopViewTimers()
 	n.stopPerfTimer()
 	// if n.lastExecuted >= 11500 {
@@ -542,6 +543,7 @@ func (n *Node) newview() {
 	// loss in this queue is fine ig
 	// n.acceptNewViewTimers()
 	n.acceptNewViewTimersLeader() // experimental dont start progress timer on leader
+	n.progressInstall(view, true)
 	n.resetPendingForNewView(O)
 	n.leaderSince = time.Now() // for logging
 }
@@ -742,6 +744,7 @@ func (n *Node) HandleNewView(newViewMsg core.NewViewMsg, _ []byte) {
 	duration := time.Since(timestart)
 	n.log.Info("New view (%d,%d) processing completed in %v", view.Generation, view.Counter, duration)
 	n.acceptNewViewTimers()
+	n.progressInstall(view, false)
 
 }
 
