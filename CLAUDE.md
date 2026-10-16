@@ -504,6 +504,8 @@ key missing there is missing from every experiment built afterwards.
   (the counterparts of `alt_run_project.sh`, `stop_experiment.sh`, `run_experiments.sh`),
   run from the control machine over ssh; `cloudlab/profile.py` makes the cluster. See
   `docs/multi-host.md`.
+- `docs/todo/` holds planned work not started yet, e.g. `vc-newview-size.md` (Phase 1
+  leftovers, smaller checkpoint interval, BLS-aggregated prepares).
 - `docs/` holds the written-up analyses (view-change storms, NewView cost, netem
   behaviour, timer comparisons, election robustness). Read the relevant one before
   re-deriving an experiment result.
