@@ -4,7 +4,8 @@
 #
 #   scripts/cluster/start.sh <hosts.json> <config.json>
 #
-# 0. refuses to start (exit 3) unless every host is on the performance governor
+# 0. refuses to start (exit 3) unless go is found here and every host is on the
+#    performance governor
 # 1. stops leftovers and recreates $HOME/<run_dir> on every host
 # 2. builds pbft_main and generates the keys once, here (keys are random, so every
 #    host must get the same copy)
@@ -19,7 +20,15 @@
 #
 # Stop with scripts/cluster/stop.sh, which collects the logs. NODE_GOMAXPROCS and
 # CLIENT_GOMAXPROCS are passed through as in alt_run_project.sh. See docs/multi-host.md.
+#
+# Exit status for run_experiments.sh: 0 started; 3 preflight failed, nothing touched,
+# and every later config would fail the same way; 4 failed before any process was
+# started on any host, so there is nothing for stop.sh to export or collect; anything
+# else failed with processes possibly running.
 set -euo pipefail
+
+PROCS_STARTED=0
+trap 'rc=$?; if (( rc != 0 && rc != 3 && PROCS_STARTED == 0 )); then exit 4; fi' EXIT
 
 if (( $# != 2 )); then
     echo "Usage: $0 <hosts.json> <config.json>" >&2
@@ -35,6 +44,17 @@ CONFIG_PATH="$(realpath --relative-to="$REPO_DIR" "$2")"
 if [[ ! -f "$CONFIG_PATH" || "$CONFIG_PATH" == ../* ]]; then
     echo "Error: config '$2' must be a file inside $REPO_DIR." >&2
     exit 1
+fi
+
+# go builds the binary and keys here. A detached batch inherits the launching shell's
+# PATH, and setup.txt puts Go on it only in ~/.profile, which a non-login shell (a VS Code
+# terminal) never reads, so try the standard install location before giving up.
+if ! command -v go >/dev/null && [[ -x /usr/local/go/bin/go ]]; then
+    PATH="$PATH:/usr/local/go/bin"
+fi
+if ! command -v go >/dev/null; then
+    echo "Error: go is not on PATH or in /usr/local/go/bin; install it as in setup.txt. Nothing was started." >&2
+    exit 3
 fi
 
 NODE_ENV_PREFIX=""
@@ -165,6 +185,7 @@ echo "== Recording TCP and NIC counters"
 each_host record_counters_start || echo "Warning: TCP counters could not be recorded on some hosts." >&2
 
 echo "== Starting learning agents"
+PROCS_STARTED=1
 for id in "${NODE_IDS[@]}"; do
     tmux_start "${NODE_SSH[$id]}" learning-agents \
         "python3 -m learningagent.launcher --node-count $NODE_COUNT --node-ids $id --mode remote --hosts $REMOTE_HOSTS_FILE --log-dir logs --config $CONFIG_PATH" &

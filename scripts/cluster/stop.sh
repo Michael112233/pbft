@@ -69,6 +69,12 @@ wait_export() { # label host kind id
     host_active "$3" "$4" || return 0
     local f deadline=$((SECONDS + EXPORT_WAIT_SECONDS))
     f="$(export_file "$3" "$4")"
+    # trigger_export touches the marker before exporting; without it (run_dir missing,
+    # host unreachable) no export is coming, so don't wait out the timeout.
+    if ! rsh "$2" "[[ -e logs/.export_marker ]]" 2>/dev/null; then
+        echo "Warning: no export was triggered here; not waiting for $f." >&2
+        return 1
+    fi
     until rsh "$2" "[[ $f -nt logs/.export_marker ]]" 2>/dev/null; do
         if (( SECONDS >= deadline )); then
             echo "Warning: $f still missing after ${EXPORT_WAIT_SECONDS}s." >&2

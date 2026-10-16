@@ -103,6 +103,12 @@ for cfg in "${CONFIGS[@]}"; do
         # was started, and every later config would fail the same way.
         echo "Error: start.sh preflight failed for $name; aborting the batch." >&2
         exit 1
+    elif (( status == 4 )); then
+        # Failed before any process started: stop.sh would only wait out its export
+        # timeout for files that cannot appear. Earlier results/<name> are kept.
+        echo "Warning: start.sh failed for $name before starting anything; nothing to stop, moving on." >&2
+        current=""
+        continue
     elif (( status != 0 )); then
         echo "Warning: start.sh failed for $name; stopping what started and moving on." >&2
     else

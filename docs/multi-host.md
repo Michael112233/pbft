@@ -136,6 +136,10 @@ scripts/cluster/run_experiments.sh $H 600 config/lan_n7/*.json   # start, sleep,
 - **Config path:** it must be inside the repo, because hosts get it at the same relative
   path.
 - **What `start.sh` does:**
+  - checks that `go` is available on the control machine (also looking in
+    `/usr/local/go/bin`, since a VS Code terminal doesn't read `~/.profile`) and the
+    governor on every host; if either fails it exits 3 before touching anything, and
+    `run_experiments.sh` aborts the batch
   - wipes `~/<run_dir>` on every host
   - builds the binary and keys locally, then pushes them to every host
   - records every host's TCP and NIC counters (`tcp_counters_start.txt`, see below)
@@ -167,6 +171,10 @@ scripts/cluster/run_experiments.sh $H 600 config/lan_n7/*.json   # start, sleep,
   long as `client` has its own key on every host (Bring-up step 2).
   - Progress goes to `cluster_run.out`.
   - `kill <pid>` (printed at launch) stops and saves the current run and skips the rest.
+  - If `start.sh` fails before any process started (exit 4: a build error, a push
+    failure), the batch skips `stop.sh` for that config and keeps any earlier
+    `results/<name>`. `stop.sh` itself doesn't wait for a host whose export was never
+    triggered.
   - Only one batch runs at a time.
 - **Looking at a live node:** `ssh -t node3 tmux attach -t pbft` (detach with `C-b d`).
   Its logs are in `~/pbft-run/logs/` on that host until `stop.sh` collects them.
