@@ -199,17 +199,18 @@ TCP's initial window, and the window it falls back to after an idle period
 | 10 segments | ~640 KiB | ~14 KiB |
 
 ViewChanges and NewViews are up to ~590 / ~510 KiB at n = 7 (batch 50, ~290 certs). On
-`lo` they arrived in one flight even under the 170 ms delay: in `results/ckpt_fetch_n7`,
-NetworkDelay deliveries of 450–700 KiB VCs took a median of 186–192 ms, i.e. one 170 ms
-trip. On a default LAN the same VC would need about 6 round trips (~1.9 s under the
-delay). That's a TCP difference, not a protocol one, and it would change the
-NetworkDelay results.
+`lo` they arrived in one flight even under the 170 ms delay, except the first big VC of a
+run (below): in `results/ckpt_fetch_n7`, NetworkDelay deliveries of 450–700 KiB VCs took
+a median of 186–192 ms, i.e. one 170 ms trip. On a default LAN the same VC would need
+about 6 round trips (~1.9 s under the delay). That's a TCP difference, not a protocol
+one, and it would change the NetworkDelay results.
 
 `--tune-tcp-lan` sets `initcwnd` and `initrwnd` on the experiment route to
 `ceil(10 × 65483 / MSS)`, which is 453 at MTU 1500 (655,944 B against `lo`'s 654,830 B).
 It works this out from the device's MTU, so jumbo frames get a matching smaller count.
-Linux uses the route's initcwnd for the restart after idle too, so the window floor in
-bytes is the same as on `lo`. Everything else is set to stock Ubuntu 22.04 / kernel 5.15
+Linux uses the route's initcwnd for the restart after idle too, so the cwnd floor in
+bytes is the same as on `lo`. Only the initcwnd part takes effect; see the first big VC
+below. Everything else is set to stock Ubuntu 22.04 / kernel 5.15
 values, read on the development host (clnode113) on 2026-10-15. This also undoes an
 earlier `--tune-tcp-wan`. If your single-host runs used another machine, check with
 `sysctl` that it has the same values (`LO_ADVMSS` and `SINGLE_HOST_SYSCTLS` in
@@ -220,9 +221,28 @@ earlier `--tune-tcp-wan`. If your single-host runs used another machine, check w
 - `fq_codel`; a leftover `fq` root qdisc is removed
 
 To check it, compare ViewChange delivery times in a LAN NetworkDelay generation with the
-single-host run: they should again be ~170–195 ms. The kernel-internals part of this
-(that the window floor is the only thing differing between `lo` and the LAN) is
-reasoning, not yet a measurement.
+single-host run: they should again be ~170–195 ms, apart from the first big VC.
+Measured in `results/lan_n7` (2026-10-16): medians 172–181 ms against the twins'
+171–180 ms.
+
+**The first big VC of a run takes more than one flight, on `lo` and on the LAN.** TCP
+sends at most min(cwnd, rwnd) unacknowledged bytes:
+- **cwnd** (congestion window) is the sender's own limit. initcwnd sets where it starts,
+  so it starts at ~640 KiB, as on `lo`.
+- **rwnd** (receive window) is what the receiver advertises. The kernel starts it at
+  most 64 KiB whatever initrwnd says (`tcp_select_initial_window`, v5.15:
+  `rcv_wnd = min(space, U16_MAX)`, and initrwnd can only lower it). It then grows only as
+  the receiver sees data arrive.
+
+Before the first view change the peer links carry only small Prepare/Commit traffic, so
+rwnd is still below a ~550 KiB VC, and the rest of the VC waits one round trip for the
+larger window. In `results/lan_n7/ndelay_prr_lan` the view (1,2) VCs took ~527 ms
+(170 + 340 + processing), and 36 of the 42 peer connections were rwnd-limited for one
+RTT (336–340 ms) over the whole run. On `lo` the same VC took ~1.21 s (three extra round
+trips; why three is not measured). rwnd does not shrink afterwards, so later VCs of the
+same size arrive in one flight. Whether it happens depends on the first VC's size: in
+`ndfcrash_pe_lan` the first VCs grew gradually (107 → 179 KiB) and none waited. It falls
+in generation 1, which the summaries skip.
 
 ### `--tune-tcp-wan`: long fat links
 
@@ -230,8 +250,9 @@ For the WAN, where the bandwidth-delay product is large (e.g. 10 Gb/s × 48 ms �
 `docs/cloudlab-stitched-link-bw-latency.md`):
 - turns off `tcp_slow_start_after_idle`
 - sets initcwnd/initrwnd 1500 on the experiment route
-- raises the TCP buffers to 128 MB (initial receive buffer 4 MiB, so the initial window
-  can actually be advertised)
+- raises the TCP buffers to 128 MB (initial receive buffer 4 MiB). This does not raise
+  the first advertised window: the kernel still starts rwnd at 64 KiB at most (see the
+  first big VC above). It only raises how far the window can grow.
 - switches to BBR with `fq`
 
 To check it during a delay generation, run `ss -tin dst <peer subnet>` and look at

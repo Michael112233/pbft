@@ -125,18 +125,38 @@ What to read:
 - **TCP has to be matched to `lo`: run setup with `--tune-tcp-lan`.**
   - **On `lo`:** the 10-segment initial and restart window is ~640 KiB (64 KB
     segments). The twins' NetworkDelay VCs and NVs, up to ~590 / ~510 KiB, arrived in
-    one flight (median 186–192 ms for 450–700 KiB VCs).
+    one flight (median 186–192 ms for 450–700 KiB VCs), **except the first big VC of a
+    run** (next point).
   - **On a default 1500-MTU LAN:** that window is 14 KiB, so the same VC would take
     about 6 round trips (~1.9 s).
   - **What `--tune-tcp-lan` does:** sets initcwnd/initrwnd 453 (~640 KiB) on the
     experiment route and leaves everything else at stock values (cubic, slow-start
-    restart on).
+    restart on). Only the initcwnd part takes effect (next point).
+  - **The first big VC of a run takes more than one flight, on `lo` and on the LAN.**
+    TCP sends at most min(cwnd, rwnd) unacknowledged bytes:
+    - **cwnd** (congestion window) is the sender's own limit. initcwnd sets its start,
+      so it starts at ~640 KiB as on `lo`.
+    - **rwnd** (receive window) is what the receiver advertises. The kernel starts it
+      at most 64 KiB whatever initrwnd says (`tcp_select_initial_window`, v5.15:
+      `rcv_wnd = min(space, U16_MAX)`, and initrwnd can only lower it). It then grows
+      only as the receiver sees data arrive.
+    - Before the first view change the peer links carry only small Prepare/Commit
+      traffic, so rwnd is still below a ~550 KiB VC. The rest of the VC waits one round
+      trip for the larger window. Measured in `results/lan_n7/ndelay_prr_lan`: the
+      view (1,2) VCs took ~527 ms (170 + 340 + processing), and 36 of the 42 peer
+      connections were rwnd-limited for one RTT (336–340 ms) over the whole run. On
+      `lo` the same VC took ~1.21 s (three extra round trips; why three is not
+      measured).
+    - rwnd does not shrink afterwards, so later VCs of the same size arrive in one
+      flight. Whether it happens depends on the first VC's size. In `ndfcrash_pe_lan`
+      the first VCs grew gradually (107 → 179 KiB) and none waited. It falls in
+      generation 1, which the summaries skip.
   - **Don't use `--tune-tcp-wan` here.** BBR, `fq` and 128 MB buffers differ from the
     single host.
   - **Check:** `tcp_state_node*.txt` in each results directory shows the settings used.
     VC delivery times in a NetworkDelay generation (`VC sent` on the sender against
-    `HUB: Received ViewChange` on the receivers) should be ~170–195 ms, as on `lo`.
-    The kernel-internals part of this is reasoning, not yet a measurement.
+    `HUB: Received ViewChange` on the receivers) should be ~170–195 ms, as on `lo`,
+    apart from the first big VC above.
 - **Delay switches are per node.** On `lo`, node 4 switched the delay for all pairs at
   its own generation switch. Here each node switches its own egress at its own switch,
   within one view change of the others.
