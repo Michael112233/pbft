@@ -16,7 +16,13 @@ import grpc
 
 from learningagent import learning_agent_pb2
 from learningagent import learning_agent_pb2_grpc
-from learningagent.address import SUPPORTED_MODES, node_address, server_address
+from learningagent.address import (
+    REMOTE_MODE,
+    SUPPORTED_MODES,
+    load_hosts,
+    node_address,
+    server_address,
+)
 from learningagent.protocols import PROTOCOLS, LearningData, MultiObjectiveData, ProtocolName
 from learningagent.scenario_sync import load_scenario_schedule, scenario_for_sequence
 from learningagent.simulate_quadrf_n7 import SYNTHETIC_RNG_SEED, generate_reward, generate_state
@@ -938,9 +944,11 @@ def run_server(
     mode: str,
     stop_event: StopEvent,
     config_path: str = DEFAULT_CONFIG_PATH,
+    hosts_path: str | None = None,
 ) -> None:
-    address = server_address(node_id, mode)
-    callback_address = node_address(node_id, mode)
+    hosts = load_hosts(hosts_path) if mode == REMOTE_MODE and hosts_path else None
+    address = server_address(node_id, mode, hosts)
+    callback_address = node_address(node_id, mode, hosts)
     # Read the same schedule the nodes use; raises here if it disagrees.
     scenarios, scenario_span = load_scenario_schedule(config_path)
     LOGGER.info(
@@ -1015,7 +1023,14 @@ def _parse_args() -> argparse.Namespace:
         default=DEFAULT_CONFIG_PATH,
         help="PBFT experiment config the nodes run with (scenario schedule)",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--hosts",
+        help="hosts file with every node's IP; required with --mode remote",
+    )
+    args = parser.parse_args()
+    if args.mode == REMOTE_MODE and not args.hosts:
+        parser.error("--mode remote needs --hosts")
+    return args
 
 
 def main() -> int:
@@ -1031,7 +1046,7 @@ def main() -> int:
 
     signal.signal(signal.SIGINT, request_stop)
     signal.signal(signal.SIGTERM, request_stop)
-    run_server(args.node_id, args.mode, stop_event, args.config)
+    run_server(args.node_id, args.mode, stop_event, args.config, args.hosts)
     return 0
 
 

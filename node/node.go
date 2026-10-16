@@ -192,6 +192,7 @@ type Node struct {
 	currScenario    core.Scenario
 	scenarioApplied bool
 	netemScriptPath string
+	netemPeerIPs    []string // remote mode: the IPs netem_egress.sh delays; nil on lo
 	netemCmdCh      chan netemCmd
 	netemWorkerDone chan struct{}
 	netemStopOnce   sync.Once
@@ -342,7 +343,10 @@ func (n *Node) Start() error {
 		return err
 	}
 	n.startEventLoop()
-	n.messageHub.Start(n, &sync.WaitGroup{})
+	if err := n.messageHub.Start(n, &sync.WaitGroup{}); err != nil {
+		return err
+	}
+	go n.dialPeersAtStart()
 	n.startLatencyProber()
 
 	if n.cfg.Logging {

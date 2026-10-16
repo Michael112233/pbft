@@ -10,7 +10,8 @@ import (
 )
 
 // EpochAggregatorNodeID is the node every other node sends its epoch data to,
-// and the only node allowed to touch the shared netem qdisc on lo. Experiment
+// and, on lo, the only node allowed to touch the shared netem qdisc (in remote
+// mode every node owns its own egress qdisc instead). Experiment
 // scaffolding, not protocol. It lives here rather than in package node so the
 // config validation that forbids crashing it cannot drift from the node-side
 // constants that act on it (node/epochtimer.go, node/scenario.go).
@@ -311,8 +312,8 @@ func (c *Config) validateScenarioThrottle() error {
 
 // validateScenarioDeadNodes checks the nodes_dead set NetworkDelayFCrash will
 // crash: exactly f nodes, none of them node 4, which aggregates epochs (no
-// aggregate means no generation switch, so the scenario could never end) and
-// owns the netem qdisc.
+// aggregate means no generation switch, so the scenario could never end) and,
+// on lo, owns the netem qdisc.
 //
 // Exactly f, not 1..f: the scenario's whole point is network delay combined with
 // the full crash budget, and f is the only count that makes PeriodicElection's

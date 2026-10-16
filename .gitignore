@@ -28,6 +28,7 @@ results/
 data_baselines/
 data_baselines_new/
 long_run.out
+cluster_run.out
 
 # Run archives and downloaded toolchains: carried between machines by hand, not
 # through git. The .1 variant was already listed; the original was not.
@@ -70,3 +71,5 @@ go1.26.3.linux-amd64.tar.gz.1
 .tmux/
 
 latency_sim/references
+# Cluster run state and setup outputs (scripts/cluster/)
+.cluster/

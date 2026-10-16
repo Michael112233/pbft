@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/michael112233/pbft/config"
 	"github.com/michael112233/pbft/core"
 )
 
@@ -57,7 +58,7 @@ func TestScenarioEffects(t *testing.T) {
 		{"f crash netem node", 4, core.ScenarioNetworkDelayFCrash, false, false, []netemCmd{down, up}},
 	}
 	for _, c := range cases {
-		gotDelay, gotDead, gotNetem := scenarioEffects(c.nodeID, delayNodes, deadNodes, c.next)
+		gotDelay, gotDead, gotNetem := scenarioEffects(c.nodeID, ownsScenarioNetem(c.nodeID, config.NetworkModeLoopbackIP), delayNodes, deadNodes, c.next)
 		if gotDelay != c.wantDelay || gotDead != c.wantDead || !reflect.DeepEqual(gotNetem, c.wantNetem) {
 			t.Errorf("%s: got (%t, %t, %v), want (%t, %t, %v)", c.name, gotDelay, gotDead, gotNetem, c.wantDelay, c.wantDead, c.wantNetem)
 		}
@@ -70,17 +71,67 @@ func TestScenarioEffectsFNodes(t *testing.T) {
 	delayNodes := map[int]bool{1: true, 5: true} // n=7, f=2
 	deadNodes := map[int]bool{2: true, 3: true}  // n=7, f=2
 	for id := 1; id <= 7; id++ {
-		delay, dead, _ := scenarioEffects(id, delayNodes, deadNodes, core.ScenarioProposalDelay)
+		delay, dead, _ := scenarioEffects(id, false, delayNodes, deadNodes, core.ScenarioProposalDelay)
 		if delay != delayNodes[id] || dead {
 			t.Errorf("ProposalDelay node %d: got delay=%t dead=%t, want delay=%t dead=false", id, delay, dead, delayNodes[id])
 		}
-		delay, dead, _ = scenarioEffects(id, delayNodes, deadNodes, core.ScenarioNetworkDelayFCrash)
+		delay, dead, _ = scenarioEffects(id, false, delayNodes, deadNodes, core.ScenarioNetworkDelayFCrash)
 		if delay || dead != deadNodes[id] {
 			t.Errorf("NetworkDelayFCrash node %d: got delay=%t dead=%t, want delay=false dead=%t", id, delay, dead, deadNodes[id])
 		}
-		delay, dead, _ = scenarioEffects(id, delayNodes, deadNodes, core.ScenarioHealthy)
+		delay, dead, _ = scenarioEffects(id, false, delayNodes, deadNodes, core.ScenarioHealthy)
 		if delay || dead {
 			t.Errorf("Healthy node %d: got delay=%t dead=%t, want both false", id, delay, dead)
 		}
+	}
+}
+
+// In remote mode every node delays its own egress, so every node runs the
+// netem commands node 4 alone runs on lo.
+func TestScenarioNetemOwnership(t *testing.T) {
+	for id := 1; id <= 7; id++ {
+		if got, want := ownsScenarioNetem(id, config.NetworkModeLoopbackIP), id == scenarioNetemNodeID; got != want {
+			t.Errorf("loopbackip node %d owns netem = %t, want %t", id, got, want)
+		}
+		if !ownsScenarioNetem(id, config.NetworkModeRemote) {
+			t.Errorf("remote node %d does not own netem", id)
+		}
+		_, _, cmds := scenarioEffects(id, ownsScenarioNetem(id, config.NetworkModeRemote), nil, nil, core.ScenarioNetworkDelay)
+		want := []netemCmd{{up: false}, {up: true, delayMs: scenarioNetworkDelayMS}}
+		if !reflect.DeepEqual(cmds, want) {
+			t.Errorf("remote node %d NetworkDelay cmds = %v, want %v", id, cmds, want)
+		}
+	}
+}
+
+func TestNetemArgs(t *testing.T) {
+	addrs := map[int]string{1: "10.10.1.1:28100", 2: "10.10.1.2:28200", 3: "10.10.1.3:28300", 4: "10.10.1.4:28400"}
+	peers, err := peerIPs(2, addrs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"10.10.1.1", "10.10.1.3", "10.10.1.4"}; !reflect.DeepEqual(peers, want) {
+		t.Fatalf("peerIPs = %v, want %v", peers, want)
+	}
+	up := netemCmd{up: true, delayMs: 170}
+	down := netemCmd{up: false}
+	cases := []struct {
+		name  string
+		peers []string
+		cmd   netemCmd
+		want  []string
+	}{
+		{"lo up", nil, up, []string{"-n", "s.sh", "up", "170", "4"}},
+		{"lo down", nil, down, []string{"-n", "s.sh", "down"}},
+		{"egress up", peers, up, []string{"-n", "s.sh", "up", "170", "10.10.1.1", "10.10.1.3", "10.10.1.4"}},
+		{"egress down", peers, down, []string{"-n", "s.sh", "down", "10.10.1.1", "10.10.1.3", "10.10.1.4"}},
+	}
+	for _, c := range cases {
+		if got := netemArgs("s.sh", c.peers, 4, c.cmd); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+	}
+	if _, err := peerIPs(1, map[int]string{1: "10.10.1.1:28100", 3: "10.10.1.3:28300"}); err == nil {
+		t.Error("peerIPs with node 2 missing: no error")
 	}
 }

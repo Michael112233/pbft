@@ -8,7 +8,7 @@ import signal
 import sys
 import time
 
-from learningagent.address import SUPPORTED_MODES, server_address
+from learningagent.address import REMOTE_MODE, SUPPORTED_MODES, load_hosts, server_address
 from learningagent.server import DEFAULT_CONFIG_PATH, run_server
 
 
@@ -35,6 +35,7 @@ def _run_server_process(
     stop_event,
     log_dir: Path | None,
     config_path: str,
+    hosts_path: str | None = None,
 ) -> None:
     log_file = (
         log_dir / f"learning-agent-node-{node_id}.log"
@@ -42,7 +43,7 @@ def _run_server_process(
         else None
     )
     _configure_logging(log_file)
-    run_server(node_id, mode, stop_event, config_path)
+    run_server(node_id, mode, stop_event, config_path, hosts_path)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -61,9 +62,27 @@ def _parse_args() -> argparse.Namespace:
         default=DEFAULT_CONFIG_PATH,
         help="PBFT experiment config the nodes run with (scenario schedule)",
     )
+    parser.add_argument(
+        "--hosts",
+        help="hosts file with every node's IP; required with --mode remote",
+    )
+    parser.add_argument(
+        "--node-ids",
+        type=int,
+        nargs="+",
+        help="start only these nodes' agents (default 1..node-count); with "
+        "--mode remote each machine starts the agent of the node it hosts",
+    )
     args = parser.parse_args()
     if args.node_count < 1:
         parser.error("--node-count must be at least 1")
+    if args.mode == REMOTE_MODE and not args.hosts:
+        parser.error("--mode remote needs --hosts")
+    if args.node_ids is None:
+        args.node_ids = list(range(1, args.node_count + 1))
+    for node_id in args.node_ids:
+        if not 1 <= node_id <= args.node_count:
+            parser.error(f"--node-ids {node_id} is outside 1..{args.node_count}")
     return args
 
 
@@ -86,11 +105,12 @@ def main() -> int:
     signal.signal(signal.SIGINT, request_stop)
     signal.signal(signal.SIGTERM, request_stop)
 
-    for node_id in range(1, args.node_count + 1):
-        address = server_address(node_id, args.mode)
+    hosts = load_hosts(args.hosts) if args.mode == REMOTE_MODE else None
+    for node_id in args.node_ids:
+        address = server_address(node_id, args.mode, hosts)
         process = context.Process(
             target=_run_server_process,
-            args=(node_id, args.mode, stop_event, args.log_dir, args.config),
+            args=(node_id, args.mode, stop_event, args.log_dir, args.config, args.hosts),
             name=f"learning-agent-{node_id}",
         )
         process.start()

@@ -128,20 +128,40 @@ func runClient(clientID int, cfg *config.Config) {
 	client.Stop()
 }
 
-func Main(nodeID int64, role, mode, cfgPath string) {
+// Main sets up the network for mode and runs role. hostsPath is the hosts file
+// remote mode reads its addresses from (config.LoadHosts); other modes ignore it.
+func Main(nodeID int64, role, mode, cfgPath, hostsPath string) {
 	cfg := config.ReadCfg(cfgPath)
 
 	switch mode {
-	case "local":
+	case config.NetworkModeLocal:
 		config.GenerateLocalNetwork(int(cfg.NodeNum))
-	case "remote":
-		config.GenerateRemoteNetwork(int(cfg.NodeNum))
-	case "loopbackip":
+	case config.NetworkModeRemote:
+		if hostsPath == "" {
+			fmt.Println("-m remote needs --hosts <hosts file>")
+			os.Exit(1)
+		}
+		hosts, err := config.LoadHosts(hostsPath)
+		if err == nil {
+			err = config.GenerateRemoteNetwork(int(cfg.NodeNum), cfg.ClientCount(), hosts)
+		}
+		if err != nil {
+			fmt.Printf("remote network: %v\n", err)
+			os.Exit(1)
+		}
+	case config.NetworkModeLoopbackIP:
 		config.GenerateLoopbackIPNetwork(int(cfg.NodeNum))
+	default:
+		fmt.Printf("unknown mode %q, want local, loopbackip or remote\n", mode)
+		os.Exit(1)
 	}
 
 	switch role {
 	case "node":
+		if nodeID < 1 || nodeID > cfg.NodeNum {
+			fmt.Printf("Invalid node id %d: node_num is %d, want -n 1..%d\n", nodeID, cfg.NodeNum, cfg.NodeNum)
+			os.Exit(1)
+		}
 		runNode(nodeID, cfg)
 	case "client":
 		runClient(int(nodeID), cfg)

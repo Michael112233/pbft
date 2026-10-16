@@ -101,9 +101,12 @@ func NewNodeMessageHub() *NodeMessageHub {
 	}
 }
 
-func (hub *NodeMessageHub) Start(node *Node, wg *sync.WaitGroup) {
+// Start listens on the node's address and serves. A listen failure is returned
+// rather than only logged: a node that can't bind its address (e.g. a hosts file
+// naming an IP this machine doesn't own) would otherwise run on, unreachable.
+func (hub *NodeMessageHub) Start(node *Node, wg *sync.WaitGroup) error {
 	if node == nil {
-		return
+		return nil
 	}
 	hub.node_ref = node
 	hub.log = node.log
@@ -112,7 +115,7 @@ func (hub *NodeMessageHub) Start(node *Node, wg *sync.WaitGroup) {
 	lis, err := net.Listen("tcp", hub.node_ref.GetAddr())
 	if err != nil {
 		hub.log.Error("Error setting up gRPC listener: err=%v", err)
-		return
+		return fmt.Errorf("listen on %s: %w", hub.node_ref.GetAddr(), err)
 	}
 
 	hub.mu.Lock()
@@ -140,6 +143,7 @@ func (hub *NodeMessageHub) Start(node *Node, wg *sync.WaitGroup) {
 			hub.log.Debug("gRPC server stopped: err=%v", err)
 		}
 	}()
+	return nil
 }
 
 func (hub *NodeMessageHub) Close() {

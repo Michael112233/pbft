@@ -83,7 +83,15 @@ go test ./node -count=1                # some learning-agent tests are currently
   every time, so keys always show as modified in git.
 - Network modes (`config/network.go`): `local` (127.0.0.1, ports 28000+100i),
   `loopbackip` (127.0.0.<i+1>, what the scripts use, so netem can filter per node;
-  client i of several at 127.0.1.<i+1>, see `client_num`), `remote`.
+  client i of several at 127.0.1.<i+1>, see `client_num`), `remote` (one node per
+  machine: IPs from a hosts file passed as `--hosts`, same ports as loopbackip, agent on
+  its node's IP; `config.GenerateRemoteNetwork` rejects missing/duplicate IPs and a
+  client on a node's IP). An unknown `-m` and a node id outside 1..n are fatal, and a
+  node that cannot bind its address fails `Start` instead of running on unreachable.
+  Every node dials all its peers at startup and logs `PEER READY` per peer and one
+  `PEERS READY` line (`node/peerdial.go`), in every mode; `scripts/cluster/start.sh`
+  waits for that line before starting the client. Cluster harness and caveats:
+  `docs/multi-host.md`.
 - Logs go to `logs/node_<id>.log`, `logs/client.log`, plus `_test`, `_feature`,
   `_mem` variants (`logs/client<i>.log` etc. with `client_num` > 1). Scripts wipe
   `logs/` on start.
@@ -362,7 +370,9 @@ key missing there is missing from every experiment built afterwards.
   allowed since a slow leader is still live — `validateScenarioProposalDelayNodes`);
   NetworkDelay has node 4 run
   `sudo -n scripts/netem_scenario.sh up 170 <n>` from a worker goroutine (`down` on
-  every switch and on `Stop`); NetworkDelayFCrash applies the same delay and sets `dead`
+  every switch and on `Stop`) — in `-m remote` **every** node instead runs
+  `scripts/netem_egress.sh up 170 <peer ips>` on its own egress (`ownsScenarioNetem`),
+  which delays each directed pair once, as on lo; NetworkDelayFCrash applies the same delay and sets `dead`
   on every `nodes_dead` node (**exactly f** of them, never node 4 — validated in
   `validateScenarioDeadNodes` in `config.go`, tested in `config/config_test.go`; both
   validators share `exactlyFNodes`). Each set is checked only if its scenario is in
@@ -488,6 +498,12 @@ key missing there is missing from every experiment built afterwards.
   bottom are commented in and out per experiment. Delay transitions are logged with
   timestamps to `logs/netem_schedule.log` — check it against node logs when
   correlating.
+- `scripts/cluster/` — the multi-machine harness for `-m remote`: `setup.sh` (once per
+  cluster; `--tune-tcp-lan` matches the LAN to lo's ~640 KiB first flight so lo results
+  reproduce, `--tune-tcp-wan` is BBR/fq/big buffers for long links), `start.sh` / `stop.sh` / `run_experiments.sh <hosts.json> ...`
+  (the counterparts of `alt_run_project.sh`, `stop_experiment.sh`, `run_experiments.sh`),
+  run from the control machine over ssh; `cloudlab/profile.py` makes the cluster. See
+  `docs/multi-host.md`.
 - `docs/` holds the written-up analyses (view-change storms, NewView cost, netem
   behaviour, timer comparisons, election robustness). Read the relevant one before
   re-deriving an experiment result.
@@ -510,9 +526,9 @@ key missing there is missing from every experiment built afterwards.
   (`electionExcludedForGeneration`): in scenario mode only in generations whose
   `scenarioForGeneration` is `NetworkDelayFCrash`, outside scenario mode always.
   With no crashed nodes the draw is uniform over all n, so Election's
-  candidate pool is the same size as RoundRobin's rotation. The aggregator also
-  owns the scenario-mode netem qdisc, which is why `NetworkDelayFCrash` refuses to
-  crash it. All are experiment scaffolding, not protocol.
+  candidate pool is the same size as RoundRobin's rotation. On lo the aggregator
+  also owns the scenario-mode netem qdisc; that, and aggregating, is why
+  `NetworkDelayFCrash` refuses to crash it. All are experiment scaffolding, not protocol.
 - **Node 1 leads the genesis view and no leader update is sent for it.** The
   genesis view is `(1,1)` and `primaryForView(1) == 1`, reached with no view
   change. `sendLeaderIdUpdate` has a single call site, in the NewView install path

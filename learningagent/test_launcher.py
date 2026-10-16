@@ -40,13 +40,15 @@ class LauncherLoggingTest(unittest.TestCase):
                 side_effect=lambda *args: calls.append(("run", args)),
             ),
         ):
-            launcher._run_server_process(2, "local", stop_event, log_dir)
+            launcher._run_server_process(
+                2, "local", stop_event, log_dir, "config/run2new.json"
+            )
 
         self.assertEqual(
             calls,
             [
                 ("configure", log_dir / "learning-agent-node-2.log"),
-                ("run", (2, "local", stop_event)),
+                ("run", (2, "local", stop_event, "config/run2new.json", None)),
             ],
         )
 
@@ -68,6 +70,19 @@ class LauncherLoggingTest(unittest.TestCase):
         self.assertEqual(args.node_count, 4)
         self.assertEqual(args.mode, "local")
         self.assertEqual(args.log_dir, Path("logs"))
+        self.assertEqual(args.node_ids, [1, 2, 3, 4])
+
+    def test_parse_args_remote_starts_only_the_given_node(self):
+        argv = ["learningagent.launcher", "--node-count", "7", "--mode", "remote"]
+        with mock.patch("sys.argv", argv + ["--hosts", "h.json", "--node-ids", "3"]):
+            args = launcher._parse_args()
+        self.assertEqual(args.node_ids, [3])
+        self.assertEqual(args.hosts, "h.json")
+
+        for bad in (argv, argv + ["--hosts", "h.json", "--node-ids", "8"]):
+            with mock.patch("sys.argv", bad), mock.patch("sys.stderr"):
+                with self.assertRaises(SystemExit):
+                    launcher._parse_args()
 
 
 if __name__ == "__main__":
