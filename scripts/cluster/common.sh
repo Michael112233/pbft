@@ -87,6 +87,26 @@ node_port() {
     echo $((NODE_BASE_PORT + $1 * NODE_PORT_STEP))
 }
 
+# probe_ip <kind> <id>: a node IP other than the host's own, so `ip route get` on that
+# host names its experiment device rather than lo.
+probe_ip() {
+    if [[ "$1" == node && "$2" == 1 ]]; then echo "${NODE_IP[2]}"; else echo "${NODE_IP[1]}"; fi
+}
+
+# tcp_counters <ssh name> <probe ip> <file>: save the host's TCP and NIC counters to
+# logs/<file>. start.sh and stop.sh take one each around a run, and
+# scripts/tcp_counters_summary.py diffs them. The counters are host-wide, so they also
+# count the harness's own ssh traffic, which is small.
+tcp_counters() {
+    rsh "$1" "dev=\$(ip -o route get $2 | awk '{for (i = 1; i < NF; i++) if (\$i == \"dev\" && d == \"\") d = \$(i + 1)} END {print d}')
+{ echo \"== link dev=\$dev speed_mbps=\$(cat /sys/class/net/\$dev/speed 2>/dev/null || echo unknown) taken=\$(date +%s.%N)\"
+echo '== nstat'
+nstat -asz
+echo '== ip -s link'
+ip -s link show dev \"\$dev\"
+} > logs/$3"
+}
+
 # wait_port <ip> <port> <deadline seconds> <label>: wait until a TCP connect succeeds.
 wait_port() {
     local ip="$1" port="$2" limit="$3" label="$4"

@@ -138,6 +138,7 @@ scripts/cluster/run_experiments.sh $H 600 config/lan_n7/*.json   # start, sleep,
 - **What `start.sh` does:**
   - wipes `~/<run_dir>` on every host
   - builds the binary and keys locally, then pushes them to every host
+  - records every host's TCP and NIC counters (`tcp_counters_start.txt`, see below)
   - starts the agents and waits for `:29000`
   - starts the nodes and waits until every node port accepts a connection, then until
     every node has logged `PEERS READY`. Each node dials all its peers at startup
@@ -145,8 +146,22 @@ scripts/cluster/run_experiments.sh $H 600 config/lan_n7/*.json   # start, sleep,
   - starts the client
   - with `netem_delay`, delays every node's egress 1 s later
 - **What `stop.sh` does:** triggers the same exports as `stop_experiment.sh`, waits for
-  them on every host, kills everything, and pulls every host's `logs/` into
-  `results/<name>/`. Files that every host writes are suffixed with the host's label.
+  them on every host, records the TCP counters again, kills everything, and pulls every
+  host's `logs/` into `results/<name>/`. Files that every host writes are suffixed with
+  the host's label.
+- **Retransmissions and drops:** `python3 scripts/tcp_counters_summary.py results/<name>`
+  prints, per host, what happened between the two snapshots:
+  - from `tcp_counters_{start,end}_<host>.txt` (`nstat -asz` and `ip -s link` of the
+    experiment NIC, plus its link speed): segments sent, `TcpRetransSegs` and its
+    percentage, `TcpExtTCPTimeouts` (each a stall of at least the 200 ms RTO floor), fast
+    retransmits, lost retransmits, NIC drops and errors. These are host-wide, so the
+    harness's own ssh traffic is included (small).
+  - from `tcp_sockets_end_<host>.txt` (`ss -tin` on the node ports, taken while the
+    processes still run, because the counters disappear with the sockets): retransmits
+    and retransmitted bytes over each PBFT connection's life, PBFT traffic only, and
+    the largest `rtt` and `cwnd`.
+
+  Runs before 2026-10-16 don't have these files.
 - **Long batches:** `run_experiments.sh` detaches itself (`setsid nohup`, like
   `run_long_experiment.sh`), so it returns at once and survives your ssh session, as
   long as `client` has its own key on every host (Bring-up step 2).

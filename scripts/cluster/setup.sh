@@ -10,7 +10,8 @@
 #   - ssh works, sudo -n works, the hosts-file IP is on this machine, NTP is synced
 #   - tmux, rsync and pip are installed (apt-get if missing)
 #   - node hosts: the agent's Python packages (requirements.txt) and the netem/prio/flower
-#     kernel modules netem_egress.sh needs; RTT to every peer (ping)
+#     kernel modules netem_egress.sh needs; RTT to every peer (ping), and from each
+#     client to every node
 #   - the performance governor on every CPU, required (cpu_check.sh --fix; the previous one is saved
 #     to /tmp/prev_governor), then the CPU baseline (scripts/cpu_check.sh, see the
 #     cpu-baseline skill)
@@ -105,6 +106,15 @@ if ! load_modules 2>/dev/null; then
 fi
 echo 'netem, prio and flower modules load'
 for p in $peers; do
+    echo \"rtt to \$p: \$(ping -c 20 -i 0.2 -q \$p | tail -1)\"
+done
+"
+    else
+        # Client to every node: the client's request latency includes this round trip.
+        local nodes="" n
+        for n in "${NODE_IDS[@]}"; do nodes="$nodes ${NODE_IP[$n]}"; done
+        rsh "$host" "
+for p in $nodes; do
     echo \"rtt to \$p: \$(ping -c 20 -i 0.2 -q \$p | tail -1)\"
 done
 "

@@ -125,6 +125,12 @@ tc qdisc show dev \"\$dev\" | sed -n 1p
 } > logs/tcp_state.txt"
 }
 
+# TCP and NIC counters before anything runs; stop.sh takes the same snapshot at the end.
+record_counters_start() { # label host kind id
+    host_active "$3" "$4" || return 0
+    tcp_counters "$2" "$(probe_ip "$3" "$4")" tcp_counters_start.txt
+}
+
 # Runs only happen under the performance governor (set by setup.sh, lost on reboot).
 # Checked before anything is touched; exit 3 tells run_experiments.sh to abort the batch.
 check_governor() { # label host kind id
@@ -154,6 +160,9 @@ go build -o pbft_main main.go
 
 echo "== Pushing the bundle"
 each_host push_bundle
+
+echo "== Recording TCP and NIC counters"
+each_host record_counters_start || echo "Warning: TCP counters could not be recorded on some hosts." >&2
 
 echo "== Starting learning agents"
 for id in "${NODE_IDS[@]}"; do

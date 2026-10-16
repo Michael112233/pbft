@@ -38,7 +38,8 @@ if [[ -e "$OUT" ]]; then
 fi
 REPORT="report.json"
 EXPORT_WAIT_SECONDS="${EXPORT_WAIT_SECONDS:-600}"
-SHARED_NAMES=(others.log netem_schedule.log learning-agent-launcher.log clock_offsets.txt tcp_state.txt)
+SHARED_NAMES=(others.log netem_schedule.log learning-agent-launcher.log clock_offsets.txt tcp_state.txt
+    tcp_counters_start.txt tcp_counters_end.txt tcp_sockets_end.txt)
 
 host_active() { # kind id
     [[ "$1" == node ]] || (( $2 <= CLIENT_COUNT ))
@@ -77,6 +78,16 @@ wait_export() { # label host kind id
     done
 }
 
+# The end-of-run TCP snapshot, taken while the processes still hold their connections:
+# the counters start.sh recorded, again, and every PBFT socket's own counters (ss -tin:
+# retrans, bytes_retrans, rtt, cwnd), which are lost once the sockets close. The port
+# range is the node ports only: below AGENT_PORT, so agent traffic on lo is left out.
+snapshot_tcp() { # label host kind id
+    host_active "$3" "$4" || return 0
+    tcp_counters "$2" "$(probe_ip "$3" "$4")" tcp_counters_end.txt
+    rsh "$2" "ss -tin state established '( sport >= :$NODE_BASE_PORT and sport < :$AGENT_PORT ) or ( dport >= :$NODE_BASE_PORT and dport < :$AGENT_PORT )' > logs/tcp_sockets_end.txt"
+}
+
 shutdown_host() { # label host kind id
     local down=""
     if [[ "$3" == node ]]; then
@@ -97,6 +108,9 @@ each_host trigger_export || echo "Warning: some exports could not be triggered."
 echo "== Waiting for the exported files (up to ${EXPORT_WAIT_SECONDS}s)"
 each_host wait_export || echo "Warning: some exports are missing; collecting anyway." >&2
 sleep 1 # let the last write finish before the processes are killed
+
+echo "== Recording TCP and NIC counters"
+each_host snapshot_tcp || echo "Warning: TCP counters could not be recorded on some hosts." >&2
 
 echo "== Stopping processes and removing netem"
 each_host shutdown_host || echo "Warning: shutdown failed on some hosts." >&2

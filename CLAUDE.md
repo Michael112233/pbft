@@ -502,8 +502,10 @@ key missing there is missing from every experiment built afterwards.
   cluster; `--tune-tcp-lan` matches the LAN to lo's ~640 KiB first flight so lo results
   reproduce, `--tune-tcp-wan` is BBR/fq/big buffers for long links), `start.sh` / `stop.sh` / `run_experiments.sh <hosts.json> ...`
   (the counterparts of `alt_run_project.sh`, `stop_experiment.sh`, `run_experiments.sh`),
-  run from the control machine over ssh; `cloudlab/profile.py` makes the cluster. See
-  `docs/multi-host.md`.
+  run from the control machine over ssh; `cloudlab/profile.py` makes the cluster. Each run
+  records every host's TCP/NIC counters at start and stop and the PBFT sockets' `ss -tin`;
+  `scripts/tcp_counters_summary.py results/<run>` gives retransmissions, RTO timeouts and
+  drops per host. See `docs/multi-host.md`.
 - `docs/todo/` holds planned work not started yet, e.g. `vc-newview-size.md` (Phase 1
   leftovers, smaller checkpoint interval, BLS-aggregated prepares).
 - `docs/` holds the written-up analyses (view-change storms, NewView cost, netem

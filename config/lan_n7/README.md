@@ -97,6 +97,9 @@ grep -h "netem" results/ndelay_prr_lan/node_*.log | grep -c "applied"    # 7 nod
 cat results/multiscen_prr_lan/netem_schedule_node*.log
 
 python3 scripts/ckpt_fetch_summary.py results/*_lan
+
+# TCP retransmissions, RTO timeouts and NIC drops per host during each run
+python3 scripts/tcp_counters_summary.py results/*_lan
 ```
 
 What to read:
