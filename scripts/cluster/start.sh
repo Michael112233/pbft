@@ -142,7 +142,7 @@ record_tcp() { # label host kind id
     [[ "$3" == node && "$4" == 1 ]] && probe="${NODE_IP[2]}"
     rsh "$2" "dev=\$(ip -o route get $probe | awk '{for (i = 1; i < NF; i++) if (\$i == \"dev\" && d == \"\") d = \$(i + 1)} END {print d}')
 { echo \"$1 \$(hostname) dev \$dev mtu \$(cat /sys/class/net/\$dev/mtu)\"
-echo \"route: \$(ip route show dev \"\$dev\" proto kernel scope link | sed -n 1p)\"
+echo \"route: \$(ip route show dev \"\$dev\" scope link | sed -n 1p)\"
 sysctl net.ipv4.tcp_congestion_control net.ipv4.tcp_slow_start_after_idle net.ipv4.tcp_rmem net.ipv4.tcp_wmem \
     net.core.rmem_max net.core.wmem_max net.core.default_qdisc
 tc qdisc show dev \"\$dev\" | sed -n 1p

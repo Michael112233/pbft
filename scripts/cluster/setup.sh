@@ -133,9 +133,13 @@ done
 [[ -f \"\$HOME/sysctl_backup.txt\" ]] || sysctl net.core.rmem_max net.core.wmem_max net.ipv4.tcp_rmem net.ipv4.tcp_wmem \
     net.ipv4.tcp_congestion_control net.ipv4.tcp_slow_start_after_idle net.core.default_qdisc > \"\$HOME/sysctl_backup.txt\"
 dev=\$(ip -o route get $probe | awk '{for (i = 1; i < NF; i++) if (\$i == \"dev\" && d == \"\") d = \$(i + 1)} END {print d}')
-route=\$(ip route show dev \"\$dev\" proto kernel scope link | sed -n 1p | sed 's/ initcwnd.*//')"
+# Any proto: a first tuning's ip route change re-tags the route (proto boot), so a filter on
+# proto kernel finds nothing on a second run. Old window settings and the proto are dropped;
+# the change below sets proto kernel again.
+route=\$(ip route show dev \"\$dev\" scope link | sed -n 1p | sed -e 's/ initcwnd [0-9]*//; s/ initrwnd [0-9]*//; s/ proto [a-z0-9]*//')
+[[ -n \"\$route\" ]] || { echo \"FAIL: no link route on \$dev to tune\"; exit 1; }"
         local report="
-echo \"tcp tuned ($TUNE_TCP) on \$dev: \$(ip route show dev \"\$dev\" proto kernel scope link | sed -n 1p)\"
+echo \"tcp tuned ($TUNE_TCP) on \$dev: \$(ip route show dev \"\$dev\" scope link | sed -n 1p)\"
 sysctl net.ipv4.tcp_congestion_control net.ipv4.tcp_slow_start_after_idle net.ipv4.tcp_rmem net.ipv4.tcp_wmem net.core.rmem_max
 tc qdisc show dev \"\$dev\" | sed -n 1p"
         if [[ "$TUNE_TCP" == lan ]]; then
@@ -148,13 +152,13 @@ mtu=\$(cat /sys/class/net/\"\$dev\"/mtu)
 mss=\$((mtu - 52))
 segs=\$(( ($LO_INITCWND * $LO_ADVMSS + mss - 1) / mss ))
 echo \"MTU \$mtu, MSS \$mss: initcwnd/initrwnd \$segs = \$((segs * mss)) B, lo's first flight is $((LO_INITCWND * LO_ADVMSS)) B\"
-sudo -n ip route change \$route dev \"\$dev\" initcwnd \$segs initrwnd \$segs
+sudo -n ip route change \$route dev \"\$dev\" proto kernel initcwnd \$segs initrwnd \$segs
 sudo -n sysctl -q -w $SINGLE_HOST_SYSCTLS
 if tc qdisc show dev \"\$dev\" | awk 'NR == 1 && \$2 == \"fq\" { f = 1 } END { exit !f }'; then sudo -n tc qdisc del dev \"\$dev\" root; fi
 $report"
         else
             rsh "$host" "$find_route
-sudo -n ip route change \$route dev \"\$dev\" initcwnd 1500 initrwnd 1500
+sudo -n ip route change \$route dev \"\$dev\" proto kernel initcwnd 1500 initrwnd 1500
 sudo -n sysctl -q -w net.ipv4.tcp_slow_start_after_idle=0 \
     net.core.rmem_max=134217728 net.core.wmem_max=134217728 \
     net.ipv4.tcp_rmem='4096 4194304 134217728' net.ipv4.tcp_wmem='4096 65536 134217728'
