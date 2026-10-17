@@ -39,13 +39,17 @@ type Config struct {
 	Netem           NetemConfig  `json:"netem"`
 	LeaderTypeEnum  core.VCType
 	ActiveL         bool `json:"active_l"`
-	// ProposalDelayNodes are the nodes that sleep proposal_delay_sleep_ms in
-	// tryPropose while they lead. Same shape as nodes_dead; the ProposalDelay
-	// scenario needs exactly f.
+	// ProposalDelayNodes are the nodes that, while they lead, propose at most once
+	// per proposal_delay_interval_ms (the first proposal of a tenure is free; see
+	// node/proposalgate.go). Same shape as nodes_dead; the ProposalDelay scenario
+	// needs exactly f.
 	ProposalDelayNodes map[int]bool `json:"proposal_delay_nodes"`
-	// ProposalDelaySleepMs is that sleep; 0 means 100. It is meant to stay under
-	// the Fixed progress timeout, so a slow leader passes the timer and only the
-	// Perf bar removes it.
+	// ProposalDelayIntervalMs is that spacing; 0 means 100. It is meant to stay
+	// under the Fixed progress timeout, so a slow leader passes the timer and
+	// only the Perf bar removes it.
+	ProposalDelayIntervalMs int `json:"proposal_delay_interval_ms"`
+	// ProposalDelaySleepMs was a blocking sleep before every proposal. It is
+	// parsed only so a config that still sets it is rejected.
 	ProposalDelaySleepMs int `json:"proposal_delay_sleep_ms"`
 	// ProposalDelayMS is unused. Every old config carries 2000 here, so it is not
 	// reused for the sleep.

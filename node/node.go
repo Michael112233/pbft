@@ -181,12 +181,15 @@ type Node struct {
 	peakTpsTest   bool
 	proposalDelay bool
 
-	// proposal-rate gate (node/proposalgate.go); loop-owned. throttleGateCh is
+	// proposal spacing (node/proposalgate.go), shared by the ProposalDelay
+	// scenario (proposalDelay, proposalDelayInterval) and the Throttle gate
+	// (proposalGateOn, proposalMinInterval); loop-owned. throttleGateCh is
 	// written by the hub's gRPC goroutines and drained by the loop.
-	proposalGateOn      bool
-	proposalMinInterval time.Duration
-	lastProposalAt      time.Time
-	throttleGateCh      chan throttleGateCmd
+	proposalDelayInterval time.Duration
+	proposalGateOn        bool
+	proposalMinInterval   time.Duration
+	lastProposalAt        time.Time
+	throttleGateCh        chan throttleGateCmd
 
 	// scenario mode (node/scenario.go); loop-owned except the netem worker channel
 	scenarioMode    bool
@@ -283,9 +286,10 @@ func NewNode(nodeID int, cfg *config.Config) (*Node, error) {
 		proberStop:  make(chan struct{}),
 		proberDone:  make(chan struct{}),
 
-		proposalDelay:       !cfg.ScenarioMode && cfg.ProposalDelayNodes[nodeID], // scenario mode owns it otherwise
-		proposalMinInterval: cfg.ProposalMinInterval(),
-		proposalGateOn:      cfg.ProposalGateAtStart, // calibration runs with no controller
+		proposalDelay:         !cfg.ScenarioMode && cfg.ProposalDelayNodes[nodeID], // scenario mode owns it otherwise
+		proposalDelayInterval: cfg.ProposalDelayInterval(),
+		proposalMinInterval:   cfg.ProposalMinInterval(),
+		proposalGateOn:        cfg.ProposalGateAtStart, // calibration runs with no controller
 		scenarioMode:        cfg.ScenarioMode,
 		peakTpsTest:         cfg.PeakTpsTest,
 
@@ -479,11 +483,9 @@ func (n *Node) tryPropose(fullBatch bool) {
 	// 	n.SetStall(false)
 	// 	return
 	// }
-	if n.ProposalDelayEnabled() {
-		time.Sleep(n.cfg.ProposalDelaySleep())
-	}
-	// Last gate before the destructive Dequeue: if the rate gate forbids this
-	// proposal it arms a retry timer and we leave the queue untouched.
+	// Last gate before the destructive Dequeue: if the proposal spacing (the
+	// ProposalDelay scenario or the Throttle gate) forbids this proposal it arms a
+	// retry timer and we leave the queue untouched.
 	if n.proposalGateBlocks() {
 		return
 	}

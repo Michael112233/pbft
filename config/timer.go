@@ -86,12 +86,12 @@ func (c *Config) FixedNewViewTimeout() time.Duration {
 	return newView
 }
 
-const defaultProposalDelaySleep = 100 * time.Millisecond
+const defaultProposalDelayInterval = 100 * time.Millisecond
 
-// ProposalDelaySleep is how long a ProposalDelay leader sleeps before each
-// proposal (node/node.go tryPropose).
-func (c *Config) ProposalDelaySleep() time.Duration {
-	return msOrDefault(c.ProposalDelaySleepMs, defaultProposalDelaySleep)
+// ProposalDelayInterval is the least time between a ProposalDelay leader's
+// proposals (node/proposalgate.go).
+func (c *Config) ProposalDelayInterval() time.Duration {
+	return msOrDefault(c.ProposalDelayIntervalMs, defaultProposalDelayInterval)
 }
 
 const defaultViewChangeFetchDelay = 20 * time.Millisecond
@@ -121,8 +121,13 @@ func (c *Config) ValidateTimer() error {
 			"depend on the scenario); set fixed_trigger_timeout_ms (progress) and fixed_new_view_timeout_ms instead, got %d",
 			t.RelaxedFixedTriggerTimeoutMs)
 	}
-	if c.ProposalDelaySleepMs < 0 {
-		return fmt.Errorf("proposal_delay_sleep_ms must be >= 0 (0 means 100), got %d", c.ProposalDelaySleepMs)
+	if c.ProposalDelayIntervalMs < 0 {
+		return fmt.Errorf("proposal_delay_interval_ms must be >= 0 (0 means 100), got %d", c.ProposalDelayIntervalMs)
+	}
+	if c.ProposalDelaySleepMs != 0 {
+		return fmt.Errorf("proposal_delay_sleep_ms was removed (ProposalDelay no longer sleeps before every "+
+			"proposal; it spaces proposals and lets a tenure's first one go at once); set proposal_delay_interval_ms instead, got %d",
+			c.ProposalDelaySleepMs)
 	}
 	if c.OracleDecisionDelayMs < 0 {
 		return fmt.Errorf("oracle_decision_delay_ms must be >= 0 (0 means 100), got %d", c.OracleDecisionDelayMs)

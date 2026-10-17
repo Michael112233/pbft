@@ -68,7 +68,7 @@
     "4": false
   },
   "proposal_delay_ms": 2000,
-  "proposal_delay_sleep_ms": 100,
+  "proposal_delay_interval_ms": 100,
   "gc": true,
   "logging": true,
   "carry_state": false,

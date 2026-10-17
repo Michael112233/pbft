@@ -183,6 +183,22 @@ func TestTimerDefaultsAndOverrides(t *testing.T) {
 	}
 }
 
+// The ProposalDelay spacing defaults to 100 ms; the old blocking-sleep key is
+// rejected, not ignored.
+func TestProposalDelayInterval(t *testing.T) {
+	if got := (&Config{}).ProposalDelayInterval(); got != 100*time.Millisecond {
+		t.Fatalf("default: %v, want 100ms", got)
+	}
+	if got := (&Config{ProposalDelayIntervalMs: 60}).ProposalDelayInterval(); got != 60*time.Millisecond {
+		t.Fatalf("override: %v, want 60ms", got)
+	}
+	for _, bad := range []*Config{{ProposalDelayIntervalMs: -1}, {ProposalDelaySleepMs: 100}} {
+		if err := bad.ValidateTimer(); err == nil {
+			t.Fatalf("interval %d sleep %d: want error", bad.ProposalDelayIntervalMs, bad.ProposalDelaySleepMs)
+		}
+	}
+}
+
 // Separate by default; fixed_timers_shared gives both timers the larger value,
 // whichever of the two it is.
 func TestFixedTimersSeparateAndShared(t *testing.T) {

@@ -26,8 +26,8 @@ import (
 //     received the others' votes a few ms before executing the slot itself) keeps
 //     executing every few ms, because the pipeline keeps it fed, so only a full gap
 //     with no execution counts. The longest normal gaps are 100 ms: the Throttle
-//     gate spaces proposals proposal_min_interval_ms (100) apart, and the
-//     ProposalDelay leader sleeps 100 ms per proposal on its event loop. 200 ms is
+//     gate and the ProposalDelay scenario space a leader's proposals
+//     proposal_min_interval_ms / proposal_delay_interval_ms (100) apart. 200 ms is
 //     2x that. The client tick (24 ms) and the WAN one-way delay do not enter: a
 //     lagging node's executions are shifted, not spaced out.
 //   - Upper bound: the node must fetch before the others run past its high

@@ -9,15 +9,19 @@ import (
 	"github.com/michael112233/pbft/core"
 )
 
-// Proposal-rate gate: the node-side half of the targeted proposal throttling
-// experiment (see config/throttle.go and client/throttlemanager.go). It stands in
-// for a network throttle on this node's outbound proposals.
+// Proposal spacing, shared by two impairments of a leader:
+//   - the proposal-rate gate: the node-side half of the targeted proposal
+//     throttling experiment (see config/throttle.go and client/throttlemanager.go),
+//     standing in for a network throttle on this node's outbound proposals;
+//   - the ProposalDelay scenario's slow nodes (proposal_delay_interval_ms).
 //
-// When the gate is on, this node is allowed at most one proposal every
-// proposalMinInterval while it leads. Unlike the ProposalDelay scenario's
-// time.Sleep in tryPropose, the gate never blocks the event loop: a proposal
-// that is not yet permitted arms a one-shot timer and returns having dequeued
-// nothing, and the timer re-drives tryPropose.
+// While either is on, this node is allowed at most one proposal per interval
+// while it leads (the larger interval if both are on). The first proposal of a
+// tenure is free: lastProposalAt is cleared on every new-view install
+// (resetPendingForNewView), so neither impairment can delay a view's first
+// execution past a replica's progress timer. Neither blocks the event loop: a
+// proposal that is not yet permitted arms a one-shot timer and returns having
+// dequeued nothing, and the timer re-drives tryPropose.
 //
 // The gate bites only on the leader, which falls out of tryPropose's own leader
 // guard. It is enabled and disabled by the client over the unary Deliver RPC
@@ -92,15 +96,30 @@ func (n *Node) stopProposalGateTimer() {
 	n.proposalGateTimerCh = nil
 }
 
-// proposalGateBlocks reports whether the gate currently forbids a proposal, and
-// arms the retry timer when it does. Called from tryPropose below every cheap
-// early return and above the destructive Dequeue.
-func (n *Node) proposalGateBlocks() bool {
-	if !n.proposalGateOn || n.proposalMinInterval <= 0 || n.lastProposalAt.IsZero() {
+// proposalSpacing is the least time allowed between this leader's proposals: the
+// ProposalDelay interval while proposalDelay is on, the gate interval while the
+// gate is on, the larger if both (only possible outside scenario mode), 0 for no
+// limit.
+func (n *Node) proposalSpacing() time.Duration {
+	var spacing time.Duration
+	if n.proposalDelay {
+		spacing = n.proposalDelayInterval
+	}
+	if n.proposalGateOn {
+		spacing = max(spacing, n.proposalMinInterval)
+	}
+	return spacing
+}
 
+// proposalGateBlocks reports whether the proposal spacing currently forbids a
+// proposal, and arms the retry timer when it does. Called from tryPropose below
+// every cheap early return and above the destructive Dequeue.
+func (n *Node) proposalGateBlocks() bool {
+	spacing := n.proposalSpacing()
+	if spacing <= 0 || n.lastProposalAt.IsZero() {
 		return false
 	}
-	wait := n.proposalMinInterval - time.Since(n.lastProposalAt)
+	wait := spacing - time.Since(n.lastProposalAt)
 	if wait <= 0 {
 		return false
 	}

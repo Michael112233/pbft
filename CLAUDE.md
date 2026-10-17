@@ -132,9 +132,10 @@ slot and the largest gap between slots. Every node logs both per view (`PROGRESS
 `PROGRESS VIEW`, `node/progressstats.go`); `scripts/timer_budget_summary.py` gives the
 percentiles and the value by the rule round-up-to-50-ms of 1.5 × p99.9. The NetworkDelay
 delay is then chosen so Fixed/Perf still cascade (first progress under the 170 ms delay
-takes ≥ 345 ms on the LAN), and the ProposalDelay sleep and Throttle gate are set below
-the progress timeout, so a slow leader passes the timer and only the Perf bar removes
-it. The old per-scenario hack (`relaxed_fixed_trigger_timeout_ms`, 350 ms outside the ND
+takes ≥ 345 ms on the LAN), and the ProposalDelay interval and Throttle gate are set
+below the progress timeout, so a slow leader passes the timer and only the Perf bar
+removes it. Both let a tenure's first proposal go at once, so they bound only the gap
+between executions (interval + ~7 ms), not the first execution after install. The old per-scenario hack (`relaxed_fixed_trigger_timeout_ms`, 350 ms outside the ND
 scenarios) is gone; a config that still sets it is rejected.
 
 | Mode | Progress / new-view timeout (defaults) | Reset on execution | Effect |
@@ -376,9 +377,13 @@ key missing there is missing from every experiment built afterwards.
   `core/scenario.go`), one
   per `scenario_generations` generations, derived from the generation in
   `SetForViewID` → `maybeSwitchScenario` (`node/scenario.go`). A switch turns everything
-  off, then enables the new fault: ProposalDelay turns on the `proposal_delay_sleep_ms` (100 ms) `tryPropose` sleep on
-  every `proposal_delay_nodes` node (a map like `nodes_dead`, **exactly f** of them, node 4
-  allowed since a slow leader is still live — `validateScenarioProposalDelayNodes`);
+  off, then enables the new fault: ProposalDelay spaces the proposals of every
+  `proposal_delay_nodes` node at least `proposal_delay_interval_ms` (100) apart while it
+  leads, with the same non-blocking timer as the Throttle gate and the first proposal of
+  a tenure free (`proposalSpacing`, `node/proposalgate.go`; before `timer-model` it was a
+  100 ms sleep on the event loop before every proposal). `proposal_delay_nodes` is a map
+  like `nodes_dead`, **exactly f** of them, node 4 allowed since a slow leader is still
+  live (`validateScenarioProposalDelayNodes`).
   NetworkDelay has node 4 run
   `sudo -n scripts/netem_scenario.sh up 170 <n>` from a worker goroutine (`down` on
   every switch and on `Stop`) — in `-m remote` **every** node instead runs
@@ -484,7 +489,7 @@ key missing there is missing from every experiment built afterwards.
   if `client_retry` is on); a leader change discards the old leader's queue. Counts go
   to `send_queue_dropped` / `send_queue_discarded` in `latencyreport.json` and to the
   send-rate CSV. Before this, a leader that stopped reading its stream (ProposalDelay:
-  the 100 ms sleep runs on node 1's event loop) froze the whole client once the 8 MiB
+  the 100 ms sleep then ran on node 1's event loop) froze the whole client once the 8 MiB
   gRPC window filled, starving the next leader for ~300 ms.
 - **The client never forgets an uncommitted request.** Every sent request is registered
   in `TransactionManager` (`client/transactionmanager.go`) and only a commit deletes it,
@@ -498,9 +503,11 @@ key missing there is missing from every experiment built afterwards.
   request that never committed. Discarded and sent-but-lost requests stay tracked.
   `latencySamples` also grows by 8 B per committed request, and `LatencySummary`
   copies it twice at export.
-- `proposal_delay_sleep_ms` (default 100) is the ProposalDelay leader's sleep before each
-  proposal in `tryPropose`; keep it below the progress timeout. `proposal_delay_ms` is
-  parsed but unused (every old config carries 2000 there, so it was not reused).
+- `proposal_delay_interval_ms` (default 100) is the least time between a ProposalDelay
+  leader's proposals (first proposal of a tenure free, no event-loop sleep); keep it below
+  the progress timeout. `proposal_delay_sleep_ms` (the old blocking sleep) is rejected.
+  `proposal_delay_ms` is parsed but unused (every old config carries 2000 there, so it was
+  not reused).
 
 ## Experiment tooling
 

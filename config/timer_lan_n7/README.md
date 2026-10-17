@@ -30,7 +30,9 @@ Nothing; this is a measurement. The provisional values came from `results/lan_n7
   measured needs are not cut off at the timeout. The Perf bar still rotates leaders about
   every 11 s, which gives many view changes in the Perf arms.
 - **`proposal_delay_sleep_ms` 100 and `proposal_min_interval_ms` 100:** today's slow-leader
-  values, written out.
+  values, written out. (Later on `timer-model` ProposalDelay became a non-blocking spacing
+  with the first proposal free, `proposal_delay_interval_ms`; these configs now fail
+  validation on purpose. This batch measured the old blocking sleep.)
 - **`pilot_exec_trace` on:** one `PILOT_EXEC` line per view with every slot's execution
   time in the first 2.5 s, in case the shape of the first progress needs a closer look.
 - **Held fixed** from the bases: n=7, oracle pinned to one action, 75 s generations, batch

@@ -33,12 +33,14 @@ import (
 //     overlaps a view change is not judged: nobody executes then, and the NewView
 //     may carry the checkpoint itself (fastPathStablizeCheckpointviaVC).
 //
-// Known false positive, accepted: a ProposalDelay leader sleeps 100 ms per proposal on
-// its event loop, so at ~10 proposals/s it can execute nothing for seconds while its
-// followers execute its proposals and stabilize a checkpoint. It then fetches although
-// it would have caught up (8 installs in 39 ProposalDelay generations in
-// results/ckpt_fetch_n7, none in Healthy, NetworkDelay, NetworkDelayFCrash or
-// Throttle). Left in on purpose: the install is a certified state (26 accounts, under
+// Known false positive, accepted: while the ProposalDelay leader slept 100 ms per
+// proposal on its event loop (before proposal_delay_interval_ms made it a non-blocking
+// spacing, branch timer-model), at ~10 proposals/s it could execute nothing for seconds
+// while its followers executed its proposals and stabilized a checkpoint. It then
+// fetched although it would have caught up (8 installs in 39 ProposalDelay generations
+// in results/ckpt_fetch_n7, none in Healthy, NetworkDelay, NetworkDelayFCrash or
+// Throttle). With its loop no longer blocked it may not happen any more; not yet
+// re-measured. Left in on purpose: the install is a certified state (26 accounts, under
 // 1 KB, ~3 ms), and a trigger tied to the stranding pattern (certificate complete at
 // install, a re-proposed slot missing) would miss other ways of falling behind.
 //

@@ -33,7 +33,9 @@ that run in this conversation.
    other scenario used `relaxed_fixed_trigger_timeout_ms`. On `timer-model` that key
    is rejected: `fixed_trigger_timeout_ms` is the progress timeout everywhere and
    `fixed_new_view_timeout_ms` the new-view one (`fixed_timers_shared` uses the larger
-   of the two for both). The ProposalDelay sleep is `proposal_delay_sleep_ms`.
+   of the two for both). ProposalDelay is `proposal_delay_interval_ms`: a spacing
+   between a slow leader's proposals with the first one of a tenure free, no longer a
+   sleep before every proposal (`proposal_delay_sleep_ms` is rejected).
 4. **Write the configs** to `config/<folder>/<name>.json`. Give the files names that
    are unique across `results/`: `run_experiments.sh` saves to
    `results/<config basename>` and deletes an existing directory of that name first.

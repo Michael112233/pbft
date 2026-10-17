@@ -12,20 +12,32 @@ import (
 func TestProposalGateBlocks(t *testing.T) {
 	now := time.Now()
 	for _, tt := range []struct {
-		name     string
-		on       bool
-		interval time.Duration
-		last     time.Time
-		want     bool
+		name       string
+		on         bool
+		interval   time.Duration
+		pd         bool // ProposalDelay on
+		pdInterval time.Duration
+		last       time.Time
+		want       bool
 	}{
 		{name: "gate off never blocks", on: false, interval: 10 * time.Millisecond, last: now, want: false},
 		{name: "zero interval never blocks", on: true, interval: 0, last: now, want: false},
 		{name: "no prior proposal never blocks", on: true, interval: 10 * time.Millisecond, last: time.Time{}, want: false},
 		{name: "recent proposal blocks", on: true, interval: time.Second, last: now, want: true},
 		{name: "old proposal does not block", on: true, interval: 10 * time.Millisecond, last: now.Add(-time.Second), want: false},
+		// ProposalDelay uses the same spacing, with its own interval.
+		{name: "proposal delay: recent proposal blocks", pd: true, pdInterval: time.Second, last: now, want: true},
+		{name: "proposal delay: fresh tenure never blocks", pd: true, pdInterval: time.Second, last: time.Time{}, want: false},
+		{name: "proposal delay off: its interval is ignored", pd: false, pdInterval: time.Second, last: now, want: false},
+		// both on (outside scenario mode only): the larger interval rules
+		{name: "both on: larger interval blocks", on: true, interval: 10 * time.Millisecond, pd: true, pdInterval: time.Second,
+			last: now.Add(-100 * time.Millisecond), want: true},
+		{name: "both on: past the larger interval", on: true, interval: 10 * time.Millisecond, pd: true, pdInterval: 50 * time.Millisecond,
+			last: now.Add(-100 * time.Millisecond), want: false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			n := &Node{proposalGateOn: tt.on, proposalMinInterval: tt.interval, lastProposalAt: tt.last}
+			n := &Node{proposalGateOn: tt.on, proposalMinInterval: tt.interval,
+				proposalDelay: tt.pd, proposalDelayInterval: tt.pdInterval, lastProposalAt: tt.last}
 			got := n.proposalGateBlocks()
 			if got != tt.want {
 				t.Fatalf("proposalGateBlocks() = %v, want %v", got, tt.want)
