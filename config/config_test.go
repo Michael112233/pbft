@@ -183,6 +183,20 @@ func TestTimerDefaultsAndOverrides(t *testing.T) {
 	}
 }
 
+// The network-delay scenarios' delay defaults to 170 ms; a negative one is rejected.
+func TestScenarioNetworkDelay(t *testing.T) {
+	if got := (&Config{}).ScenarioNetworkDelay(); got != 170 {
+		t.Fatalf("default: %d, want 170", got)
+	}
+	if got := (&Config{ScenarioNetworkDelayMs: 124}).ScenarioNetworkDelay(); got != 124 {
+		t.Fatalf("override: %d, want 124", got)
+	}
+	c := &Config{ScenarioMode: true, EpochMode: true, Scenarios: []string{"NetworkDelay"}, ScenarioNetworkDelayMs: -1}
+	if err := c.ParseScenarios(); err == nil {
+		t.Fatal("negative scenario_network_delay_ms: want error")
+	}
+}
+
 // The ProposalDelay spacing defaults to 100 ms; the old blocking-sleep key is
 // rejected, not ignored.
 func TestProposalDelayInterval(t *testing.T) {

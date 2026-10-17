@@ -6,11 +6,13 @@
 #
 # 1. asks every node for its latency summary and the client(s) for the report, as
 #    stop_experiment.sh does, and waits until every host has written its files
-# 2. kills the tmux sessions and removes every node's egress netem
+# 2. records every host's netem state, then kills the tmux sessions and removes every
+#    host's egress netem (the emulated WAN's base delays included)
 # 3. copies every host's logs/ into results/<name>/ (default <config>_<timestamp>),
 #    flat, so the analysis scripts read it like a single-host run. Files that every
 #    host writes (others.log, netem_schedule.log, learning-agent-launcher.log,
-#    clock_offsets.txt, tcp_state.txt) get the host's label: others_node3.log, clock_offsets_client1.txt.
+#    clock_offsets.txt, tcp_state.txt, wan_check.txt, netem_state_*.txt) get the host's label:
+#    others_node3.log, clock_offsets_client1.txt.
 # 4. merges the client reports when client_num > 1, and saves config.json and hosts.json
 set -uo pipefail
 
@@ -39,7 +41,8 @@ fi
 REPORT="report.json"
 EXPORT_WAIT_SECONDS="${EXPORT_WAIT_SECONDS:-600}"
 SHARED_NAMES=(others.log netem_schedule.log learning-agent-launcher.log clock_offsets.txt tcp_state.txt
-    tcp_counters_start.txt tcp_counters_end.txt tcp_sockets_end.txt)
+    tcp_counters_start.txt tcp_counters_end.txt tcp_sockets_end.txt
+    wan_check.txt netem_state_start.txt netem_state_end.txt)
 
 host_active() { # kind id
     [[ "$1" == node ]] || (( $2 <= CLIENT_COUNT ))
@@ -92,15 +95,14 @@ snapshot_tcp() { # label host kind id
     host_active "$3" "$4" || return 0
     tcp_counters "$2" "$(probe_ip "$3" "$4")" tcp_counters_end.txt
     rsh "$2" "ss -tin state established '( sport >= :$NODE_BASE_PORT and sport < :$AGENT_PORT ) or ( dport >= :$NODE_BASE_PORT and dport < :$AGENT_PORT )' > logs/tcp_sockets_end.txt"
+    record_netem "$2" "$(probe_ip "$3" "$4")" netem_state_end.txt
 }
 
+# Every host, clients too: with an emulated WAN a client host has its own egress delays, and
+# clear (unlike down) also removes the base.
 shutdown_host() { # label host kind id
-    local down=""
-    if [[ "$3" == node ]]; then
-        down="sudo -n ./scripts/netem_egress.sh down $(peer_ips "$4") || echo 'Warning: netem down failed' >&2"
-    fi
     rsh "$2" "tmux kill-session -t $SESSION 2>/dev/null || echo 'no tmux session $SESSION'
-$down"
+if [[ -x scripts/netem_egress.sh ]]; then sudo -n ./scripts/netem_egress.sh clear $(other_ips "$3" "$4") || echo 'Warning: netem clear failed' >&2; fi"
 }
 
 collect() { # label host kind id

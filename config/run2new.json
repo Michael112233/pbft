@@ -106,9 +106,8 @@
 
   "scenarios" : ["ProposalDelay", "NetworkDelay", "NetworkDelayFCrash", "ProposalDelay", "NetworkDelay", "NetworkDelayFCrash", "Healthy"],
   "scenario_mode": false,
-  "scenario_generations": 100
-
-
+  "scenario_generations": 100,
+  "scenario_network_delay_ms": 170
   ,
   "latency_probe": false,
   "aware_probe_interval_ms": 500,

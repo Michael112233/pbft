@@ -130,6 +130,10 @@ type Config struct {
 	Scenarios           []string `json:"scenarios"`
 	ScenarioGenerations uint64   `json:"scenario_generations"`
 	ScenariosEnum       []core.Scenario
+	// ScenarioNetworkDelayMs is the one-way delay NetworkDelay and
+	// NetworkDelayFCrash add to every node pair; 0 means 170. On an emulated WAN
+	// (the hosts file's wan block) it comes on top of each pair's base delay.
+	ScenarioNetworkDelayMs int `json:"scenario_network_delay_ms"`
 
 	// Latency-aware leader policy (Aware). Zero values fall back to the defaults
 	// in config/aware.go.
@@ -145,6 +149,16 @@ type Config struct {
 }
 
 const DefaultScenarioGenerations = 100
+
+const defaultScenarioNetworkDelayMs = 170
+
+// ScenarioNetworkDelay is the NetworkDelay scenarios' one-way delay in ms.
+func (c *Config) ScenarioNetworkDelay() int {
+	if c.ScenarioNetworkDelayMs > 0 {
+		return c.ScenarioNetworkDelayMs
+	}
+	return defaultScenarioNetworkDelayMs
+}
 
 // InitialAction returns the action nodes start in.
 func (c *Config) InitialAction() core.Action {
@@ -259,6 +273,9 @@ func (c *Config) ParseScenarios() error {
 	}
 	if c.ScenarioGenerations == 0 {
 		c.ScenarioGenerations = DefaultScenarioGenerations
+	}
+	if c.ScenarioNetworkDelayMs < 0 {
+		return fmt.Errorf("scenario_network_delay_ms must be >= 0 (0 means %d), got %d", defaultScenarioNetworkDelayMs, c.ScenarioNetworkDelayMs)
 	}
 	c.ScenariosEnum = make([]core.Scenario, len(c.Scenarios))
 	for i, name := range c.Scenarios {

@@ -27,11 +27,20 @@ if [[ -z "${HOSTS_FILE:-}" || ! -f "$HOSTS_FILE" ]]; then
     exit 1
 fi
 
-declare -A NODE_IP=() NODE_SSH=() CLIENT_IP=() CLIENT_SSH=()
+# Optional emulated WAN (docs/multi-host.md, "Emulated WAN"): every node and client in one site,
+# a one-way delay per site pair; each host delays its own egress to every other host by the delay
+# between their sites (scripts/netem_egress.sh base). Go ignores the block.
+#   "wan": {"sites": {"near": {"nodes": [1, 2, 3, 4, 5], "clients": [1]}, "far": {"nodes": [6, 7]}},
+#           "one_way_ms": {"near-far": 24}}
+# WAN_BASE_NODE[i] / WAN_BASE_CLIENT[i] hold that host's "ip=ms ..." list; WAN is 1 when present.
+declare -A NODE_IP=() NODE_SSH=() CLIENT_IP=() CLIENT_SSH=() WAN_BASE_NODE=() WAN_BASE_CLIENT=()
 eval "$(python3 - "$HOSTS_FILE" <<'EOF'
 import json, shlex, sys
 h = json.load(open(sys.argv[1]))
 q = shlex.quote
+def fail(msg):
+    print(f"echo {q('Error: ' + sys.argv[1] + ': ' + msg)} >&2; exit 1")
+    sys.exit(0)
 print(f"RUN_DIR={q(h.get('run_dir') or 'pbft-run')}")
 for kind, key in (("NODE", "nodes"), ("CLIENT", "clients")):
     ids = sorted(int(i) for i in h.get(key, {}))
@@ -40,6 +49,42 @@ for kind, key in (("NODE", "nodes"), ("CLIENT", "clients")):
         e = h[key][str(i)]
         print(f"{kind}_IP[{i}]={q(e['ip'])}")
         print(f"{kind}_SSH[{i}]={q(e.get('ssh') or e['ip'])}")
+
+wan = h.get("wan")
+if not wan:
+    print("WAN=0")
+    sys.exit(0)
+hosts = {(k, int(i)): h[key][i]["ip"] for k, key in (("node", "nodes"), ("client", "clients")) for i in h.get(key, {})}
+site_of = {}
+for site, members in (wan.get("sites") or {}).items():
+    for k, key in (("node", "nodes"), ("client", "clients")):
+        for i in members.get(key, []):
+            if (k, int(i)) not in hosts:
+                fail(f"wan site {site} lists {k} {i}, which the hosts file does not have")
+            if (k, int(i)) in site_of:
+                fail(f"wan: {k} {i} is in sites {site_of[(k, int(i))]} and {site}")
+            site_of[(k, int(i))] = site
+for host in hosts:
+    if host not in site_of:
+        fail(f"wan: {host[0]} {host[1]} is in no site")
+delay = {}
+for pair, ms in (wan.get("one_way_ms") or {}).items():
+    a, sep, b = pair.partition("-")
+    if not sep or not isinstance(ms, int) or ms < 0:
+        fail(f"wan one_way_ms {pair!r}: {ms!r}, want \"siteA-siteB\": <ms >= 0>")
+    delay[(a, b)] = delay[(b, a)] = ms
+sites = sorted(set(site_of.values()))
+for a in sites:
+    for b in sites:
+        if a != b and (a, b) not in delay:
+            fail(f"wan one_way_ms has no delay for {a}-{b}")
+print("WAN=1")
+print(f"WAN_DESC={q(' '.join(f'{a}-{b}={delay[(a, b)]}ms' for a in sites for b in sites if a < b))}")
+for (k, i), ip in hosts.items():
+    me = site_of[(k, i)]
+    base = " ".join(f"{oip}={0 if site_of[o] == me else delay[(me, site_of[o])]}"
+                    for o, oip in sorted(hosts.items()) if o != (k, i))
+    print(f"WAN_BASE_{k.upper()}[{i}]={q(base)}")
 EOF
 )"
 
@@ -81,6 +126,36 @@ peer_ips() {
         [[ "$id" == "$self" ]] || out+=("${NODE_IP[$id]}")
     done
     echo "${out[*]}"
+}
+
+# other_ips <kind> <id>: every experiment IP (nodes and clients) but that host's own, for
+# netem_egress.sh clear.
+other_ips() {
+    local kind="$1" self="$2" id out=()
+    for id in "${NODE_IDS[@]}"; do
+        [[ "$kind" == node && "$id" == "$self" ]] || out+=("${NODE_IP[$id]}")
+    done
+    for id in "${CLIENT_IDS[@]}"; do
+        [[ "$kind" == client && "$id" == "$self" ]] || out+=("${CLIENT_IP[$id]}")
+    done
+    echo "${out[*]}"
+}
+
+# wan_base <kind> <id>: that host's "ip=ms ..." base delays for netem_egress.sh base (empty
+# without a wan block).
+wan_base() {
+    if [[ "$1" == node ]]; then echo "${WAN_BASE_NODE[$2]:-}"; else echo "${WAN_BASE_CLIENT[$2]:-}"; fi
+}
+
+# record_netem <ssh name> <probe ip> <file>: the experiment device's qdiscs, with netem's
+# drop and backlog counters, and its filters, into logs/<file>.
+record_netem() {
+    rsh "$1" "dev=\$(ip -o route get $2 | awk '{for (i = 1; i < NF; i++) if (\$i == \"dev\" && d == \"\") d = \$(i + 1)} END {print d}')
+{ echo \"== tc -s qdisc show dev \$dev\"
+tc -s qdisc show dev \"\$dev\"
+echo \"== tc filter show dev \$dev\"
+tc filter show dev \"\$dev\"
+} > logs/$3"
 }
 
 node_port() {

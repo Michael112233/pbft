@@ -25,7 +25,8 @@ import (
 type progressStats struct {
 	active    bool
 	view      core.ViewID
-	leader    bool
+	leader    bool // this node leads the view
+	leaderID  int  // the view's leader
 	action    core.Action
 	install   time.Time
 	firstExec time.Duration
@@ -72,9 +73,10 @@ func (n *Node) progressInstall(view core.ViewID, leader bool) {
 		nvTimerMs = msSince(p.nvTimerAt, now)
 	}
 	action := n.GetCurrAction()
-	n.log.Info("PROGRESS NV: view (%d,%d) role=%s action=%s nv_timer_to_install_ms=%.1f quorum_to_install_ms=%.1f",
-		view.Generation, view.Counter, role, core.ActiontoString(action), nvTimerMs, quorumMs)
-	*p = progressStats{active: true, view: view, leader: leader, action: action, install: now,
+	leaderID := n.GetLeaderId()
+	n.log.Info("PROGRESS NV: view (%d,%d) role=%s leader=%d action=%s nv_timer_to_install_ms=%.1f quorum_to_install_ms=%.1f",
+		view.Generation, view.Counter, role, leaderID, core.ActiontoString(action), nvTimerMs, quorumMs)
+	*p = progressStats{active: true, view: view, leader: leader, leaderID: leaderID, action: action, install: now,
 		quorumView: p.quorumView, quorumAt: p.quorumAt, nvTimerView: p.nvTimerView, nvTimerAt: p.nvTimerAt}
 }
 
@@ -109,8 +111,8 @@ func (n *Node) progressViewEnd(end string, now time.Time) {
 		firstMs = float64(p.firstExec.Microseconds()) / 1000
 		tailMs = msSince(p.lastExec, now)
 	}
-	n.log.Info("PROGRESS VIEW: view (%d,%d) role=%s action=%s first_exec_ms=%.1f max_gap_ms=%.1f slots=%d tail_ms=%.1f tenure_ms=%.1f end=%s",
-		p.view.Generation, p.view.Counter, role, core.ActiontoString(p.action), firstMs,
+	n.log.Info("PROGRESS VIEW: view (%d,%d) role=%s leader=%d action=%s first_exec_ms=%.1f max_gap_ms=%.1f slots=%d tail_ms=%.1f tenure_ms=%.1f end=%s",
+		p.view.Generation, p.view.Counter, role, p.leaderID, core.ActiontoString(p.action), firstMs,
 		float64(p.maxGap.Microseconds())/1000, p.slots, tailMs, msSince(p.install, now), end)
 }
 

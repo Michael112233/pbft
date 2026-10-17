@@ -11,6 +11,8 @@
 #    host must get the same copy)
 # 3. pushes the bundle: pbft_main, keys/, the config at the same relative path, the
 #    hosts file, the agent, and the scripts the nodes and stop.sh run
+#    With a wan block in the hosts file (emulated WAN), then applies every host's base egress
+#    delays and checks them with pings (logs/wan_check.txt), failing before any process starts.
 # 4. starts each node host's learning agent, waits for it, starts the node, and waits
 #    until every node port accepts a connection (instead of alt_run_project.sh's sleep 5),
 #    then until every node has logged PEERS READY (streams open to all its peers)
@@ -97,17 +99,19 @@ host_active() { # kind id
 }
 
 stop_leftovers() { # label host kind id
-    local node_only=""
+    local cleanup=""
     if [[ "$3" == node ]]; then
-        node_only="pkill -f 'learningagent[.](launcher|server)' || true
-if [[ -x scripts/netem_egress.sh ]]; then sudo -n ./scripts/netem_egress.sh down $(peer_ips "$4") || true; fi"
+        cleanup="pkill -f 'learningagent[.](launcher|server)' || true"
     fi
+    # Every host, clients too: with an emulated WAN a client host has its own egress delays.
+    cleanup+="
+if [[ -x scripts/netem_egress.sh ]]; then sudo -n ./scripts/netem_egress.sh clear $(other_ips "$3" "$4") || true; fi"
     # The control machine may be a client host, so kill by exact process name only,
     # and never wipe a directory that is a git checkout (run_dir pointing at the repo).
     rsh "$2" "if [[ -e \"\$HOME/$RUN_DIR/.git\" ]]; then echo \"refusing to wipe \$HOME/$RUN_DIR: it is a git checkout\" >&2; exit 1; fi
 tmux kill-session -t $SESSION 2>/dev/null || true
 pkill -x pbft_main || true
-$node_only
+$cleanup
 cd \"\$HOME\"
 rm -rf \"\$HOME/$RUN_DIR\"
 mkdir -p \"\$HOME/$RUN_DIR/logs\""
@@ -151,6 +155,47 @@ record_counters_start() { # label host kind id
     tcp_counters "$2" "$(probe_ip "$3" "$4")" tcp_counters_start.txt
 }
 
+# Emulated WAN (the hosts file's wan block): every host delays its own egress to each other host
+# by the delay between their sites, then pings every one of them into logs/wan_check.txt. A far
+# pair must show at least 2d - 2 ms of RTT and a near pair at most 5 ms, or the host fails.
+apply_wan_base() { # label host kind id
+    host_active "$3" "$4" || return 0
+    local base="" pair ip id idle
+    # Leave out client hosts this run does not use (listed beyond client_num): they may not exist.
+    for pair in $(wan_base "$3" "$4"); do
+        ip="${pair%%=*}" idle=0
+        for id in "${CLIENT_IDS[@]}"; do
+            if (( id > CLIENT_COUNT )) && [[ "${CLIENT_IP[$id]}" == "$ip" ]]; then idle=1; fi
+        done
+        if (( ! idle )); then base+=" $pair"; fi
+    done
+    rsh "$2" "sudo -n ./scripts/netem_egress.sh base $base
+fail=0
+for pair in $base; do
+    ip=\"\${pair%%=*}\" ms=\"\${pair#*=}\"
+    rtt=\"\$(ping -c 5 -i 0.2 -q \"\$ip\" | awk -F/ '/^(rtt|round-trip)/ {print \$5}')\" || true
+    verdict=ok
+    if [[ -z \"\$rtt\" ]]; then verdict=FAIL_no_reply
+    elif (( ms > 0 )) && awk -v r=\"\$rtt\" -v m=\"\$ms\" 'BEGIN {exit !(r < 2 * m - 2)}'; then verdict=FAIL_rtt_too_low
+    elif (( ms == 0 )) && awk -v r=\"\$rtt\" 'BEGIN {exit !(r > 5)}'; then verdict=FAIL_rtt_too_high
+    fi
+    [[ \"\$verdict\" == ok ]] || fail=1
+    echo \"\$ip base=\${ms}ms rtt_avg=\${rtt:-none}ms expect~\$((2 * ms))ms \$verdict\"
+done > logs/wan_check.txt
+grep FAIL logs/wan_check.txt >&2 || true
+exit \$fail"
+}
+
+clear_netem() { # label host kind id
+    host_active "$3" "$4" || return 0
+    rsh "$2" "sudo -n ./scripts/netem_egress.sh clear $(other_ips "$3" "$4") || true"
+}
+
+record_netem_start() { # label host kind id
+    host_active "$3" "$4" || return 0
+    record_netem "$2" "$(probe_ip "$3" "$4")" netem_state_start.txt
+}
+
 # Runs only happen under the performance governor (set by setup.sh, lost on reboot).
 # Checked before anything is touched; exit 3 tells run_experiments.sh to abort the batch.
 check_governor() { # label host kind id
@@ -183,6 +228,16 @@ each_host push_bundle
 
 echo "== Recording TCP and NIC counters"
 each_host record_counters_start || echo "Warning: TCP counters could not be recorded on some hosts." >&2
+
+if [[ "$WAN" == 1 ]]; then
+    echo "== Emulated WAN ($WAN_DESC): applying the base delays and checking them"
+    if ! each_host apply_wan_base; then
+        echo "Error: the emulated WAN is not in place on every host (see logs/wan_check.txt there); removing it." >&2
+        each_host clear_netem || true
+        exit 4
+    fi
+fi
+each_host record_netem_start || echo "Warning: netem state could not be recorded on some hosts." >&2
 
 echo "== Starting learning agents"
 PROCS_STARTED=1

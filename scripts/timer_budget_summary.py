@@ -21,6 +21,10 @@ and over the replicas only (the leader arms no progress timer):
 Each column gives p50 / p99 / p99.9 / max in ms. "g1" rows are the first view of a
 generation (counter 1), which also carries the generation switch.
 
+On an emulated WAN (the run dir's hosts.json has a wan block, docs/multi-host.md) every row is
+also split by site: "leader site>node site", e.g. "far>near" for near replicas under a far
+leader. Logs written before the PROGRESS lines carried leader= show "?" for the leader site.
+
 The last lines apply the timer rule over all runs given: timeout = round up to
 --round ms of --factor x the p99.9 need. Pass only runs whose timers were long
 enough not to evict anyone, or the needs are cut off at the old timeout.
@@ -29,14 +33,16 @@ enough not to evict anyone, or the needs are cut off at the old timeout.
 import argparse
 import collections
 import glob
+import json
 import math
 import os
 import re
 
-NV = re.compile(r"PROGRESS NV: view \((\d+),(\d+)\) role=(\w+) action=(\w+) nv_timer_to_install_ms=(-?[\d.]+) "
-                r"quorum_to_install_ms=(-?[\d.]+)")
-VIEW = re.compile(r"PROGRESS VIEW: view \((\d+),(\d+)\) role=(\w+) action=(\w+) first_exec_ms=(-?[\d.]+) "
-                  r"max_gap_ms=([\d.]+) slots=(\d+)")
+# leader= is optional: older logs do not have it.
+NV = re.compile(r"PROGRESS NV: view \((\d+),(\d+)\) role=(\w+)(?: leader=(\d+))? action=(\w+) "
+                r"nv_timer_to_install_ms=(-?[\d.]+) quorum_to_install_ms=(-?[\d.]+)")
+VIEW = re.compile(r"PROGRESS VIEW: view \((\d+),(\d+)\) role=(\w+)(?: leader=(\d+))? action=(\w+) "
+                  r"first_exec_ms=(-?[\d.]+) max_gap_ms=([\d.]+) slots=(\d+)")
 EXPIRY = {"progress": "Leader progress timer expired", "new_view": "New view timer expired"}
 
 
@@ -51,14 +57,36 @@ def stats(xs):
     return f"{pct(xs, .5):6.1f} {pct(xs, .99):6.1f} {pct(xs, .999):6.1f} {max(xs):6.1f}"
 
 
+def node_sites(run):
+    """node id -> site name from the run's hosts.json wan block, or None without one."""
+    try:
+        wan = json.load(open(os.path.join(run, "hosts.json"))).get("wan")
+    except (OSError, ValueError):
+        return None
+    if not wan:
+        return None
+    return {int(i): site for site, members in wan.get("sites", {}).items() for i in members.get("nodes", [])}
+
+
 def load(run):
-    nv = collections.defaultdict(list)      # (action, first-of-gen) -> ms
-    quorum = collections.defaultdict(list)  # same, replicas' quorum to install
+    # keys: (action, first-of-gen, sites), sites = "leader site>node site" on a WAN, else ""
+    nv = collections.defaultdict(list)      # new-view timer start to install, every role
+    quorum = collections.defaultdict(list)  # replicas' quorum to install
     prog = collections.defaultdict(lambda: {"first": [], "gap": [], "prog": []})
     expiries = collections.Counter()
+    sites = node_sites(run)
+
+    def key(view_ctr, action, leader, me):
+        where = ""
+        if sites is not None:
+            where = f"{sites.get(int(leader), '?') if leader else '?'}>{sites.get(me, '?')}"
+        return (action, view_ctr == "1", where)
+
     for path in glob.glob(os.path.join(run, "node_*.log")):
-        if not re.search(r"node_\d+\.log$", path):
+        m = re.search(r"node_(\d+)\.log$", path)
+        if not m:
             continue
+        me = int(m.group(1))
         for line in open(path, errors="ignore"):
             if "PROGRESS" not in line:
                 for kind, text in EXPIRY.items():
@@ -67,16 +95,16 @@ def load(run):
                 continue
             m = NV.search(line)
             if m:
-                key = (m.group(4), m.group(2) == "1")
-                if float(m.group(5)) >= 0:
-                    nv[key].append(float(m.group(5)))
-                if m.group(3) == "replica" and float(m.group(6)) >= 0:
-                    quorum[key].append(float(m.group(6)))
+                k = key(m.group(2), m.group(5), m.group(4), me)
+                if float(m.group(6)) >= 0:
+                    nv[k].append(float(m.group(6)))
+                if m.group(3) == "replica" and float(m.group(7)) >= 0:
+                    quorum[k].append(float(m.group(7)))
                 continue
             m = VIEW.search(line)
-            if m and m.group(3) == "replica" and int(m.group(7)) > 0:
-                first, gap = float(m.group(5)), float(m.group(6))
-                d = prog[(m.group(4), m.group(2) == "1")]
+            if m and m.group(3) == "replica" and int(m.group(8)) > 0:
+                first, gap = float(m.group(6)), float(m.group(7))
+                d = prog[key(m.group(2), m.group(5), m.group(4), me)]
                 d["first"].append(first)
                 d["gap"].append(gap)
                 d["prog"].append(max(first, gap))
@@ -92,14 +120,15 @@ def main():
 
     all_nv, all_prog = [], []
     hdr = "p50    p99  p99.9    max"
-    print(f"{'run':26s} {'action':22s} {'view':4s} {'n':>5s}  nv: {hdr}   quorum: {hdr}   first: {hdr}   gap: {hdr}   prog: {hdr}")
+    print(f"{'run':26s} {'action':22s} {'view':4s} {'sites':9s} {'n':>5s}  nv: {hdr}   quorum: {hdr}   first: {hdr}   "
+          f"gap: {hdr}   prog: {hdr}")
     for run in sorted(a.runs):
         nv, quorum, prog, expiries = load(run)
         name = os.path.basename(run.rstrip("/"))
         for key in sorted(set(nv) | set(quorum) | set(prog)):
-            action, g1 = key
+            action, g1, where = key
             p = prog.get(key, {"first": [], "gap": [], "prog": []})
-            print(f"{name:26s} {action:22s} {'g1' if g1 else 'rest':4s} {len(p['prog']):5d}  "
+            print(f"{name:26s} {action:22s} {'g1' if g1 else 'rest':4s} {where:9s} {len(p['prog']):5d}  "
                   f"nv: {stats(nv.get(key, []))}   quorum: {stats(quorum.get(key, []))}   first: {stats(p['first'])}   "
                   f"gap: {stats(p['gap'])}   "
                   f"prog: {stats(p['prog'])}")

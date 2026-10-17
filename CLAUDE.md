@@ -385,10 +385,11 @@ key missing there is missing from every experiment built afterwards.
   like `nodes_dead`, **exactly f** of them, node 4 allowed since a slow leader is still
   live (`validateScenarioProposalDelayNodes`).
   NetworkDelay has node 4 run
-  `sudo -n scripts/netem_scenario.sh up 170 <n>` from a worker goroutine (`down` on
-  every switch and on `Stop`) — in `-m remote` **every** node instead runs
-  `scripts/netem_egress.sh up 170 <peer ips>` on its own egress (`ownsScenarioNetem`),
-  which delays each directed pair once, as on lo; NetworkDelayFCrash applies the same delay and sets `dead`
+  `sudo -n scripts/netem_scenario.sh up <d> <n>` from a worker goroutine (`down` on
+  every switch and on `Stop`; d = `scenario_network_delay_ms`, default 170) — in
+  `-m remote` **every** node instead runs `scripts/netem_egress.sh up <d> <peer ips>` on
+  its own egress (`ownsScenarioNetem`), which delays each directed pair once, as on lo,
+  and on an emulated WAN adds d on top of each pair's base delay; NetworkDelayFCrash applies the same delay and sets `dead`
   on every `nodes_dead` node (**exactly f** of them, never node 4 — validated in
   `validateScenarioDeadNodes` in `config.go`, tested in `config/config_test.go`; both
   validators share `exactlyFNodes`). Each set is checked only if its scenario is in
@@ -521,10 +522,19 @@ key missing there is missing from every experiment built afterwards.
   cluster; `--tune-tcp-lan` matches the LAN to lo's ~640 KiB first flight so lo results
   reproduce, `--tune-tcp-wan` is BBR/fq/big buffers for long links), `start.sh` / `stop.sh` / `run_experiments.sh <hosts.json> ...`
   (the counterparts of `alt_run_project.sh`, `stop_experiment.sh`, `run_experiments.sh`),
-  run from the control machine over ssh; `cloudlab/profile.py` makes the cluster. Each run
-  records every host's TCP/NIC counters at start and stop and the PBFT sockets' `ss -tin`;
-  `scripts/tcp_counters_summary.py results/<run>` gives retransmissions, RTO timeouts and
-  drops per host. See `docs/multi-host.md`.
+  run from the control machine over ssh; `cloudlab/profile.py` makes the cluster
+  (`clientCount` client machines). Each run records every host's TCP/NIC counters at start
+  and stop and the PBFT sockets' `ss -tin`; `scripts/tcp_counters_summary.py results/<run>`
+  gives retransmissions, RTO timeouts and drops per host. See `docs/multi-host.md`.
+- **Emulated WAN:** a `wan` block in the hosts file (sites with their nodes and clients, a
+  one-way delay per site pair; e.g. `hosts.cloudlab.wan_far67.json`: nodes 6, 7 far, 24 ms)
+  makes `start.sh` run `netem_egress.sh base` on every host before any process starts and
+  check it with pings (`logs/wan_check.txt`). `netem_egress.sh` keeps one tree per host (a
+  netem leaf per destination): `base` sets the permanent delays, the scenario's `up`/`down`
+  only change leaf delays to base + d / base, `clear` (stop.sh) removes it all.
+  `scripts/test_netem_egress.sh` checks it without root. `PROGRESS` lines carry `leader=`,
+  and `timer_budget_summary.py` splits by leader site > replica site when the run's
+  `hosts.json` has the block. Details: `docs/multi-host.md`, "Emulated WAN".
 - `docs/todo/` holds planned work not started yet, e.g. `vc-newview-size.md` (Phase 1
   leftovers, smaller checkpoint interval, BLS-aggregated prepares).
 - `docs/` holds the written-up analyses (view-change storms, NewView cost, netem

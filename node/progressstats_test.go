@@ -49,6 +49,16 @@ func TestProgressStatsNewViewTimerStart(t *testing.T) {
 	}
 }
 
+// The view's leader is recorded at install, for splitting the summary by leader site.
+func TestProgressStatsRecordsLeader(t *testing.T) {
+	n := &Node{NodeID: 3, cfg: &config.Config{}, log: logger.NewLogger(0, "progressstatstest")}
+	n.leaderId = 6
+	n.progressInstall(core.ViewID{Generation: 1, Counter: 6}, false)
+	if n.progress.leaderID != 6 {
+		t.Fatalf("leaderID %d, want 6", n.progress.leaderID)
+	}
+}
+
 // A view left without enterViewChange is closed by the next install, and the
 // next view starts from zero.
 func TestProgressStatsNextInstallClosesOpenView(t *testing.T) {

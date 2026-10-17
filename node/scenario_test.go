@@ -33,7 +33,7 @@ func TestScenarioForGeneration(t *testing.T) {
 
 func TestScenarioEffects(t *testing.T) {
 	down := netemCmd{up: false}
-	up := netemCmd{up: true, delayMs: scenarioNetworkDelayMS}
+	up := netemCmd{up: true, delayMs: 170}
 	delayNodes := map[int]bool{1: true, 2: false, 3: false, 4: false}
 	deadNodes := map[int]bool{1: false, 2: true, 3: false, 4: false}
 	cases := []struct {
@@ -58,7 +58,7 @@ func TestScenarioEffects(t *testing.T) {
 		{"f crash netem node", 4, core.ScenarioNetworkDelayFCrash, false, false, []netemCmd{down, up}},
 	}
 	for _, c := range cases {
-		gotDelay, gotDead, gotNetem := scenarioEffects(c.nodeID, ownsScenarioNetem(c.nodeID, config.NetworkModeLoopbackIP), delayNodes, deadNodes, c.next)
+		gotDelay, gotDead, gotNetem := scenarioEffects(c.nodeID, ownsScenarioNetem(c.nodeID, config.NetworkModeLoopbackIP), delayNodes, deadNodes, c.next, 170)
 		if gotDelay != c.wantDelay || gotDead != c.wantDead || !reflect.DeepEqual(gotNetem, c.wantNetem) {
 			t.Errorf("%s: got (%t, %t, %v), want (%t, %t, %v)", c.name, gotDelay, gotDead, gotNetem, c.wantDelay, c.wantDead, c.wantNetem)
 		}
@@ -71,15 +71,15 @@ func TestScenarioEffectsFNodes(t *testing.T) {
 	delayNodes := map[int]bool{1: true, 5: true} // n=7, f=2
 	deadNodes := map[int]bool{2: true, 3: true}  // n=7, f=2
 	for id := 1; id <= 7; id++ {
-		delay, dead, _ := scenarioEffects(id, false, delayNodes, deadNodes, core.ScenarioProposalDelay)
+		delay, dead, _ := scenarioEffects(id, false, delayNodes, deadNodes, core.ScenarioProposalDelay, 170)
 		if delay != delayNodes[id] || dead {
 			t.Errorf("ProposalDelay node %d: got delay=%t dead=%t, want delay=%t dead=false", id, delay, dead, delayNodes[id])
 		}
-		delay, dead, _ = scenarioEffects(id, false, delayNodes, deadNodes, core.ScenarioNetworkDelayFCrash)
+		delay, dead, _ = scenarioEffects(id, false, delayNodes, deadNodes, core.ScenarioNetworkDelayFCrash, 170)
 		if delay || dead != deadNodes[id] {
 			t.Errorf("NetworkDelayFCrash node %d: got delay=%t dead=%t, want delay=false dead=%t", id, delay, dead, deadNodes[id])
 		}
-		delay, dead, _ = scenarioEffects(id, false, delayNodes, deadNodes, core.ScenarioHealthy)
+		delay, dead, _ = scenarioEffects(id, false, delayNodes, deadNodes, core.ScenarioHealthy, 170)
 		if delay || dead {
 			t.Errorf("Healthy node %d: got delay=%t dead=%t, want both false", id, delay, dead)
 		}
@@ -96,8 +96,8 @@ func TestScenarioNetemOwnership(t *testing.T) {
 		if !ownsScenarioNetem(id, config.NetworkModeRemote) {
 			t.Errorf("remote node %d does not own netem", id)
 		}
-		_, _, cmds := scenarioEffects(id, ownsScenarioNetem(id, config.NetworkModeRemote), nil, nil, core.ScenarioNetworkDelay)
-		want := []netemCmd{{up: false}, {up: true, delayMs: scenarioNetworkDelayMS}}
+		_, _, cmds := scenarioEffects(id, ownsScenarioNetem(id, config.NetworkModeRemote), nil, nil, core.ScenarioNetworkDelay, 170)
+		want := []netemCmd{{up: false}, {up: true, delayMs: 170}}
 		if !reflect.DeepEqual(cmds, want) {
 			t.Errorf("remote node %d NetworkDelay cmds = %v, want %v", id, cmds, want)
 		}
@@ -133,5 +133,17 @@ func TestNetemArgs(t *testing.T) {
 	}
 	if _, err := peerIPs(1, map[int]string{1: "10.10.1.1:28100", 3: "10.10.1.3:28300"}); err == nil {
 		t.Error("peerIPs with node 2 missing: no error")
+	}
+}
+
+// The network-delay scenarios use the configured delay (scenario_network_delay_ms),
+// not a fixed one; on an emulated WAN it is the extra on top of the base delays.
+func TestScenarioEffectsUseConfiguredDelay(t *testing.T) {
+	for _, next := range []core.Scenario{core.ScenarioNetworkDelay, core.ScenarioNetworkDelayFCrash} {
+		_, _, cmds := scenarioEffects(6, true, nil, nil, next, 124)
+		want := []netemCmd{{up: false}, {up: true, delayMs: 124}}
+		if !reflect.DeepEqual(cmds, want) {
+			t.Errorf("%s: cmds = %v, want %v", core.ScenarioToString(next), cmds, want)
+		}
 	}
 }

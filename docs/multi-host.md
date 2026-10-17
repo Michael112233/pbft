@@ -46,19 +46,63 @@ results directory.
 ### Network delay on separate hosts
 
 On `lo`, every node-to-node packet crosses one qdisc, and node 4 owns it. On a cluster,
-each node instead installs the same prio + netem layout on its own egress device, with a
-flower filter for each peer node's IP (`scripts/netem_egress.sh`, device found with
-`ip route get`):
+each node instead delays its own egress (`scripts/netem_egress.sh`, device found with
+`ip route get`): a root prio qdisc with one band, netem leaf and flower `dst_ip` filter per
+destination host; unmatched traffic goes undelayed through band 1.
 - A→B is delayed at A and B→A at B, so each directed pair is delayed once, as on `lo`
-  (170 ms one way, 340 ms RTT).
-- Client traffic is never delayed, because the client isn't a peer.
+  (`scenario_network_delay_ms`, default 170 ms one way, 340 ms RTT).
+- Client traffic gets no scenario delay, because the client isn't a peer.
 - Agent traffic stays on the host's `lo`, so it isn't delayed either.
 
 The only difference is timing: each node applies the delay at its own scenario switch,
 within one view change of the others, instead of node 4 doing it for everyone. The
-nodes run the script with `sudo -n` (CloudLab accounts have passwordless sudo).
-`stop.sh` removes the qdisc on every host, because killing the tmux session doesn't run
-the node's own teardown.
+nodes run the script with `sudo -n` (CloudLab accounts have passwordless sudo). The tree
+is built once; a scenario switch only changes leaf delays (`tc qdisc change`), which keeps
+the packets netem is holding. `stop.sh` removes the qdisc on every host (`clear`), because
+killing the tmux session doesn't run the node's own teardown.
+
+### Emulated WAN on the LAN cluster
+
+A hosts file can add a permanent per-pair delay on top of which the scenario delay is
+applied. The `wan` block puts every node and client in a site and gives a one-way delay per
+site pair:
+
+```json
+"wan": {
+  "sites": {"near": {"nodes": [1, 2, 3, 4, 5], "clients": [1]}, "far": {"nodes": [6, 7]}},
+  "one_way_ms": {"near-far": 24}
+}
+```
+
+- **Where it lives:** in the hosts file, like the IPs: it is deployment, so the same experiment
+  config runs on the LAN or the WAN by picking a hosts file, and each results dir keeps
+  `hosts.json`. Go ignores the block. Two ready-made files: `hosts.cloudlab.wan_far67.json`
+  (nodes 6, 7 far, the client near) and `hosts.cloudlab.wan_far67_2c.json` (the same plus a
+  second client, far, on its own machine: profile `clientCount` 2, config `client_num` 2).
+- **What `start.sh` does with it:** after pushing the bundle and before any process starts,
+  every active host runs `netem_egress.sh base <ip>=<ms> ...` for every other host (the delay
+  between their sites, 0 within a site). Each host then pings every other host into
+  `logs/wan_check.txt`; a far pair under 2d − 2 ms of RTT, a near pair over 5 ms, or no reply
+  fails the start (exit 4) and the base is removed again. `logs/netem_state_{start,end}.txt`
+  record `tc -s qdisc` (with netem drops) and `tc filter` per host.
+- **How the scenario delay composes:** `netem_egress.sh up X <peers>` sets each listed peer's
+  leaf to its base + X and everything else to its base; `down` puts every leaf back to its base
+  (with no base it removes the qdisc, as on a plain LAN); `clear` (stop.sh, and start.sh's
+  leftover cleanup) removes the qdisc and the base. So a NetworkDelay of X on the 5+2 WAN gives
+  near↔near X and near↔far 24 + X, clients only their base.
+- **State:** `logs/netem_egress_state.txt` (destination, band, base, current delay) and
+  `logs/netem_base.txt`; every change is logged to `logs/netem_schedule.log` with per-destination
+  delays. `scripts/test_netem_egress.sh` checks the commands without root (`NETEM_DRY_RUN=1`).
+- **Limit:** prio has 16 bands, so 15 destinations per host; n = 7 with 2 clients needs 8. Past
+  that, HTB classes instead of prio bands.
+- **Not modelled:** bandwidth limits and jitter. Both can go on the same leaves later (`rate`;
+  `delay 24ms 2ms`, which reorders unless a rate is set).
+
+Other ways to emulate a WAN, not used: IFB ingress for the base and egress for the scenario
+(two independent trees, but more moving parts and each pair's delay split between two hosts),
+netem stacked under netem (not reliably supported), and real CloudLab sites over a stitched
+link (real RTT and bandwidth, but d is fixed by the sites and the link is shared,
+`docs/cloudlab-stitched-link-bw-latency.md`).
 
 `nodes_dead`, ProposalDelay and Throttle are in-process and don't depend on where the
 nodes run.

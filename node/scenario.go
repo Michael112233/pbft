@@ -20,9 +20,8 @@ const (
 	// may touch the shared qdisc on lo, and it is the one node NetworkDelayFCrash
 	// is forbidden from crashing, so the delay never outlives the scenario. In
 	// remote mode every node owns its own egress instead (ownsScenarioNetem).
-	scenarioNetemNodeID    = config.EpochAggregatorNodeID
-	scenarioNetworkDelayMS = 170 //match it with alt_run_project
-	scenarioNetemScript    = "scripts/netem_scenario.sh"
+	scenarioNetemNodeID = config.EpochAggregatorNodeID
+	scenarioNetemScript = "scripts/netem_scenario.sh"
 	// Remote mode: delays this host's egress to every peer node's IP.
 	scenarioEgressNetemScript = "scripts/netem_egress.sh"
 	netemCommandTimeout       = 15 * time.Second
@@ -62,14 +61,16 @@ func ownsScenarioNetem(nodeID int, networkMode string) bool {
 
 // scenarioEffects says what nodeID must run to enter next. Everything is turned
 // off first (both off-paths are idempotent), then only next's fault is enabled.
-func scenarioEffects(nodeID int, ownsNetem bool, delayNodes, deadNodes map[int]bool, next core.Scenario) (proposalDelay, dead bool, netem []netemCmd) {
+// netDelayMs is the network-delay scenarios' one-way delay
+// (scenario_network_delay_ms).
+func scenarioEffects(nodeID int, ownsNetem bool, delayNodes, deadNodes map[int]bool, next core.Scenario, netDelayMs int) (proposalDelay, dead bool, netem []netemCmd) {
 	// set to zero once scenario switch
 	proposalDelay = next == core.ScenarioProposalDelay && delayNodes[nodeID]
 	dead = next == core.ScenarioNetworkDelayFCrash && deadNodes[nodeID]
 	if ownsNetem {
 		netem = append(netem, netemCmd{up: false})
 		if next == core.ScenarioNetworkDelay || next == core.ScenarioNetworkDelayFCrash {
-			netem = append(netem, netemCmd{up: true, delayMs: scenarioNetworkDelayMS})
+			netem = append(netem, netemCmd{up: true, delayMs: netDelayMs})
 		}
 	}
 	return proposalDelay, dead, netem
@@ -88,7 +89,7 @@ func (n *Node) maybeSwitchScenario(gen uint64) {
 		// already applied, nothing to do
 		return
 	}
-	proposalDelay, dead, cmds := scenarioEffects(n.GetNodeID(), ownsScenarioNetem(n.GetNodeID(), config.NetworkMode), n.cfg.ProposalDelayNodes, n.cfg.NodesDead, next)
+	proposalDelay, dead, cmds := scenarioEffects(n.GetNodeID(), ownsScenarioNetem(n.GetNodeID(), config.NetworkMode), n.cfg.ProposalDelayNodes, n.cfg.NodesDead, next, n.cfg.ScenarioNetworkDelay())
 	n.SetProposalDelay(proposalDelay)
 	n.SetDead(dead)
 	n.clearThrottleGateOnScenarioSwitch(next)

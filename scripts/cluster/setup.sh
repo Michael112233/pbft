@@ -9,9 +9,10 @@
 # On every host, in parallel:
 #   - ssh works, sudo -n works, the hosts-file IP is on this machine, NTP is synced
 #   - tmux, rsync and pip are installed (apt-get if missing)
-#   - node hosts: the agent's Python packages (requirements.txt) and the netem/prio/flower
-#     kernel modules netem_egress.sh needs; RTT to every peer (ping), and from each
-#     client to every node
+#   - every host: the netem/prio/flower kernel modules netem_egress.sh needs (nodes for
+#     NetworkDelay, every host for an emulated WAN)
+#   - node hosts: the agent's Python packages (requirements.txt), and RTT to every peer (ping);
+#     client hosts: RTT to every node
 #   - the performance governor on every CPU, required (cpu_check.sh --fix; the previous one is saved
 #     to /tmp/prev_governor), then the CPU baseline (scripts/cpu_check.sh, see the
 #     cpu-baseline skill)
@@ -86,6 +87,14 @@ if [[ -n \"\$missing\" ]]; then
     sudo -n apt-get update -qq
     sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux rsync python3-pip >/dev/null
 fi
+# netem_egress.sh runs on every host: nodes for NetworkDelay, every host for an emulated WAN.
+load_modules() { sudo -n modprobe sch_prio && sudo -n modprobe sch_netem && sudo -n modprobe cls_flower; }
+if ! load_modules 2>/dev/null; then
+    echo 'netem modules missing; installing linux-modules-extra'
+    sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \"linux-modules-extra-\$(uname -r)\" >/dev/null
+    load_modules
+fi
+echo 'netem, prio and flower modules load'
 "
 
     if [[ "$kind" == node ]]; then
@@ -98,13 +107,6 @@ else
     python3 -m pip install --user -q -r requirements.txt
     python3 -c 'import grpc, google.protobuf, numpy, sklearn'
 fi
-load_modules() { sudo -n modprobe sch_prio && sudo -n modprobe sch_netem && sudo -n modprobe cls_flower; }
-if ! load_modules 2>/dev/null; then
-    echo 'netem modules missing; installing linux-modules-extra'
-    sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \"linux-modules-extra-\$(uname -r)\" >/dev/null
-    load_modules
-fi
-echo 'netem, prio and flower modules load'
 for p in $peers; do
     echo \"rtt to \$p: \$(ping -c 20 -i 0.2 -q \$p | tail -1)\"
 done
