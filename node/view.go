@@ -546,6 +546,10 @@ func (n *Node) newview() {
 	n.progressInstall(view, true)
 	n.resetPendingForNewView(O)
 	n.leaderSince = time.Now() // for logging
+	// The new leader announces itself to the clients too, as every replica does
+	// when it installs the view, so the client's f+1 quorum need not wait for
+	// replicas far from it.
+	go n.sendLeaderIdUpdate(n.GetNodeID(), view, n.GetCurrAction())
 }
 
 // buildPrepareMsgsForNewView pre-computes and signs the Prepare message for

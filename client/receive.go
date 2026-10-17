@@ -37,8 +37,14 @@ func (c *Client) HandleLeaderUpdate(data core.LeaderIdUpdate) {
 	oldLeader := c.leaderAddr
 	observed := false
 	var observedAt time.Time
-	// leader doesnt send update wait for rest of 2f
-	if c.newLeaderQuorum[leaderUpdate] == 2*c.fNodes {
+	// f+1 matching notices: at most f nodes are faulty, so at least one correct
+	// node installed this view with this leader. Every replica and the new leader
+	// itself send one at install (node/view.go), so a quorum of f+1 forms without
+	// waiting for replicas far from the client.
+	// TODO(byzantine): count distinct senders (data.From), and authenticate the
+	// notice (it is sent unsigned); counting messages lets one node reach the
+	// quorum alone.
+	if c.newLeaderQuorum[leaderUpdate] == c.fNodes+1 {
 		c.leaderAddr = config.NodeAddr[data.NewLeaderId]
 		c.leaderChangedAt = time.Now()
 		c.currentView = data.View

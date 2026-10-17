@@ -301,7 +301,11 @@ Transport is gRPC bidirectional streams (`proto/pbft_transport.proto`,
 one reply stream **per client name** (`clientStreams`, `node/nodeMessageHub.go`), taken
 from the `pbft-client-name` stream metadata (none = `"client"`): CommitTps goes only to
 the request's `ClientName` (clients match replies by id alone and all number from 0),
-LeaderIdUpdate to every client. ViewChanges are large: about 600 KiB at 290 certs and
+LeaderIdUpdate to every client. A client switches leader on **f+1** matching
+LeaderIdUpdates for one (view, leader, action) (`client/receive.go`); every replica and the
+new leader itself send one at install, so on a WAN the quorum need not wait for replicas far
+from the client (`TODO(byzantine)`: it counts messages, not distinct senders, and the
+notices are unsigned). ViewChanges are large: about 600 KiB at 290 certs and
 batch 50, n=7. Most of that is the per-txn digest lists. ViewChanges dominate
 view-change latency. A NewView is about 514 KiB, mostly the O-set's per-txn lists,
 because it names ViewChanges by digest instead of carrying them.
@@ -411,7 +415,7 @@ key missing there is missing from every experiment built afterwards.
   slots on leaving, and takes its strategy from the notice's leader policy
   (RoundRobin → `roundrobin`, otherwise `election`), switching in place when the agent
   changes policy. `LeaderIdUpdate` carries the generation's `Action` for this, and it is
-  part of the client's 2f quorum key. In scenario mode `throttle.enabled` is rejected
+  part of the client's f+1 quorum key. In scenario mode `throttle.enabled` is rejected
   (list `Throttle` instead) and `throttle.strategy` is ignored; Throttle needs
   `proposal_min_interval_ms > 0`, and runs with the learning agent or the oracle.
   Requires `epoch_mode`; incompatible with `netem.enabled` and with the script's
@@ -572,8 +576,9 @@ key missing there is missing from every experiment built afterwards.
   `NetworkDelayFCrash` refuses to crash it. All are experiment scaffolding, not protocol.
 - **Node 1 leads the genesis view and no leader update is sent for it.** The
   genesis view is `(1,1)` and `primaryForView(1) == 1`, reached with no view
-  change. `sendLeaderIdUpdate` has a single call site, in the NewView install path
-  (`node/view.go`), so the client gets **no** `LeaderIdUpdate` for the genesis
+  change. `sendLeaderIdUpdate` is called only when a view is installed through a NewView
+  (by every replica in `HandleNewView` and by the new leader in `newview()`,
+  `node/view.go`), so the client gets **no** `LeaderIdUpdate` for the genesis
   tenure — and it initialises `currentView = {1,1}` and drops any update
   `LessThanOrEqual` to that anyway (`client/receive.go`). Consequences: the first
   row of `logs/leader_timeline.jsonl` is the leader of view `(1,2)`, not node 1;
